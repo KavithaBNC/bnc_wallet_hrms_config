@@ -1297,10 +1297,10 @@ export default function EmployeesPage() {
               ) : (
                 employees.map((emp) => (
                   <tr key={emp.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className="text-sm font-medium text-gray-900">{emp.employeeCode}</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-left">
                         <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
                           {emp.profilePictureUrl ? (
@@ -1348,25 +1348,25 @@ export default function EmployeesPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className="text-sm text-gray-900">{emp.email}</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className="text-sm text-gray-900">{emp.phone || '-'}</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className="text-sm text-gray-900">{emp.position?.title || '-'}</span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-left">
                       {new Date(emp.dateOfJoining).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap text-left">
                       <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(emp.employeeStatus)}`}>
                         {emp.employeeStatus === 'ACTIVE' ? 'Active' : emp.employeeStatus.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center justify-end gap-3">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-left">
+                      <div className="flex items-center gap-3">
                         {canUpdate && (
                           <button
                             onClick={() => handleEdit(emp)}
