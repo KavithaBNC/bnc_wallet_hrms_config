@@ -4,6 +4,7 @@ import { useEmployeeStore } from '../store/employeeStore';
 import { useAuthStore } from '../store/authStore';
 import { Employee } from '../services/employee.service';
 import employeeService from '../services/employee.service';
+import positionService from '../services/position.service';
 import api from '../services/api';
 import Modal from '../components/common/Modal';
 import EmployeeForm from '../components/employees/EmployeeForm';
@@ -36,6 +37,16 @@ export default function EmployeesPage() {
   const [showNewPassword, setShowNewPassword] = useState<string | null>(null);
   const [changingRole, setChangingRole] = useState<string | null>(null);
   const [roleChangeModal, setRoleChangeModal] = useState<{ employeeId: string; email: string; name: string; currentRole: string } | null>(null);
+  const [employeeStats, setEmployeeStats] = useState({ total: 0, active: 0, inactive: 0, newJoiners: 0 });
+  const [sortBy, setSortBy] = useState<string>('LAST_7_DAYS');
+  const [designationFilter, setDesignationFilter] = useState<string>('ALL');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  const [sortByField, setSortByField] = useState<'employeeCode' | 'firstName' | 'lastName' | 'dateOfJoining' | 'createdAt'>('dateOfJoining');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [pageSize, setPageSize] = useState(20);
+  const [positions, setPositions] = useState<Array<{ id: string; title: string }>>([]);
+  const [loadingPositions, setLoadingPositions] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Get organizationId from logged-in user (check both possible shapes)
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
@@ -69,20 +80,75 @@ export default function EmployeesPage() {
   const canDelete = canDeleteEmployee(user?.role);
   const canManageCredentials = user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER';
 
+  // Fetch employee statistics
+  useEffect(() => {
+    if (!organizationId) return;
+    const fetchStats = async () => {
+      try {
+        const stats = await employeeService.getStatistics(organizationId);
+        const byStatus = stats.employeesByStatus || [];
+
+        // Calculate active and inactive counts from employeesByStatus
+        const activeCount =
+          byStatus.reduce((sum: number, s: any) => {
+            return s.employeeStatus === 'ACTIVE' ? sum + (s._count || 0) : sum;
+          }, 0) || 0;
+
+        const inactiveCount =
+          byStatus.reduce((sum: number, s: any) => {
+            return s.employeeStatus !== 'ACTIVE' ? sum + (s._count || 0) : sum;
+          }, 0) || 0;
+
+        const totalFromStatus =
+          byStatus.reduce((sum: number, s: any) => sum + (s._count || 0), 0) || 0;
+
+        setEmployeeStats({
+          total: stats.totalEmployees || totalFromStatus,
+          active: stats.activeEmployees || activeCount,
+          inactive: inactiveCount,
+          newJoiners: stats.recentHires || 0,
+        });
+      } catch (error) {
+        console.error('Failed to fetch employee statistics:', error);
+      }
+    };
+    fetchStats();
+  }, [organizationId]);
+
+  // Load positions for designation dropdown
+  useEffect(() => {
+    if (!organizationId) return;
+    const loadPositions = async () => {
+      setLoadingPositions(true);
+      try {
+        const res = await positionService.getAll({ organizationId, page: 1, limit: 500 });
+        setPositions(res.positions || []);
+      } catch (e) {
+        console.error('Failed to load positions:', e);
+      } finally {
+        setLoadingPositions(false);
+      }
+    };
+    loadPositions();
+  }, [organizationId]);
+
   // Defer department fetch until form is opened (EmployeeForm fetches on mount when modal opens)
   useEffect(() => {
     if (!organizationId) return;
     const params: any = {
       organizationId,
       page: currentPage,
-      limit: 20,
+      limit: pageSize,
       listView: true,
+      sortBy: sortByField,
+      sortOrder,
     };
     if (searchTerm) params.search = searchTerm;
     if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+    if (designationFilter !== 'ALL') params.positionId = designationFilter;
     fetchEmployees(params);
-  }, [organizationId, currentPage, searchTerm, statusFilter, departmentFilter, fetchEmployees]);
+  }, [organizationId, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, designationFilter, sortByField, sortOrder, fetchEmployees]);
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this employee? This will also deactivate their user account.')) {
@@ -113,12 +179,15 @@ export default function EmployeesPage() {
     const params: any = {
       organizationId,
       page: currentPage,
-      limit: 20,
+      limit: pageSize,
       listView: true,
+      sortBy: sortByField,
+      sortOrder,
     };
     if (searchTerm) params.search = searchTerm;
     if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+    if (designationFilter !== 'ALL') params.positionId = designationFilter;
     fetchEmployees(params);
   };
 
@@ -134,6 +203,143 @@ export default function EmployeesPage() {
     setSelectedPaygroupName(paygroupName);
     setShowPaygroupModal(false);
     setShowForm(true);
+  };
+
+  // Export current employees list as CSV (Excel-compatible)
+  const handleExportExcel = () => {
+    if (!employees || employees.length === 0) {
+      alert('No employees to export.');
+      return;
+    }
+
+    const headers = ['Emp ID', 'Name', 'Email', 'Phone', 'Designation', 'Joining Date', 'Status'];
+
+    const formatDate = (dateString?: string | null) => {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    };
+
+    const rows = employees.map((emp) => [
+      emp.employeeCode || '',
+      `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+      emp.email || '',
+      emp.phone || '',
+      emp.position?.title || '',
+      formatDate((emp as any).dateOfJoining),
+      (emp as any).employeeStatus || '',
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => {
+            const safe = String(value ?? '').replace(/"/g, '""');
+            return `"${safe}"`;
+          })
+          .join(',')
+      )
+      .join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `employees_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Basic PDF export: open a printable view and let browser "Save as PDF"
+  const handleExportPdf = () => {
+    if (!employees || employees.length === 0) {
+      alert('No employees to export.');
+      return;
+    }
+
+    const formatDate = (dateString?: string | null) => {
+      if (!dateString) return '';
+      const date = new Date(dateString);
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    };
+
+    const rowsHtml = employees
+      .map((emp) => {
+        const code = emp.employeeCode || '';
+        const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+        const email = emp.email || '';
+        const phone = emp.phone || '';
+        const designation = emp.position?.title || '';
+        const joiningDate = formatDate((emp as any).dateOfJoining);
+        const status = (emp as any).employeeStatus || '';
+
+        return `<tr>
+          <td>${code}</td>
+          <td>${name}</td>
+          <td>${email}</td>
+          <td>${phone}</td>
+          <td>${designation}</td>
+          <td>${joiningDate}</td>
+          <td>${status}</td>
+        </tr>`;
+      })
+      .join('');
+
+    const html = `
+      <html>
+        <head>
+          <title>Employee Export</title>
+          <style>
+            body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ddd; padding: 8px; font-size: 12px; }
+            th { background: #f3f4f6; text-align: left; }
+          </style>
+        </head>
+        <body>
+          <h2>Employee List</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Emp ID</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Designation</th>
+                <th>Joining Date</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          <script>
+            window.onload = function () {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   };
 
   const handleLogout = async () => {
@@ -155,6 +361,27 @@ export default function EmployeesPage() {
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  // Generate avatar color based on employee name
+  const getAvatarColor = (name: string): { borderColor: string; gradientFrom: string; gradientTo: string } => {
+    const colors = [
+      { borderColor: '#a855f7', gradientFrom: '#a855f7', gradientTo: '#9333ea' }, // purple
+      { borderColor: '#60a5fa', gradientFrom: '#60a5fa', gradientTo: '#3b82f6' }, // blue
+      { borderColor: '#f97316', gradientFrom: '#f97316', gradientTo: '#ea580c' }, // orange
+      { borderColor: '#16a34a', gradientFrom: '#16a34a', gradientTo: '#15803d' }, // green
+      { borderColor: '#ef4444', gradientFrom: '#ef4444', gradientTo: '#dc2626' }, // red
+      { borderColor: '#ec4899', gradientFrom: '#ec4899', gradientTo: '#db2777' }, // pink
+      { borderColor: '#6366f1', gradientFrom: '#6366f1', gradientTo: '#4f46e5' }, // indigo
+      { borderColor: '#14b8a6', gradientFrom: '#14b8a6', gradientTo: '#0d9488' }, // teal
+    ];
+    const index = name.charCodeAt(0) % colors.length;
+    return colors[index];
+  };
+
+  // Handle employee card click - navigate to employee details
+  const handleEmployeeClick = (employee: Employee) => {
+    handleEdit(employee);
   };
 
   // Show error if no organizationId (after trying to load user data)
@@ -284,24 +511,112 @@ export default function EmployeesPage() {
 
       {/* Main Content */}
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page Title and Actions */}
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Manage and view all employees</h2>
+        {/* Single row: Title, Breadcrumb (with home icon), List/Grid toggle, Export, View Credentials, Add Employee */}
+        <div className="flex flex-nowrap items-center justify-between gap-3 mb-6 min-w-0">
+          <div className="flex items-center gap-4 flex-nowrap min-w-0">
+            <h1 className="text-2xl font-bold text-blue-900 whitespace-nowrap">Employee</h1>
+            <nav className="flex items-center gap-1.5 text-sm text-gray-500 whitespace-nowrap" aria-label="Breadcrumb">
+              <Link to="/dashboard" className="hover:text-gray-700 flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+              </Link>
+              <span>/</span>
+              <Link to="/dashboard" className="hover:text-gray-700">Employee</Link>
+              <span>/</span>
+              <span className="text-gray-700 font-medium">
+                {showCredentials ? 'Employee Credentials' : 'Employee List'}
+              </span>
+            </nav>
           </div>
-          {isOrgAdmin && (
-            <button
-              onClick={() => {
-                setShowCredentials(!showCredentials);
-                if (!showCredentials) {
-                  fetchCredentials();
-                }
-              }}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
-            >
-              {showCredentials ? '📋 View Employees' : '🔐 View Credentials'}
-            </button>
-          )}
+          <div className="flex items-center gap-2 flex-nowrap shrink-0">
+            {/* Layout Toggle - List (orange when selected) */}
+            <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-2 ${viewMode === 'list' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                title="List View"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-2 ${viewMode === 'grid' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                title="Grid View"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+              </button>
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu((open) => !open)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center gap-2 bg-white text-black"
+              >
+                <span>Export</span>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showExportMenu && (
+                <div className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      handleExportPdf();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                  >
+                    <span className="inline-flex w-4 h-4 items-center justify-center">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z" />
+                      </svg>
+                    </span>
+                    <span>Export as PDF</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowExportMenu(false);
+                      handleExportExcel();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 text-left"
+                  >
+                    <span className="inline-flex w-4 h-4 items-center justify-center">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4h16v16H4z" />
+                      </svg>
+                    </span>
+                    <span>Export as Excel</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            {isOrgAdmin && (
+              <button
+                onClick={() => {
+                  setShowCredentials(!showCredentials);
+                  if (!showCredentials) fetchCredentials();
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-black hover:bg-gray-50 font-medium"
+              >
+                {showCredentials ? 'View Employees' : 'View Credentials'}
+              </button>
+            )}
+            {canCreate && (
+              <button
+                onClick={handleCreate}
+                className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition font-medium flex items-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>Add Employee</span>
+              </button>
+            )}
+          </div>
         </div>
 
       {/* Employee Credentials View (ORG_ADMIN only) */}
@@ -599,75 +914,148 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* Filters Bar */}
+      {/* Filters */}
       {!showCredentials && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Search */}
-          <div className="md:col-span-2">
-            <input
-              type="text"
-              placeholder="Search by name, email, or employee code..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
+        <div className="mb-6">
+          {/* Filters Row */}
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Designation Filter */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Designation</label>
+                <select
+                  value={designationFilter}
+                  onChange={(e) => setDesignationFilter(e.target.value)}
+                  disabled={loadingPositions}
+                  className="w-full h-9 px-3 py-1 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black"
+                >
+                  <option value="ALL" className="text-black">All Designations</option>
+                  {positions.map((p) => (
+                    <option key={p.id} value={p.id} className="text-black">{p.title}</option>
+                  ))}
+                </select>
+              </div>
 
-          {/* Status Filter */}
-          <div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">All Status</option>
-              <option value="ACTIVE">Active</option>
-              <option value="ON_LEAVE">On Leave</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="TERMINATED">Terminated</option>
-              <option value="RESIGNED">Resigned</option>
-            </select>
-          </div>
+              {/* Status Filter */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Select Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full h-9 px-3 py-1 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black"
+                >
+                  <option value="ALL" className="text-black">All Status</option>
+                  <option value="ACTIVE" className="text-black">Active</option>
+                  <option value="ON_LEAVE" className="text-black">On Leave</option>
+                  <option value="SUSPENDED" className="text-black">Suspended</option>
+                  <option value="TERMINATED" className="text-black">Terminated</option>
+                  <option value="RESIGNED" className="text-black">Resigned</option>
+                </select>
+              </div>
 
-          {/* Create Button - RBAC Protected */}
-          {canCreate && (
-            <div>
-              <button
-                onClick={handleCreate}
-                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
-              >
-                + New Employee
-              </button>
+              {/* Sort By */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Sort By</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value);
+                    if (e.target.value === 'NAME_ASC') {
+                      setSortByField('firstName');
+                      setSortOrder('asc');
+                    } else if (e.target.value === 'NAME_DESC') {
+                      setSortByField('firstName');
+                      setSortOrder('desc');
+                    } else if (e.target.value === 'JOINING_DATE') {
+                      setSortByField('dateOfJoining');
+                      setSortOrder('desc');
+                    } else {
+                      setSortByField('dateOfJoining');
+                      setSortOrder('desc');
+                    }
+                  }}
+                  className="w-full h-9 px-3 py-1 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black"
+                >
+                  <option value="LAST_7_DAYS" className="text-black">Last 7 Days</option>
+                  <option value="LAST_30_DAYS" className="text-black">Last 30 Days</option>
+                  <option value="NAME_ASC" className="text-black">Name (A-Z)</option>
+                  <option value="NAME_DESC" className="text-black">Name (Z-A)</option>
+                  <option value="JOINING_DATE" className="text-black">Joining Date</option>
+                </select>
+              </div>
+
+              {/* Search */}
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">Search</label>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full h-9 px-3 py-1 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-black"
+                />
+              </div>
             </div>
-          )}
-        </div>
+          </div>
         </div>
       )}
 
       {/* Statistics Cards */}
       {!showCredentials && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600">Total Employees</div>
-            <div className="text-2xl font-bold text-gray-900">{pagination.total}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600">Active</div>
-            <div className="text-2xl font-bold text-green-600">
-              {employees.filter(e => e.employeeStatus === 'ACTIVE').length}
+          {/* Total Employee Card - Light grey background, icon near count */}
+          <div className="rounded-xl shadow-md p-6 flex items-center gap-4" style={{ backgroundColor: '#f1f5f9' }}>
+            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-sm text-gray-600 mb-0.5">Total Employee</p>
+              <p className="text-3xl font-bold text-blue-900">
+                {pagination && typeof pagination.total === 'number' && pagination.total > 0
+                  ? pagination.total
+                  : employeeStats.total}
+              </p>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600">On Leave</div>
-            <div className="text-2xl font-bold text-yellow-600">
-              {employees.filter(e => e.employeeStatus === 'ON_LEAVE').length}
+
+          {/* Active Card - White background, icon near count */}
+          <div className="bg-white rounded-xl shadow-md p-6 flex items-center gap-4">
+            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-green-500 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-sm text-gray-600 mb-0.5">Active</p>
+              <p className="text-3xl font-bold text-blue-900">{employeeStats.active}</p>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <div className="text-sm text-gray-600">Current Page</div>
-            <div className="text-2xl font-bold text-gray-900">
-              {pagination.page} / {pagination.totalPages}
+
+          {/* InActive Card - White background, icon near count */}
+          <div className="bg-white rounded-xl shadow-md p-6 flex items-center gap-4">
+            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-500 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-sm text-gray-600 mb-0.5">InActive</p>
+              <p className="text-3xl font-bold text-blue-900">{employeeStats.inactive}</p>
+            </div>
+          </div>
+
+          {/* New Joiners Card - White background, icon near count */}
+          <div className="bg-white rounded-xl shadow-md p-6 flex items-center gap-4">
+            <div className="flex-shrink-0 w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="text-sm text-gray-600 mb-0.5">New Joiners</p>
+              <p className="text-3xl font-bold text-blue-900">{employeeStats.newJoiners}</p>
             </div>
           </div>
         </div>
@@ -681,10 +1069,11 @@ export default function EmployeesPage() {
           <button
             onClick={() => {
               if (organizationId) {
-                const params: any = { organizationId, page: currentPage, limit: 20, listView: true };
+                const params: any = { organizationId, page: currentPage, limit: pageSize, listView: true, sortBy: sortByField, sortOrder };
                 if (searchTerm) params.search = searchTerm;
                 if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
                 if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+                if (designationFilter !== 'ALL') params.positionId = designationFilter;
                 fetchEmployees(params);
               }
             }}
@@ -727,39 +1116,179 @@ export default function EmployeesPage() {
         </div>
       )}
 
-      {/* Employee Table */}
+      {/* Employee Grid/List View */}
       {!showCredentials && !loading && !error && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
+          {/* Pagination Control - Row Per Page */}
+          <div className="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <span>Row Per Page</span>
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                className="px-2 py-1 border border-gray-300 rounded text-sm bg-white text-black"
+              >
+                <option value={10} className="text-black">10 Entries</option>
+                <option value={20} className="text-black">20 Entries</option>
+                <option value={50} className="text-black">50 Entries</option>
+                <option value={100} className="text-black">100 Entries</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Grid View */}
+          {viewMode === 'grid' ? (
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {employees.length === 0 ? (
+                  <div className="col-span-full text-center py-12 text-gray-500">
+                    {searchTerm || statusFilter !== 'ALL' || departmentFilter !== 'ALL'
+                      ? 'No employees found matching your filters'
+                      : 'No employees yet. Create your first employee!'}
+                  </div>
+                ) : (
+                  employees.map((emp) => {
+                    const avatarColor = getAvatarColor(emp.firstName + emp.lastName);
+                    return (
+                      <div
+                        key={emp.id}
+                        onClick={() => handleEmployeeClick(emp)}
+                        className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer border border-gray-200 p-6 relative"
+                      >
+                        {/* Vertical Ellipsis Menu */}
+                        <div className="absolute top-4 right-4">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(emp);
+                            }}
+                            className="p-1 text-gray-400 hover:text-gray-600"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                            </svg>
+                          </button>
+                        </div>
+
+                        {/* Profile Image with Avatar Fallback */}
+                        <div className="flex justify-center mb-4">
+                          {emp.profilePictureUrl ? (
+                            <div
+                              className="h-24 w-24 rounded-full border-4 overflow-hidden"
+                              style={{ borderColor: avatarColor.borderColor }}
+                            >
+                              <img
+                                className="h-full w-full object-cover"
+                                src={emp.profilePictureUrl}
+                                alt={`${emp.firstName} ${emp.lastName}`}
+                                onError={(e) => {
+                                  // Fallback to avatar if image fails to load
+                                  const target = e.target as HTMLImageElement;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = `
+                                      <div class="h-full w-full rounded-full flex items-center justify-center text-white text-2xl font-bold" style="background: linear-gradient(to bottom right, ${avatarColor.gradientFrom}, ${avatarColor.gradientTo});">
+                                        ${emp.firstName[0]}${emp.lastName[0]}
+                                      </div>
+                                    `;
+                                  }
+                                }}
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              className="h-24 w-24 rounded-full border-4 flex items-center justify-center text-white text-2xl font-bold"
+                              style={{
+                                borderColor: avatarColor.borderColor,
+                                background: `linear-gradient(to bottom right, ${avatarColor.gradientFrom}, ${avatarColor.gradientTo})`,
+                              }}
+                            >
+                              {emp.firstName[0]}{emp.lastName[0]}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Employee Name */}
+                        <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">
+                          {emp.firstName} {emp.lastName}
+                        </h3>
+
+                        {/* Designation Tag */}
+                        <div className="flex justify-center mb-4">
+                          <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                            emp.position?.title ? 'bg-pink-100 text-pink-800' : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {emp.position?.title || 'No Designation'}
+                          </span>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="flex justify-center mb-4">
+                          <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(emp.employeeStatus)}`}>
+                            {emp.employeeStatus === 'ACTIVE' ? 'Active' : emp.employeeStatus.replace('_', ' ')}
+                          </span>
+                        </div>
+
+                        {/* Employee Code */}
+                        <div className="text-center text-sm text-gray-500">
+                          {emp.employeeCode}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            /* List View - Table */
+            <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Employee
+                <th
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => { setSortByField('employeeCode'); setSortOrder(sortByField === 'employeeCode' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc'); }}
+                >
+                  <div className="flex items-center gap-1">
+                    Emp ID
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                  </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Code
+                <th
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => { setSortByField('firstName'); setSortOrder(sortByField === 'firstName' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc'); }}
+                >
+                  <div className="flex items-center gap-1">
+                    Name
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                  </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Department
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
+                <th
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => { setSortByField('dateOfJoining'); setSortOrder(sortByField === 'dateOfJoining' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc'); }}
+                >
+                  <div className="flex items-center gap-1">
+                    Joining Date
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                    </svg>
+                  </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Position
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Joined
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {employees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                     {searchTerm || statusFilter !== 'ALL' || departmentFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
@@ -769,73 +1298,105 @@ export default function EmployeesPage() {
                 employees.map((emp) => (
                   <tr key={emp.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
+                      <span className="text-sm font-medium text-gray-900">{emp.employeeCode}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
-                          <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-medium">
-                            {emp.firstName[0]}{emp.lastName[0]}
-                          </div>
+                          {emp.profilePictureUrl ? (
+                            <img
+                              className="h-10 w-10 rounded-full"
+                              src={emp.profilePictureUrl}
+                              alt={`${emp.firstName} ${emp.lastName}`}
+                              onError={(e) => {
+                                // Fallback to avatar if image fails to load
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  const avatarColor = getAvatarColor(emp.firstName + emp.lastName);
+                                  parent.innerHTML = `
+                                    <div class="h-10 w-10 rounded-full border-2 flex items-center justify-center text-white font-medium text-sm" style="border-color: ${avatarColor.borderColor}; background: linear-gradient(to bottom right, ${avatarColor.gradientFrom}, ${avatarColor.gradientTo});">
+                                      ${emp.firstName[0]}${emp.lastName[0]}
+                                    </div>
+                                  `;
+                                }
+                              }}
+                            />
+                          ) : (
+                            (() => {
+                              const avatarColor = getAvatarColor(emp.firstName + emp.lastName);
+                              return (
+                                <div
+                                  className="h-10 w-10 rounded-full border-2 flex items-center justify-center text-white font-medium text-sm"
+                                  style={{
+                                    borderColor: avatarColor.borderColor,
+                                    background: `linear-gradient(to bottom right, ${avatarColor.gradientFrom}, ${avatarColor.gradientTo})`,
+                                  }}
+                                >
+                                  {emp.firstName[0]}{emp.lastName[0]}
+                                </div>
+                              );
+                            })()
+                          )}
                         </div>
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">
                             {emp.firstName} {emp.lastName}
                           </div>
-                          <div className="text-sm text-gray-500">{emp.email}</div>
+                          <div className="text-xs text-gray-500">{emp.position?.title || 'N/A'}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-mono text-gray-900">{emp.employeeCode}</span>
+                      <span className="text-sm text-gray-900">{emp.email}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-gray-900">
-                        {emp.department?.name || '-'}
-                      </span>
+                      <span className="text-sm text-gray-900">{emp.phone || '-'}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm">
-                        <div className="text-gray-900">{emp.position?.title || '-'}</div>
-                        {emp.position?.level && (
-                          <div className="text-gray-500 text-xs">{emp.position.level}</div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(emp.employeeStatus)}`}>
-                        {emp.employeeStatus.replace('_', ' ')}
-                      </span>
+                      <span className="text-sm text-gray-900">{emp.position?.title || '-'}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(emp.dateOfJoining).toLocaleDateString()}
+                      {new Date(emp.dateOfJoining).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusBadgeColor(emp.employeeStatus)}`}>
+                        {emp.employeeStatus === 'ACTIVE' ? 'Active' : emp.employeeStatus.replace('_', ' ')}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleEdit(emp)}
-                        className="text-blue-600 hover:text-blue-900 mr-4"
-                      >
-                        View
-                      </button>
-                      {canUpdate && (
-                        <button
-                          onClick={() => handleEdit(emp)}
-                          className="text-indigo-600 hover:text-indigo-900 mr-4"
-                        >
-                          Edit
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => handleDelete(emp.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
-                      )}
+                      <div className="flex items-center justify-end gap-3">
+                        {canUpdate && (
+                          <button
+                            onClick={() => handleEdit(emp)}
+                            className="text-blue-600 hover:text-blue-900"
+                            title="Edit"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDelete(emp.id)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Delete"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
+          )}
 
           {/* Pagination */}
           {pagination.totalPages > 1 && (

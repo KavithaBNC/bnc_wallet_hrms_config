@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { useEmployeeStore } from '../../store/employeeStore';
 import { useDepartmentStore } from '../../store/departmentStore';
 import { usePositionStore } from '../../store/positionStore';
@@ -470,24 +472,88 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               {errors.gender && <p className="mt-1 text-sm text-red-600">{errors.gender}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Date Of Birth <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <input type="date" name="dateOfBirth" value={formData.dateOfBirth} onChange={handleChange}
-                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm pl-10 pr-3 ${errors.dateOfBirth ? 'border-red-500' : 'border-gray-300'}`} />
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+              <label className="block text-sm font-medium text-gray-700">
+                Date Of Birth <span className="text-red-500">*</span>
+              </label>
+              <div className="relative mt-1">
+                <DatePicker
+                  selected={formData.dateOfBirth ? new Date(formData.dateOfBirth) : null}
+                  onChange={(date: Date | null) => {
+                    const value = date ? date.toISOString().slice(0, 10) : '';
+                    setFormData((prev) => ({ ...prev, dateOfBirth: value }));
+                    if (errors.dateOfBirth) {
+                      setErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.dateOfBirth;
+                        return next;
+                      });
+                    }
+                  }}
+                  dateFormat="dd-MM-yyyy"
+                  placeholderText="Select date"
+                  className={`block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm pl-3 pr-10 ${
+                    errors.dateOfBirth ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  popperPlacement="bottom-start"
+                />
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                </div>
               </div>
               {errors.dateOfBirth && <p className="mt-1 text-sm text-red-600">{errors.dateOfBirth}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Date Of Joining <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <input type="date" name="joiningDate" value={formData.joiningDate} onChange={handleChange}
-                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm pl-10 pr-3 ${errors.joiningDate ? 'border-red-500' : 'border-gray-300'}`} />
-                <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
+              <label className="block text-sm font-medium text-gray-700">
+                Date Of Joining <span className="text-red-500">*</span>
+              </label>
+              <div className="relative mt-1">
+                <DatePicker
+                  selected={formData.joiningDate ? new Date(formData.joiningDate) : null}
+                  onChange={(date: Date | null) => {
+                    const value = date ? date.toISOString().slice(0, 10) : '';
+                    setFormData((prev) => ({ ...prev, joiningDate: value }));
+                    if (errors.joiningDate) {
+                      setErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.joiningDate;
+                        return next;
+                      });
+                    }
+                  }}
+                  dateFormat="dd-MM-yyyy"
+                  placeholderText="Select date"
+                  className={`block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm pl-3 pr-10 ${
+                    errors.joiningDate ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  popperPlacement="bottom-start"
+                />
+                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                </div>
               </div>
               {errors.joiningDate && <p className="mt-1 text-sm text-red-600">{errors.joiningDate}</p>}
             </div>
@@ -615,7 +681,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.firstName
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               />
               {errors.firstName && <p className="mt-1 text-sm text-red-600">{errors.firstName}</p>}
@@ -635,7 +701,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.lastName
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               />
               {errors.lastName && <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>}
@@ -657,7 +723,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.email
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               />
               {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
@@ -677,7 +743,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.phoneNumber
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               />
               {errors.phoneNumber && <p className="mt-1 text-sm text-red-600">{errors.phoneNumber}</p>}
@@ -700,7 +766,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm pl-10 pr-3 ${
                     errors.dateOfBirth
                       ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                      : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                   }`}
                 />
                 <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -723,7 +789,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.gender
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               >
                 <option value="">Select</option>
@@ -745,7 +811,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 name="maritalStatus"
                 value={formData.maritalStatus}
                 onChange={handleChange}
-                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Select</option>
                 <option value="SINGLE">Single</option>
@@ -775,7 +841,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.departmentId
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               >
                 <option value="">Select a department</option>
@@ -801,7 +867,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.positionId
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                    : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                 }`}
               >
                 <option value="">Select a position</option>
@@ -873,7 +939,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               name="employeeStatus"
               value={formData.employeeStatus}
               onChange={handleChange}
-              className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm max-w-xs"
+              className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm max-w-xs"
             >
               <option value="ACTIVE">Active</option>
               <option value="ON_LEAVE">On Leave</option>
@@ -902,7 +968,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="addressLine1"
                   value={formData.addressLine1}
                   onChange={handleChange}
-                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
 
@@ -916,7 +982,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="addressLine2"
                   value={formData.addressLine2}
                   onChange={handleChange}
-                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
 
@@ -931,7 +997,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     name="city"
                     value={formData.city}
                     onChange={handleChange}
-                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
 
@@ -945,7 +1011,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     name="state"
                     value={formData.state}
                     onChange={handleChange}
-                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
 
@@ -959,7 +1025,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     name="postalCode"
                     value={formData.postalCode}
                     onChange={handleChange}
-                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
               </div>
@@ -974,7 +1040,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="country"
                   value={formData.country}
                   onChange={handleChange}
-                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
             </div>
@@ -994,7 +1060,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="emergencyContactName"
                   value={formData.emergencyContactName}
                   onChange={handleChange}
-                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
 
@@ -1010,7 +1076,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     value={formData.emergencyContactRelationship}
                     onChange={handleChange}
                     placeholder="e.g., Spouse, Parent, Sibling"
-                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
 
@@ -1024,7 +1090,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     name="emergencyContactPhone"
                     value={formData.emergencyContactPhone}
                     onChange={handleChange}
-                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   />
                 </div>
               </div>
@@ -1047,7 +1113,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             <button
               type="button"
               onClick={handleBack}
-              className="px-4 py-2 border border-black rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Back
             </button>
@@ -1058,7 +1124,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             <button
               type="button"
               onClick={onCancel}
-              className="px-4 py-2 border border-black rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Cancel
             </button>
@@ -1116,7 +1182,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Temporary Password:</label>
-                <div className="flex items-center justify-between bg-white border border-black rounded px-3 py-2">
+                <div className="flex items-center justify-between bg-white border border-gray-300 rounded px-3 py-2">
                   <p className="text-sm font-mono text-gray-900 font-bold">{temporaryPassword}</p>
                   <button
                     type="button"

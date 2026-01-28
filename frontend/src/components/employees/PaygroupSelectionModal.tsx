@@ -273,8 +273,10 @@ const PaygroupSelectionModal: React.FC<PaygroupSelectionModalProps> = ({
                           setSearch('');
                           setDropdownOpen(false);
                         }}
-                        className={`px-3 py-2 text-sm cursor-pointer text-black ${
-                          selectedId === p.id ? 'bg-blue-50' : 'hover:bg-gray-50'
+                        className={`px-3 py-2 text-sm cursor-pointer ${
+                          selectedId === p.id
+                            ? 'bg-orange-500 text-white'
+                            : 'text-black hover:bg-gray-100'
                         }`}
                       >
                         {p.name}
