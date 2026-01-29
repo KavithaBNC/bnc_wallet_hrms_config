@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useDepartmentStore } from '../../store/departmentStore';
-import { useEmployeeStore } from '../../store/employeeStore';
 import { Department } from '../../services/department.service';
 
 interface DepartmentFormProps {
@@ -16,28 +15,14 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
   onSuccess,
   onCancel,
 }) => {
-  const { departments, fetchDepartments, createDepartment, updateDepartment, loading } = useDepartmentStore();
-  const { employees, fetchEmployees } = useEmployeeStore();
+  const { createDepartment, updateDepartment, loading } = useDepartmentStore();
 
   const [formData, setFormData] = useState({
     name: department?.name || '',
-    code: department?.code || '',
-    description: department?.description || '',
-    parentDepartmentId: department?.parentDepartmentId || '',
-    managerId: department?.managerId || '',
-    costCenter: department?.costCenter || '',
-    location: department?.location || '',
-    isActive: department?.isActive !== undefined ? department.isActive : true,
+    subDepartment: (department as any)?.subDepartment || '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    // Fetch departments for parent selection
-    fetchDepartments(organizationId);
-    // Fetch employees for manager selection
-    fetchEmployees({ organizationId, employeeStatus: 'ACTIVE' });
-  }, [organizationId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -66,11 +51,6 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
       newErrors.name = 'Department name is required';
     }
 
-    // Prevent self-referencing parent
-    if (department && formData.parentDepartmentId === department.id) {
-      newErrors.parentDepartmentId = 'Department cannot be its own parent';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -80,7 +60,6 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
     e.stopPropagation(); // Prevent event bubbling
 
     if (!validate()) {
-      console.log('DepartmentForm validation failed');
       return;
     }
 
@@ -88,30 +67,18 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
       const submitData = {
         organizationId,
         name: formData.name.trim(),
-        code: formData.code.trim() || undefined,
-        description: formData.description.trim() || undefined,
-        parentDepartmentId: formData.parentDepartmentId || null,
-        managerId: formData.managerId || null,
-        costCenter: formData.costCenter.trim() || undefined,
-        location: formData.location.trim() || undefined,
-        isActive: formData.isActive,
+        isActive: true,
       };
 
-      console.log('Creating department with data:', submitData);
       let createdDepartment: Department | undefined;
       if (department) {
         createdDepartment = await updateDepartment(department.id, submitData);
-        console.log('Department updated:', createdDepartment);
       } else {
         createdDepartment = await createDepartment(submitData);
-        console.log('Department created:', createdDepartment);
       }
 
       if (createdDepartment && onSuccess) {
-        console.log('Calling onSuccess with department:', createdDepartment);
         onSuccess(createdDepartment);
-      } else {
-        console.error('Department creation failed or onSuccess not provided');
       }
     } catch (error: any) {
       console.error('Error creating/updating department:', error);
@@ -120,160 +87,45 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
     }
   };
 
-  // Filter out current department from parent options (can't be its own parent)
-  const availableParentDepartments = departments.filter(d => d.id !== department?.id);
-
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Name */}
-      <div>
-        <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-          Department Name <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          id="name"
-          name="name"
-          value={formData.name}
-          onChange={handleChange}
-          className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-            errors.name
-              ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-              : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-          }`}
-          placeholder="e.g., Engineering, Sales, HR"
-        />
-        {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
-      </div>
-
-      {/* Code */}
-      <div>
-        <label htmlFor="code" className="block text-sm font-medium text-gray-700">
-          Department Code
-        </label>
-        <input
-          type="text"
-          id="code"
-          name="code"
-          value={formData.code}
-          onChange={handleChange}
-          className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-          placeholder="e.g., ENG, SAL, HR"
-        />
-      </div>
-
-      {/* Description */}
-      <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-          Description
-        </label>
-        <textarea
-          id="description"
-          name="description"
-          value={formData.description}
-          onChange={handleChange}
-          rows={3}
-          className="mt-1 block w-full min-h-[2.5rem] bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-          placeholder="Brief description of the department's purpose and responsibilities"
-        />
-      </div>
-
-      {/* Parent Department */}
-      <div>
-        <label htmlFor="parentDepartmentId" className="block text-sm font-medium text-gray-700">
-          Parent Department
-        </label>
-        <select
-          id="parentDepartmentId"
-          name="parentDepartmentId"
-          value={formData.parentDepartmentId}
-          onChange={handleChange}
-          className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-            errors.parentDepartmentId
-              ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-              : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-          }`}
-        >
-          <option value="">None (Top-level department)</option>
-          {availableParentDepartments.map(dept => (
-            <option key={dept.id} value={dept.id}>
-              {dept.name} {dept.code ? `(${dept.code})` : ''}
-            </option>
-          ))}
-        </select>
-        {errors.parentDepartmentId && (
-          <p className="mt-1 text-sm text-red-600">{errors.parentDepartmentId}</p>
-        )}
-      </div>
-
-      {/* Manager */}
-      <div>
-        <label htmlFor="managerId" className="block text-sm font-medium text-gray-700">
-          Department Manager
-        </label>
-        <select
-          id="managerId"
-          name="managerId"
-          value={formData.managerId}
-          onChange={handleChange}
-          className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-        >
-          <option value="">Select a manager</option>
-          {employees.map(emp => (
-            <option key={emp.id} value={emp.id}>
-              {emp.firstName} {emp.lastName} ({emp.employeeCode})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Cost Center */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Department Name */}
         <div>
-          <label htmlFor="costCenter" className="block text-sm font-medium text-gray-700">
-            Cost Center
+          <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+            Department Name <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
-            id="costCenter"
-            name="costCenter"
-            value={formData.costCenter}
+            id="name"
+            name="name"
+            value={formData.name}
             onChange={handleChange}
-            className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-            placeholder="e.g., CC-001"
+            className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+              errors.name
+                ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+            }`}
+            placeholder="e.g., Engineering, Sales, HR"
           />
+          {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
         </div>
 
-        {/* Location */}
+        {/* Sub-Department */}
         <div>
-          <label htmlFor="location" className="block text-sm font-medium text-gray-700">
-            Location
+          <label htmlFor="subDepartment" className="block text-sm font-medium text-gray-700">
+            Sub-Department
           </label>
           <input
             type="text"
-            id="location"
-            name="location"
-            value={formData.location}
+            id="subDepartment"
+            name="subDepartment"
+            value={formData.subDepartment}
             onChange={handleChange}
             className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-            placeholder="e.g., Building A, Floor 3"
+            placeholder="Sub-Department"
           />
         </div>
-      </div>
-
-      {/* Is Active */}
-      <div className="flex items-center">
-        <input
-          type="checkbox"
-          id="isActive"
-          name="isActive"
-          checked={formData.isActive}
-          onChange={handleChange}
-          className="h-4 w-4 rounded border-black text-blue-600 focus:ring-blue-500"
-        />
-        <label htmlFor="isActive" className="ml-2 block text-sm text-gray-900">
-          Active Department
-        </label>
       </div>
 
       {/* Submit Error */}
