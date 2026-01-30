@@ -65,6 +65,22 @@ export class EmployeeChangeRequestService {
     return request;
   }
 
+  /**
+   * Keys allowed on Employee model for update (Prisma). Excludes relations and
+   * frontend-only keys (academicQualifications, previousEmployments, familyMembers).
+   */
+  private static readonly EMPLOYEE_UPDATE_KEYS = new Set([
+    'employeeCode', 'paygroupId', 'firstName', 'middleName', 'lastName', 'email',
+    'personalEmail', 'phone', 'officialEmail', 'officialMobile', 'dateOfBirth',
+    'gender', 'maritalStatus', 'nationality', 'profilePictureUrl',
+    'departmentId', 'positionId', 'reportingManagerId', 'shiftId', 'workLocation',
+    'entityId', 'locationId', 'costCentreId', 'grade', 'placeOfTaxDeduction', 'jobResponsibility',
+    'employmentType', 'employeeStatus', 'dateOfJoining', 'probationEndDate',
+    'confirmationDate', 'dateOfLeaving', 'terminationReason',
+    'address', 'emergencyContacts', 'bankDetails', 'taxInformation', 'documents',
+    'role',
+  ]);
+
   async approve(id: string, approvedById: string, organizationId?: string) {
     const request = await this.getById(id, organizationId);
     if (request.status !== 'PENDING') {
@@ -72,7 +88,29 @@ export class EmployeeChangeRequestService {
     }
 
     const requestedData = request.requestedData as Record<string, unknown>;
-    await employeeService.update(request.employeeId, requestedData as any);
+    const sanitized: Record<string, unknown> = {};
+    for (const key of Object.keys(requestedData)) {
+      if (EmployeeChangeRequestService.EMPLOYEE_UPDATE_KEYS.has(key)) {
+        sanitized[key] = requestedData[key];
+      }
+    }
+    await employeeService.update(request.employeeId, sanitized as any);
+
+    // Persist academic qualifications, previous employments, family members (stored in profileExtensions)
+    const academicQualifications = requestedData.academicQualifications;
+    const previousEmployments = requestedData.previousEmployments;
+    const familyMembers = requestedData.familyMembers;
+    if (
+      Array.isArray(academicQualifications) ||
+      Array.isArray(previousEmployments) ||
+      Array.isArray(familyMembers)
+    ) {
+      await employeeService.updateProfileExtensions(request.employeeId, {
+        academicQualifications: Array.isArray(academicQualifications) ? academicQualifications : undefined,
+        previousEmployments: Array.isArray(previousEmployments) ? previousEmployments : undefined,
+        familyMembers: Array.isArray(familyMembers) ? familyMembers : undefined,
+      });
+    }
 
     await prisma.employeeChangeRequest.update({
       where: { id },

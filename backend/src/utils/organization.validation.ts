@@ -28,6 +28,8 @@ export const createOrganizationSchema = z.object({
     overtimeEnabled: z.boolean().optional(),
     leaveApprovalRequired: z.boolean().optional(),
   }).optional(),
+  employeeIdPrefix: z.string().max(20).optional(),
+  employeeIdStartingNumber: z.number().int().min(0).optional(),
 });
 
 /**
@@ -58,6 +60,8 @@ export const updateOrganizationSchema = z.object({
     overtimeEnabled: z.boolean().optional(),
     leaveApprovalRequired: z.boolean().optional(),
   }).optional(),
+  employeeIdPrefix: z.string().max(20).optional(),
+  employeeIdStartingNumber: z.number().int().min(0).optional(),
 });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;

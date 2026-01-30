@@ -93,6 +93,27 @@ export class PermissionController {
   }
 
   /**
+   * Sync app-module permissions (create missing read/create/update for all app modules).
+   * POST /api/v1/permissions/sync-app-modules
+   */
+  async syncAppModulePermissions(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await permissionService.syncAppModulePermissions();
+
+      res.status(200).json({
+        status: 'success',
+        message:
+          result.created > 0
+            ? `Created ${result.created} missing permission(s). Refresh the page to see all checkboxes.`
+            : 'All app-module permissions already exist.',
+        data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Get permissions by resource
    * GET /api/v1/permissions/resource/:resource
    */

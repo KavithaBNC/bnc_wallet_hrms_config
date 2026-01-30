@@ -11,7 +11,36 @@ import { hashPassword } from '../utils/password';
 
 export class EmployeeService {
   /**
-   * Generate unique employee code
+   * Reserve next employee code from organization settings (prefix + next number).
+   * Increments org's employeeIdNextNumber in a transaction. Returns null if org has no prefix/nextNumber.
+   * Format: <PREFIX><NUMBER> e.g. BNC50, BNC51. Sequence is not reused when employees are deleted.
+   */
+  private async reserveNextEmployeeCode(organizationId: string): Promise<string | null> {
+    const org = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { employeeIdPrefix: true, employeeIdNextNumber: true },
+    });
+    if (org?.employeeIdPrefix == null || org?.employeeIdPrefix.trim() === '' || org?.employeeIdNextNumber == null) {
+      return null;
+    }
+    const prefix = org.employeeIdPrefix.trim();
+    return prisma.$transaction(async (tx) => {
+      const row = await tx.organization.findUnique({
+        where: { id: organizationId },
+        select: { employeeIdNextNumber: true },
+      });
+      if (!row || row.employeeIdNextNumber == null) return null;
+      const code = `${prefix}${row.employeeIdNextNumber}`;
+      await tx.organization.update({
+        where: { id: organizationId },
+        data: { employeeIdNextNumber: row.employeeIdNextNumber + 1 },
+      });
+      return code;
+    });
+  }
+
+  /**
+   * Generate unique employee code (fallback when org has no prefix/nextNumber)
    * Format: EMP00001, EMP00002, etc.
    */
   private async generateEmployeeCode(organizationId: string): Promise<string> {
@@ -99,47 +128,32 @@ export class EmployeeService {
         throw new AppError('Employee code already exists', 400);
       }
     } else {
-      // Generate unique code with retry mechanism
-      let attempts = 0;
-      const maxAttempts = 10; // Increased attempts
-      let generatedCode: string | undefined;
-      
-      while (attempts < maxAttempts) {
-        generatedCode = await this.generateEmployeeCode(data.organizationId);
-        
-        // Check if employee code is unique (double-check)
-        const existingCode = await prisma.employee.findUnique({
-          where: { employeeCode: generatedCode },
-        });
-
-        if (!existingCode) {
-          break; // Found unique code
-        }
-        
-        // If code exists, wait a bit and try again with a different approach
-        attempts++;
-        if (attempts >= maxAttempts) {
-          // Last resort: use timestamp-based code
-          generatedCode = `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-          // Final check
-          const finalCheck = await prisma.employee.findUnique({
+      // Try org-level prefix + next number first; else fallback to legacy EMP00001 format
+      let generatedCode: string | null | undefined = await this.reserveNextEmployeeCode(data.organizationId);
+      if (!generatedCode) {
+        let attempts = 0;
+        const maxAttempts = 10;
+        while (attempts < maxAttempts) {
+          generatedCode = await this.generateEmployeeCode(data.organizationId);
+          const existingCode = await prisma.employee.findUnique({
             where: { employeeCode: generatedCode },
           });
-          if (!finalCheck) {
-            break;
+          if (!existingCode) break;
+          attempts++;
+          if (attempts >= maxAttempts) {
+            generatedCode = `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+            const finalCheck = await prisma.employee.findUnique({
+              where: { employeeCode: generatedCode },
+            });
+            if (!finalCheck) break;
+            throw new AppError('Failed to generate unique employee code after multiple attempts', 500);
           }
-          throw new AppError('Failed to generate unique employee code after multiple attempts', 500);
+          await new Promise((resolve) => setTimeout(resolve, 10));
         }
-        
-        // Small delay to avoid race conditions
-        await new Promise(resolve => setTimeout(resolve, 10));
       }
-      
-      // Ensure we have a code (TypeScript type guard)
       if (!generatedCode) {
         throw new AppError('Failed to generate employee code', 500);
       }
-      
       employeeCode = generatedCode;
     }
 
@@ -365,14 +379,16 @@ export class EmployeeService {
       where.organizationId = query.organizationId;
     }
 
-    // RBAC: MANAGER can only see their own team (subordinates)
-    // Priority: If manager has direct reports, show them regardless of department
-    // Only apply if restrictToReports is true AND managerEmployeeId is provided
+    // RBAC: MANAGER visibility — only reporting employees + manager's own profile (so they can edit self)
+    // HR Admin, Org Admin, Super Admin see all employees in the org
     if (rbac?.restrictToReports === true && query.managerEmployeeId) {
-      // Filter to show only employees who report to this manager
-      where.reportingManagerId = query.managerEmployeeId;
-      // Note: We prioritize direct reports over department restriction
-      // If a manager has direct reports in different departments, they should still see them
+      where.AND = where.AND || [];
+      (where.AND as object[]).push({
+        OR: [
+          { reportingManagerId: query.managerEmployeeId },
+          { id: query.managerEmployeeId },
+        ],
+      });
     }
 
     // RBAC: EMPLOYEE can only see their own data (self-service)
@@ -440,11 +456,14 @@ export class EmployeeService {
 
     const listView = (query as QueryEmployeesInput & { listView?: string }).listView === 'true';
 
-    // List view: minimal relations (department name, position title) for faster list load
+    // List view: minimal relations (department, position, organization, entity, location for Super Admin)
     if (listView) {
       queryConfig.include = {
         department: { select: { id: true, name: true } },
         position: { select: { id: true, title: true, level: true } },
+        organization: { select: { id: true, name: true } },
+        entity: { select: { id: true, name: true, code: true } },
+        location: { select: { id: true, name: true, code: true } },
       };
     } else if (selectFields) {
       // Use select if provided (RBAC optimization)
@@ -526,6 +545,12 @@ export class EmployeeService {
             },
           },
         },
+        entity: {
+          select: { id: true, name: true, code: true },
+        },
+        location: {
+          select: { id: true, name: true, code: true, entityId: true },
+        },
         subordinates: {
           where: { deletedAt: null },
           select: {
@@ -557,7 +582,43 @@ export class EmployeeService {
       throw new AppError('Employee not found', 404);
     }
 
-    return employee;
+    const profileExtensions = (employee as { profileExtensions?: { academicQualifications?: unknown[]; previousEmployments?: unknown[]; familyMembers?: unknown[] } }).profileExtensions;
+    return {
+      ...employee,
+      academicQualifications: Array.isArray(profileExtensions?.academicQualifications) ? profileExtensions.academicQualifications : [],
+      previousEmployments: Array.isArray(profileExtensions?.previousEmployments) ? profileExtensions.previousEmployments : [],
+      familyMembers: Array.isArray(profileExtensions?.familyMembers) ? profileExtensions.familyMembers : [],
+    };
+  }
+
+  /**
+   * Update profile extensions (academicQualifications, previousEmployments, familyMembers).
+   * Used when approving employee change requests. Merges with existing so only provided arrays are replaced.
+   */
+  async updateProfileExtensions(
+    id: string,
+    data: { academicQualifications?: unknown[]; previousEmployments?: unknown[]; familyMembers?: unknown[] }
+  ) {
+    const existing = await prisma.employee.findFirst({
+      where: { id, deletedAt: null },
+      select: { profileExtensions: true },
+    });
+    if (!existing) throw new AppError('Employee not found', 404);
+
+    const current = (existing.profileExtensions as { academicQualifications?: unknown[]; previousEmployments?: unknown[]; familyMembers?: unknown[] } | null) || {};
+    const payload = {
+      academicQualifications: Array.isArray(data.academicQualifications) ? data.academicQualifications : current.academicQualifications,
+      previousEmployments: Array.isArray(data.previousEmployments) ? data.previousEmployments : current.previousEmployments,
+      familyMembers: Array.isArray(data.familyMembers) ? data.familyMembers : current.familyMembers,
+    };
+    if (!Array.isArray(payload.academicQualifications)) payload.academicQualifications = [];
+    if (!Array.isArray(payload.previousEmployments)) payload.previousEmployments = [];
+    if (!Array.isArray(payload.familyMembers)) payload.familyMembers = [];
+
+    await prisma.employee.update({
+      where: { id },
+      data: { profileExtensions: payload as object },
+    });
   }
 
   /**
@@ -844,15 +905,17 @@ export class EmployeeService {
   }
 
   /**
-   * Get employee credentials for ORG_ADMIN
-   * Returns list of employees with their emails and ability to reset passwords
+   * Get employee credentials for ORG_ADMIN / HR_MANAGER (one org) or SUPER_ADMIN (all orgs when organizationId omitted).
+   * Returns list of employees with their emails and ability to reset passwords.
    */
-  async getEmployeeCredentials(organizationId: string) {
+  async getEmployeeCredentials(organizationId?: string) {
+    const where: { deletedAt: null; organizationId?: string } = { deletedAt: null };
+    if (organizationId) {
+      where.organizationId = organizationId;
+    }
+
     const employees = await prisma.employee.findMany({
-      where: {
-        organizationId,
-        deletedAt: null,
-      },
+      where,
       select: {
         id: true,
         employeeCode: true,
@@ -860,6 +923,8 @@ export class EmployeeService {
         lastName: true,
         email: true,
         employeeStatus: true,
+        organizationId: true,
+        organization: { select: { name: true } },
         user: {
           select: {
             id: true,
@@ -892,6 +957,7 @@ export class EmployeeService {
       name: `${emp.firstName} ${emp.lastName}`,
       email: emp.email,
       employeeStatus: emp.employeeStatus,
+      organizationName: emp.organization?.name ?? null,
       department: emp.department?.name || 'N/A',
       position: emp.position?.title || 'N/A',
       role: emp.user?.role || 'N/A',

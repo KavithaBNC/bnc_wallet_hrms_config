@@ -208,30 +208,33 @@ export class EmployeeController {
   }
 
   /**
-   * Get employee credentials (for ORG_ADMIN only)
-   * GET /api/v1/employees/credentials
+   * Get employee credentials (for SUPER_ADMIN, ORG_ADMIN, HR_MANAGER).
+   * SUPER_ADMIN: no organizationId = all employees; ?organizationId= = that org only.
+   * ORG_ADMIN / HR_MANAGER: use their org.
    */
   async getEmployeeCredentials(req: Request, res: Response, next: NextFunction) {
     try {
-      // Get organizationId from RBAC middleware or fetch from user's employee record
-      let organizationId = req.rbac?.organizationId;
-      
-      if (!organizationId && req.user) {
-        // Fallback: Get organizationId from user's employee record
+      const isSuperAdmin = req.user?.role === 'SUPER_ADMIN';
+      let organizationId = req.query.organizationId as string | undefined;
+
+      if (!organizationId) {
+        organizationId = req.rbac?.organizationId ?? undefined;
+      }
+      if (!organizationId && req.user && !isSuperAdmin) {
         const employee = await prisma.employee.findUnique({
           where: { userId: req.user.userId },
           select: { organizationId: true },
         });
-        
         if (employee) {
           organizationId = employee.organizationId;
         }
       }
-      
-      if (!organizationId) {
+
+      // SUPER_ADMIN with no org = all employees; others need an org
+      if (!organizationId && !isSuperAdmin) {
         return res.status(403).json({
           status: 'fail',
-          message: 'Access denied. Organization ID required. Please ensure your employee profile is set up.',
+          message: 'Access denied. Organization ID required. Ensure your employee profile is set up.',
         });
       }
 

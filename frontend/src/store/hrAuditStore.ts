@@ -34,7 +34,7 @@ const getDefaultModulesRestricted = (): ModulePermission[] =>
   EMPLOYEE_MODULES.map((m) => ({
     ...m,
     viewable: true,
-    editable: ['company', 'personal', 'bank', 'assets', 'academic', 'previousEmployment', 'others', 'newFields'].includes(m.id),
+    editable: ['company', 'personal', 'bank', 'assets', 'academic', 'previousEmployment', 'family', 'others', 'newFields'].includes(m.id),
     mandatory: false,
     approval: true,
   }));

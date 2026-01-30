@@ -5,7 +5,6 @@
 export type EmployeeModuleId =
   | 'company'
   | 'personal'
-  | 'employment'
   | 'statutory'
   | 'bank'
   | 'salary'
@@ -25,7 +24,6 @@ export interface EmployeeModuleDef {
 export const EMPLOYEE_MODULES: EmployeeModuleDef[] = [
   { id: 'company', name: 'Company Details', expandable: true },
   { id: 'personal', name: 'Personal Info', expandable: false },
-  { id: 'employment', name: 'Employment', expandable: false },
   { id: 'statutory', name: 'Statutory Details', expandable: true },
   { id: 'bank', name: 'Bank Details', expandable: true },
   { id: 'salary', name: 'Salary Details', expandable: true },

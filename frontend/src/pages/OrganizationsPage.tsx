@@ -29,6 +29,8 @@ export default function OrganizationsPage() {
     sizeRange: undefined,
     timezone: 'UTC',
     currency: 'USD',
+    employeeIdPrefix: '',
+    employeeIdStartingNumber: undefined,
   });
 
   const [adminFormData, setAdminFormData] = useState({
@@ -76,6 +78,8 @@ export default function OrganizationsPage() {
         sizeRange: undefined,
         timezone: 'UTC',
         currency: 'USD',
+        employeeIdPrefix: '',
+        employeeIdStartingNumber: undefined,
       });
       alert('Organization created successfully!');
     } catch (err: any) {
@@ -107,7 +111,7 @@ export default function OrganizationsPage() {
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h2>
           <p className="text-gray-600">
-            Only HRMS Administrators can access organization management.
+            Only Super Administrators can access Organization Management (create organization and create organization admin).
           </p>
         </div>
       </div>
@@ -132,7 +136,18 @@ export default function OrganizationsPage() {
                 currency: 'USD',
               });
               setError(null);
-              setShowCreateForm(true);
+              setOrgFormData({
+              name: '',
+              legalName: '',
+              industry: '',
+              sizeRange: undefined,
+              timezone: 'UTC',
+              currency: 'USD',
+              employeeIdPrefix: '',
+              employeeIdStartingNumber: undefined,
+            });
+            setError(null);
+            setShowCreateForm(true);
             }}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
           >
@@ -271,6 +286,8 @@ export default function OrganizationsPage() {
             sizeRange: undefined,
             timezone: 'UTC',
             currency: 'USD',
+            employeeIdPrefix: '',
+            employeeIdStartingNumber: undefined,
           });
         }}
         title="Create New Organization"
@@ -363,6 +380,45 @@ export default function OrganizationsPage() {
                 className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="USD"
               />
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <p className="text-sm font-medium text-gray-700 mb-3">Employee ID Setup</p>
+            <p className="text-xs text-gray-500 mb-3">New employees will get IDs like <strong>&lt;Prefix&gt;&lt;Number&gt;</strong> (e.g. BNC50, BNC51). Leave empty to use default (EMP00001, …).</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Employee ID Prefix
+                </label>
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={orgFormData.employeeIdPrefix ?? ''}
+                  onChange={(e) => setOrgFormData({ ...orgFormData, employeeIdPrefix: e.target.value.trim() || undefined })}
+                  className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g. BNC"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Starting Number
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={orgFormData.employeeIdStartingNumber ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setOrgFormData({
+                      ...orgFormData,
+                      employeeIdStartingNumber: v === '' ? undefined : Math.max(0, parseInt(v, 10) || 0),
+                    });
+                  }}
+                  className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g. 01 or 50"
+                />
+              </div>
             </div>
           </div>
 

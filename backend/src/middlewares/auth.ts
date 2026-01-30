@@ -93,6 +93,47 @@ export const authorize = (...roles: UserRole[]) => {
 };
 
 /**
+ * Middleware for PUT /employees/:id
+ * - SUPER_ADMIN, ORG_ADMIN, HR_MANAGER: can update any employee (no permission check).
+ * - MANAGER, EMPLOYEE: can update only their own profile (tab-level permissions enforced by frontend/service).
+ */
+export const authorizeEmployeeUpdate = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+) => {
+  if (!req.user) {
+    return next(new AppError('You must be logged in to access this resource.', 401));
+  }
+
+  const role = req.user.role as UserRole;
+  const allowedRoles: UserRole[] = ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'];
+
+  if (allowedRoles.includes(role)) {
+    return next();
+  }
+
+  // MANAGER and EMPLOYEE: allow only when updating their own employee record
+  if (role === 'MANAGER' || role === 'EMPLOYEE') {
+    const employeeId = req.params.id;
+    const employee = await prisma.employee.findUnique({
+      where: { userId: req.user.userId },
+      select: { id: true },
+    });
+    if (employee && employee.id === employeeId) {
+      return next();
+    }
+  }
+
+  return next(
+    new AppError(
+      'You do not have permission to access this resource. Required roles: SUPER_ADMIN, ORG_ADMIN, HR_MANAGER, or you can only update your own profile.',
+      403
+    )
+  );
+};
+
+/**
  * Middleware to check if user is accessing their own resource
  */
 export const authorizeOwner = (req: Request, _res: Response, next: NextFunction) => {

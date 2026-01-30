@@ -160,6 +160,14 @@ class PermissionService {
   }
 
   /**
+   * Sync app-module permissions (create missing read/create/update). Super Admin only.
+   */
+  async syncAppModulePermissions(): Promise<{ created: number }> {
+    const response = await api.post('/permissions/sync-app-modules');
+    return response.data.data;
+  }
+
+  /**
    * Check if role has permission
    */
   async checkPermission(data: {

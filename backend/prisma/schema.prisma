@@ -30,9 +30,11 @@ model Organization {
   timezone           String    @default("UTC") @db.VarChar(50)
   currency           String    @default("USD") @db.VarChar(3)
   fiscalYearStart    DateTime? @map("fiscal_year_start") @db.Date
-  settings           Json?
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  settings             Json?
+  employeeIdPrefix     String?  @map("employee_id_prefix") @db.VarChar(20)
+  employeeIdNextNumber Int?     @map("employee_id_next_number") @db.Integer
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   // Relations
   users                User[]
@@ -40,6 +42,7 @@ model Organization {
   subDepartments       SubDepartment[]
   jobPositions         JobPosition[]         @relation("OrganizationToJobPosition")
   paygroups            Paygroup[]
+  entities             Entity[]
   locations            Location[]
   costCentres          CostCentre[]
   employees            Employee[]
@@ -220,18 +223,38 @@ model Paygroup {
   @@map("paygroups")
 }
 
-model Location {
+model Entity {
   id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
   name           String   @db.VarChar(255)
-  code           String?  @unique @db.VarChar(50)
+  code           String?  @db.VarChar(50)
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  locations    Location[]
   employees    Employee[]
 
+  @@unique([organizationId, name])
+  @@map("entities")
+}
+
+model Location {
+  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  entityId       String   @map("entity_id") @db.Uuid
+  name           String   @db.VarChar(255)
+  code           String?  @db.VarChar(50)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entity       Entity       @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  employees    Employee[]
+
+  @@unique([entityId, name])
   @@map("locations")
 }
 
@@ -302,6 +325,7 @@ model Employee {
   reportingManagerId    String?         @map("reporting_manager_id") @db.Uuid
   shiftId              String?         @map("shift_id") @db.Uuid
   workLocation         String?         @map("work_location") @db.VarChar(255)
+  entityId             String?         @map("entity_id") @db.Uuid
   locationId           String?         @map("location_id") @db.Uuid
   costCentreId         String?         @map("cost_centre_id") @db.Uuid
   grade                String?         @db.VarChar(50)
@@ -318,11 +342,12 @@ model Employee {
   terminationReason String?   @map("termination_reason") @db.Text
 
   // Additional Information (JSONB)
-  address           Json?
-  emergencyContacts Json? @map("emergency_contacts")
-  bankDetails       Json? @map("bank_details")
-  taxInformation    Json? @map("tax_information")
-  documents         Json?
+  address            Json?
+  emergencyContacts  Json? @map("emergency_contacts")
+  bankDetails        Json? @map("bank_details")
+  taxInformation     Json? @map("tax_information")
+  documents          Json?
+  profileExtensions  Json? @map("profile_extensions") // academicQualifications, previousEmployments, familyMembers
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -335,6 +360,7 @@ model Employee {
   department                Department?                @relation("EmployeeDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
   position                  JobPosition?               @relation(fields: [positionId], references: [id], onDelete: SetNull)
   reportingManager          Employee?                  @relation("EmployeeHierarchy", fields: [reportingManagerId], references: [id], onDelete: SetNull)
+  entity                    Entity?                    @relation(fields: [entityId], references: [id], onDelete: SetNull)
   location                  Location?                  @relation(fields: [locationId], references: [id], onDelete: SetNull)
   costCentre                CostCentre?                @relation(fields: [costCentreId], references: [id], onDelete: SetNull)
   shift                     Shift?                     @relation(fields: [shiftId], references: [id], onDelete: SetNull)

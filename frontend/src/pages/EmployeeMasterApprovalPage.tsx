@@ -19,6 +19,20 @@ function formatDate(d: string) {
   });
 }
 
+function formatCellValue(val: unknown): string {
+  if (val == null) return '—';
+  if (typeof val === 'object' && !Array.isArray(val)) {
+    const obj = val as Record<string, unknown>;
+    if (obj.street != null || obj.city != null || obj.state != null || obj.postalCode != null) {
+      const parts = [obj.street, obj.city, obj.state, obj.postalCode].filter(Boolean);
+      return parts.join(', ') || JSON.stringify(val);
+    }
+    return JSON.stringify(val);
+  }
+  if (Array.isArray(val)) return `[${val.length} item(s)]`;
+  return String(val);
+}
+
 function DiffSection({
   title,
   existing,
@@ -33,7 +47,8 @@ function DiffSection({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const keys = new Set([...Object.keys(existing || {}), ...Object.keys(requested || {})]);
   const entries = Array.from(keys).filter(
-    (k) => existing?.[k] !== requested?.[k] || (existing?.[k] != null && requested?.[k] != null)
+    (k) => k !== 'academicQualifications' && k !== 'previousEmployments' && k !== 'familyMembers' &&
+      (existing?.[k] !== requested?.[k] || (existing?.[k] != null && requested?.[k] != null))
   );
   if (entries.length === 0 && !existing && !requested) return null;
 
@@ -64,12 +79,8 @@ function DiffSection({
                 entries.map((key) => (
                   <tr key={key} className="border-b border-gray-100">
                     <td className="py-2 pr-4 text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</td>
-                    <td className="py-2 pr-4 text-gray-900">
-                      {existing?.[key] != null ? String(existing[key]) : '—'}
-                    </td>
-                    <td className="py-2 text-gray-900">
-                      {requested?.[key] != null ? String(requested[key]) : '—'}
-                    </td>
+                    <td className="py-2 pr-4 text-gray-900">{formatCellValue(existing?.[key])}</td>
+                    <td className="py-2 text-gray-900">{formatCellValue(requested?.[key])}</td>
                   </tr>
                 ))
               ) : (
@@ -81,6 +92,57 @@ function DiffSection({
               )}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArrayDiffSection({
+  title,
+  existing,
+  requested,
+  expanded: defaultExpanded = true,
+}: {
+  title: string;
+  existing: unknown[];
+  requested: unknown[];
+  expanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const ex = Array.isArray(existing) ? existing : [];
+  const req = Array.isArray(requested) ? requested : [];
+  if (ex.length === 0 && req.length === 0) return null;
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 text-left text-sm font-medium text-gray-900 hover:bg-gray-100"
+      >
+        <span>{title}</span>
+        <span className="text-gray-500">{expanded ? '▼' : '▶'}</span>
+      </button>
+      {expanded && (
+        <div className="p-4 bg-white border-t border-gray-200 space-y-4">
+          <div className="text-xs text-gray-500 mb-2">Existing: {ex.length} item(s) → To Approve: {req.length} item(s)</div>
+          {req.length > 0 && (
+            <div className="space-y-2">
+              {req.map((item, i) => (
+                <div key={i} className="rounded border border-gray-100 p-3 bg-gray-50 text-sm">
+                  {typeof item === 'object' && item !== null
+                    ? Object.entries(item as Record<string, unknown>).map(([k, v]) => (
+                        <div key={k} className="flex gap-2 py-0.5">
+                          <span className="text-gray-600 capitalize w-36">{k.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                          <span className="text-gray-900">{formatCellValue(v)}</span>
+                        </div>
+                      ))
+                    : formatCellValue(item)}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -135,12 +197,14 @@ export default function EmployeeMasterApprovalPage() {
 
   const handleApprove = async () => {
     if (!selectedId || !detail) return;
+    const employeeName = detail.employee ? `${detail.employee.firstName} ${detail.employee.lastName}` : 'Employee';
     setApproving(true);
     try {
       await employeeChangeRequestService.approve(selectedId);
       setSelectedId(null);
       setDetail(null);
       await fetchList();
+      alert(`Changes approved and saved for ${employeeName}. Go to Employees and open this employee to see the updated details.`);
     } catch (e: any) {
       alert(e.response?.data?.message || 'Failed to approve');
     } finally {
@@ -234,9 +298,9 @@ export default function EmployeeMasterApprovalPage() {
                 <div className="p-4 bg-blue-600 text-white">
                   <h2 className="text-lg font-semibold">Associate Master Approval</h2>
                 </div>
-                <div className="p-4 border-b border-gray-200 space-y-2 text-sm">
+                <div className="p-4 border-b border-gray-200 space-y-2 text-sm text-black">
                   <p><strong>Submitted By:</strong> By Employee</p>
-                  <p><strong>Action:</strong> <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-800 rounded">Edited</span></p>
+                  <p><strong>Action:</strong> <span className="inline-block px-2 py-0.5 bg-gray-200 text-black rounded">Edited</span></p>
                   <p><strong>Date:</strong> {formatDate(detail.submittedAt)}</p>
                   <p><strong>Employee:</strong> {detail.employee.firstName} {detail.employee.lastName} ({detail.employee.employeeCode})</p>
                 </div>
@@ -272,6 +336,21 @@ export default function EmployeeMasterApprovalPage() {
                       }
                     />
                   ) : null}
+                  <ArrayDiffSection
+                    title="Academic Qualification"
+                    existing={(existingData.academicQualifications as unknown[]) || []}
+                    requested={(requestedData.academicQualifications as unknown[]) || []}
+                  />
+                  <ArrayDiffSection
+                    title="Previous Employment"
+                    existing={(existingData.previousEmployments as unknown[]) || []}
+                    requested={(requestedData.previousEmployments as unknown[]) || []}
+                  />
+                  <ArrayDiffSection
+                    title="Family Details"
+                    existing={(existingData.familyMembers as unknown[]) || []}
+                    requested={(requestedData.familyMembers as unknown[]) || []}
+                  />
                 </div>
 
                 <div className="p-4 border-t border-gray-200 space-y-4">

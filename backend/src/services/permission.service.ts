@@ -173,6 +173,54 @@ export class PermissionService {
       orderBy: { resource: 'asc', action: 'asc' },
     });
   }
+
+  /**
+   * Ensure all app-module permissions exist (read, create, update). Creates missing ones.
+   * Sync with frontend APP_MODULES. Returns count of newly created permissions.
+   */
+  async syncAppModulePermissions(): Promise<{ created: number }> {
+    const appModuleResources = [
+      'dashboard',
+      'employees',
+      'departments',
+      'positions',
+      'attendance',
+      'leaves',
+      'payroll',
+      'salary_structures',
+      'employee_salaries',
+      'hr_audit_settings',
+      'employee_master_approval',
+      'organizations',
+      'permissions',
+    ];
+    const actions = ['read', 'create', 'update'] as const;
+    const actionDescriptions: Record<string, string> = {
+      read: 'View',
+      create: 'Add',
+      update: 'Edit',
+    };
+    let created = 0;
+    for (const resource of appModuleResources) {
+      for (const action of actions) {
+        const name = `${resource}.${action}`;
+        const existing = await prisma.permission.findUnique({ where: { name } });
+        if (!existing) {
+          await prisma.permission.create({
+            data: {
+              name,
+              resource,
+              action,
+              description: `${actionDescriptions[action] || action} ${resource.replace(/_/g, ' ')}`,
+              module: 'App Module',
+            },
+          });
+          created++;
+        }
+      }
+    }
+    return { created };
+  }
 }
 
 export const permissionService = new PermissionService();

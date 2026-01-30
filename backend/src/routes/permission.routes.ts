@@ -30,6 +30,17 @@ router.get(
 );
 
 /**
+ * @route   POST /api/v1/permissions/sync-app-modules
+ * @desc    Ensure all app-module permissions exist (read/create/update). Super Admin only.
+ * @access  Private (SUPER_ADMIN only)
+ */
+router.post(
+  '/sync-app-modules',
+  authorize('SUPER_ADMIN'),
+  permissionController.syncAppModulePermissions.bind(permissionController)
+);
+
+/**
  * @route   GET /api/v1/permissions/:id
  * @desc    Get permission by ID
  * @access  Private (All authenticated users)
@@ -92,7 +103,7 @@ router.get(
  */
 router.post(
   '/role-permissions/assign',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
   rolePermissionController.assignPermissions.bind(rolePermissionController)
 );
 
@@ -134,7 +145,7 @@ router.get(
  */
 router.put(
   '/role-permissions/:role/replace',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
   rolePermissionController.replaceRolePermissions.bind(rolePermissionController)
 );
 

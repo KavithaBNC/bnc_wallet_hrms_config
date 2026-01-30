@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useEmployeeStore } from '../store/employeeStore';
 import { useAuthStore } from '../store/authStore';
 import { usePositionStore } from '../store/positionStore';
@@ -10,7 +10,9 @@ import Modal from '../components/common/Modal';
 import EmployeeForm from '../components/employees/EmployeeForm';
 import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
 import AppHeader from '../components/layout/AppHeader';
-import { canCreateEmployee, canUpdateEmployee, canDeleteEmployee } from '../utils/rbac';
+import { canCreateEmployee, canUpdateEmployee, canDeleteEmployee, getEditableTabsFromPermissions, canEditEmployeeByPermission, type EmployeeFormTabKey } from '../utils/rbac';
+import permissionService from '../services/permission.service';
+import organizationService, { type Organization } from '../services/organization.service';
 
 function getAvatarColor(name: string): string {
   const colors = ['bg-green-500', 'bg-blue-500', 'bg-orange-500', 'bg-purple-500', 'bg-teal-500', 'bg-indigo-500'];
@@ -21,6 +23,7 @@ function getAvatarColor(name: string): string {
 
 export default function EmployeesPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loadUser, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
   const { employees, pagination, loading, error, fetchEmployees, deleteEmployee } = useEmployeeStore();
@@ -54,6 +57,27 @@ export default function EmployeesPage() {
   const [viewType, setViewType] = useState<'list' | 'grid'>('list');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
+  // Super Admin: list of all orgs and selected org for Employee Directory
+  const [superAdminOrganizations, setSuperAdminOrganizations] = useState<Organization[]>([]);
+  const [superAdminSelectedOrgId, setSuperAdminSelectedOrgId] = useState<string | 'ALL'>('ALL');
+  const [loadingOrgs, setLoadingOrgs] = useState(false);
+  // View Credentials page filters
+  const [credOrgFilter, setCredOrgFilter] = useState<string>('ALL');
+  const [credDesignationFilter, setCredDesignationFilter] = useState<string>('ALL');
+  const [credStatusFilter, setCredStatusFilter] = useState<string>('ALL');
+  const [credSearchTerm, setCredSearchTerm] = useState('');
+
+  // Fetch current user's permissions (for permission-based edit/view per tab)
+  useEffect(() => {
+    if (!user) {
+      setUserPermissions([]);
+      return;
+    }
+    permissionService.getUserPermissions().then((list) => {
+      setUserPermissions(list.map((p) => ({ resource: p.resource, action: p.action })));
+    }).catch(() => setUserPermissions([]));
+  }, [user?.id]);
 
   // Close export menu when clicking outside
   useEffect(() => {
@@ -69,6 +93,15 @@ export default function EmployeesPage() {
 
   // Get organizationId from logged-in user (check both possible shapes)
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+
+  // Super Admin: can view all orgs or pick one; others use their linked org
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const effectiveOrganizationId = isSuperAdmin
+    ? (superAdminSelectedOrgId === 'ALL' ? undefined : superAdminSelectedOrgId)
+    : organizationId;
+  const effectiveOrganizationName = isSuperAdmin
+    ? (superAdminSelectedOrgId === 'ALL' ? 'All organizations' : superAdminOrganizations.find((o) => o.id === superAdminSelectedOrgId)?.name ?? '—')
+    : user?.employee?.organization?.name;
 
   // Try to load user data if organizationId is missing (only once)
   useEffect(() => {
@@ -93,24 +126,87 @@ export default function EmployeesPage() {
     }
   }, [organizationId, user, loadUser]);
 
-  // RBAC permissions (optimized - computed once)
+  // RBAC permissions: role-based and permission-tab based
   const canCreate = canCreateEmployee(user?.role);
-  const canUpdate = canUpdateEmployee(user?.role);
+  const canUpdateByRole = canUpdateEmployee(user?.role);
+  const canUpdateByPermission = canEditEmployeeByPermission(userPermissions);
+  const canUpdate = canUpdateByRole || canUpdateByPermission;
   const canDelete = canDeleteEmployee(user?.role);
-  const canManageCredentials = user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER';
+  const canManageCredentials = user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER';
+
+  /** Editable tabs from Permissions tab: undefined = all tabs, else only those tabs user can edit */
+  const editableTabsFromPermissions = getEditableTabsFromPermissions(userPermissions);
+
+  /**
+   * Edit button visibility:
+   * - SUPER_ADMIN, ORG_ADMIN, HR_MANAGER: can edit all employees.
+   * - MANAGER: can edit only their own profile; team members are view-only (no Edit).
+   * - EMPLOYEE: can edit own row only when they have tab-level update permissions.
+   */
+  const canEditRow = (emp: Employee) => {
+    const role = user?.role != null ? String(user.role).toUpperCase() : '';
+    const myEmployeeId = user?.employee?.id != null ? String(user.employee.id) : '';
+    const rowEmployeeId = emp?.id != null ? String(emp.id) : '';
+    if (role === 'MANAGER') {
+      return myEmployeeId !== '' && myEmployeeId === rowEmployeeId; // Manager: Edit only own row; team members view-only
+    }
+    if (role === 'EMPLOYEE') {
+      return myEmployeeId !== '' && myEmployeeId === rowEmployeeId && (canUpdateByPermission || (editableTabsFromPermissions && editableTabsFromPermissions.length > 0));
+    }
+    if (canUpdate) return true; // SUPER_ADMIN, ORG_ADMIN, HR_MANAGER can edit all
+    return false;
+  };
+
+  // View Credentials: filtered list by Organization, Designation, Status, Search
+  const filteredCredentials = useMemo(() => {
+    if (!credentials.length) return [];
+    let list = credentials;
+    const orgName = (c: any) => (c.organizationName ?? '') as string;
+    const search = credSearchTerm.trim().toLowerCase();
+    if (search) {
+      list = list.filter(
+        (c) =>
+          (c.name ?? '').toLowerCase().includes(search) ||
+          (c.email ?? '').toLowerCase().includes(search) ||
+          (c.employeeCode ?? '').toLowerCase().includes(search)
+      );
+    }
+    if (credOrgFilter !== 'ALL') {
+      list = list.filter((c) => orgName(c) === credOrgFilter);
+    }
+    if (credDesignationFilter !== 'ALL') {
+      list = list.filter((c) => (c.position ?? '') === credDesignationFilter);
+    }
+    if (credStatusFilter !== 'ALL') {
+      list = list.filter((c) => (c.employeeStatus ?? '') === credStatusFilter);
+    }
+    return list;
+  }, [credentials, credOrgFilter, credDesignationFilter, credStatusFilter, credSearchTerm]);
+
+  // Super Admin: fetch all organizations on mount
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    setLoadingOrgs(true);
+    organizationService.getAll(1, 100).then((res) => {
+      setSuperAdminOrganizations(res.organizations ?? []);
+    }).catch(() => setSuperAdminOrganizations([])).finally(() => setLoadingOrgs(false));
+  }, [isSuperAdmin]);
 
   useEffect(() => {
-    if (organizationId) fetchPositions({ organizationId });
-  }, [organizationId, fetchPositions]);
+    if (effectiveOrganizationId) fetchPositions({ organizationId: effectiveOrganizationId });
+  }, [effectiveOrganizationId, fetchPositions]);
 
+  // Refetch list when navigating to this page (e.g. after approval) so approved details show
   useEffect(() => {
-    if (!organizationId) return;
+    if (location.pathname !== '/employees') return;
+    // Super Admin with "All" can have no organizationId; backend returns all employees
+    if (!isSuperAdmin && !organizationId) return;
     const params: any = {
-      organizationId,
       page: currentPage,
       limit: pageSize,
       listView: true,
     };
+    if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
     if (searchTerm) params.search = searchTerm;
     if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
@@ -118,12 +214,14 @@ export default function EmployeesPage() {
     params.sortBy = sortBy;
     params.sortOrder = sortOrder;
     fetchEmployees(params);
-  }, [organizationId, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
+  }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
 
   const fetchCredentials = useCallback(async () => {
     try {
       setLoadingCredentials(true);
-      const data = await employeeService.getCredentials();
+      // Super Admin: pass selected org when viewing credentials; others use backend default
+      const orgId = isSuperAdmin && effectiveOrganizationId ? effectiveOrganizationId : undefined;
+      const data = await employeeService.getCredentials(orgId);
       setCredentials(data);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } }; message?: string };
@@ -132,7 +230,7 @@ export default function EmployeesPage() {
     } finally {
       setLoadingCredentials(false);
     }
-  }, []);
+  }, [isSuperAdmin, effectiveOrganizationId]);
 
   useEffect(() => {
     if (showCredentials && canManageCredentials && credentials.length === 0 && !loadingCredentials) {
@@ -282,12 +380,11 @@ export default function EmployeesPage() {
       alert('No employees to export.');
       return;
     }
-    const headers = ['EMP ID', 'Name', 'Email', 'Phone', 'Designation', 'Status'];
+    const headers = ['EMP ID', 'Name', 'Email', 'Designation', 'Status'];
     const rows = employees.map((emp) => [
       emp.employeeCode,
       `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
       emp.email || '',
-      emp.phone || '',
       emp.position?.title || '',
       emp.employeeStatus || '',
     ]);
@@ -325,7 +422,6 @@ export default function EmployeesPage() {
             <td>${emp.employeeCode}</td>
             <td>${(emp.firstName || '') + ' ' + (emp.lastName || '')}</td>
             <td>${emp.email || ''}</td>
-            <td>${emp.phone || ''}</td>
             <td>${emp.position?.title || ''}</td>
             <td>${emp.employeeStatus || ''}</td>
           </tr>`
@@ -351,7 +447,6 @@ export default function EmployeesPage() {
                 <th>EMP ID</th>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Phone</th>
                 <th>Designation</th>
                 <th>Status</th>
               </tr>
@@ -369,8 +464,8 @@ export default function EmployeesPage() {
     }
   };
 
-  // Show error if no organizationId (after trying to load user data)
-  if (!organizationId && !loadingUser) {
+  // Show error if no organizationId (after trying to load user data). Super Admin can use "All" so skip.
+  if (!organizationId && !loadingUser && !isSuperAdmin) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg">
@@ -411,8 +506,6 @@ export default function EmployeesPage() {
       </div>
     );
   }
-
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
 
   const handleChangeRole = async (employeeId: string, newRole: string) => {
     if (!roleChangeModal) return;
@@ -469,7 +562,7 @@ export default function EmployeesPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Employee Directory"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={effectiveOrganizationName ? `Organization: ${effectiveOrganizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -536,10 +629,10 @@ export default function EmployeesPage() {
                 </div>
               )}
             </div>
-            {isOrgAdmin && (
+            {canManageCredentials && (
               <button
                 onClick={() => { setShowCredentials(!showCredentials); if (!showCredentials) fetchCredentials(); }}
-                className="h-9 px-4 py-2 rounded-lg bg-gray-200 text-gray-700 font-medium text-sm hover:bg-gray-300 transition"
+                className="h-9 px-4 py-2 rounded-lg bg-white text-black font-medium text-sm border border-gray-300 hover:bg-gray-50 transition"
               >
                 {showCredentials ? 'View Employees' : 'View Credentials'}
               </button>
@@ -547,7 +640,9 @@ export default function EmployeesPage() {
             {canCreate && (
               <button
                 onClick={handleCreate}
-                className="h-9 px-4 py-2 rounded-lg bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition"
+                disabled={isSuperAdmin && superAdminSelectedOrgId === 'ALL'}
+                title={isSuperAdmin && superAdminSelectedOrgId === 'ALL' ? 'Select an organization to add employees' : undefined}
+                className="h-9 px-4 py-2 rounded-lg bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 + Add Employee
               </button>
@@ -555,13 +650,80 @@ export default function EmployeesPage() {
           </div>
         </div>
 
-      {/* Employee Credentials View (ORG_ADMIN only) */}
-      {showCredentials && isOrgAdmin && (
+      {/* Employee Credentials View */}
+      {showCredentials && canManageCredentials && (
         <div className="bg-white rounded-lg shadow mb-6">
           <div className="p-6 border-b border-gray-200">
             <h2 className="text-2xl font-bold text-gray-900">Employee Credentials</h2>
             <p className="text-gray-600 mt-1">View and manage employee login credentials</p>
           </div>
+
+          {/* Credentials filters */}
+          {!loadingCredentials && (
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="flex flex-col">
+                  <label className="text-sm font-medium text-gray-500 mb-1.5">Organization</label>
+                  <select
+                    value={credOrgFilter}
+                    onChange={(e) => setCredOrgFilter(e.target.value)}
+                    className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="ALL">All Organizations</option>
+                    {[
+                      ...new Set(
+                        credentials.map((c: any) => c.organizationName).filter(Boolean)
+                      ),
+                    ].sort().map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-sm font-medium text-gray-500 mb-1.5">Designation</label>
+                  <select
+                    value={credDesignationFilter}
+                    onChange={(e) => setCredDesignationFilter(e.target.value)}
+                    className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="ALL">All Designations</option>
+                    {[
+                      ...new Set(
+                        credentials.map((c: any) => c.position).filter(Boolean)
+                      ),
+                    ].sort().map((title) => (
+                      <option key={title} value={title}>{title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-sm font-medium text-gray-500 mb-1.5">Select Status</label>
+                  <select
+                    value={credStatusFilter}
+                    onChange={(e) => setCredStatusFilter(e.target.value)}
+                    className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="ALL">All Status</option>
+                    <option value="ACTIVE">Active</option>
+                    <option value="ON_LEAVE">On Leave</option>
+                    <option value="SUSPENDED">Suspended</option>
+                    <option value="TERMINATED">Terminated</option>
+                    <option value="RESIGNED">Resigned</option>
+                  </select>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-sm font-medium text-gray-500 mb-1.5">Search</label>
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, EMP ID..."
+                    value={credSearchTerm}
+                    onChange={(e) => setCredSearchTerm(e.target.value)}
+                    className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {loadingCredentials ? (
             <div className="p-12 text-center">
@@ -579,6 +741,11 @@ export default function EmployeesPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Email
                     </th>
+                    {isSuperAdmin && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Organization
+                      </th>
+                    )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Role
                     </th>
@@ -597,14 +764,14 @@ export default function EmployeesPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {credentials.length === 0 ? (
+                  {filteredCredentials.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                        No employees found
+                      <td colSpan={isSuperAdmin ? 8 : 7} className="px-6 py-8 text-center text-gray-500">
+                        {credentials.length === 0 ? 'No employees found' : 'No credentials match the selected filters'}
                       </td>
                     </tr>
                   ) : (
-                    credentials.map((cred) => {
+                    filteredCredentials.map((cred) => {
                       const hasNewPassword = showNewPassword && resetPasswordModal?.employeeId === cred.id;
                       return (
                         <tr key={cred.id} className="hover:bg-gray-50">
@@ -619,6 +786,11 @@ export default function EmployeesPage() {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">{cred.email}</div>
                           </td>
+                          {isSuperAdmin && (
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {(cred as { organizationName?: string }).organizationName ?? '—'}
+                            </td>
+                          )}
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center space-x-2">
                               <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
@@ -853,6 +1025,21 @@ export default function EmployeesPage() {
       {/* Filters Bar - equal-width boxes, labels above, match reference */}
       {!showCredentials && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {isSuperAdmin && (
+            <div className="flex flex-col">
+              <label className="text-sm font-medium text-gray-500 mb-1.5">Organization</label>
+              <select
+                value={superAdminSelectedOrgId}
+                onChange={(e) => { setSuperAdminSelectedOrgId(e.target.value as string | 'ALL'); setCurrentPage(1); }}
+                className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="ALL">All organizations</option>
+                {superAdminOrganizations.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex flex-col">
             <label className="text-sm font-medium text-gray-500 mb-1.5">Designation</label>
             <select
@@ -879,14 +1066,6 @@ export default function EmployeesPage() {
               <option value="SUSPENDED">Suspended</option>
               <option value="TERMINATED">Terminated</option>
               <option value="RESIGNED">Resigned</option>
-            </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Sort By</label>
-            <select className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-              <option>Last 7 Days</option>
-              <option>Last 30 Days</option>
-              <option>Last 90 Days</option>
             </select>
           </div>
           <div className="flex flex-col">
@@ -967,14 +1146,13 @@ export default function EmployeesPage() {
           <p className="text-sm mt-1">{error}</p>
           <button
             onClick={() => {
-              if (organizationId) {
-                const params: any = { organizationId, page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
-                if (searchTerm) params.search = searchTerm;
-                if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
-                if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-                if (positionFilter !== 'ALL') params.positionId = positionFilter;
-                fetchEmployees(params);
-              }
+              const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
+              if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+              if (searchTerm) params.search = searchTerm;
+              if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
+              if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+              if (positionFilter !== 'ALL') params.positionId = positionFilter;
+              fetchEmployees(params);
             }}
             className="mt-2 text-sm underline hover:no-underline"
           >
@@ -995,7 +1173,13 @@ export default function EmployeesPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EMP ID</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NAME</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EMAIL</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">PHONE</th>
+                {user?.role === 'SUPER_ADMIN' && (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                  </>
+                )}
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -1005,7 +1189,13 @@ export default function EmployeesPage() {
                   <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16 animate-pulse" /></td>
                   <td className="px-6 py-4"><div className="flex items-center gap-3"><div className="h-10 w-10 bg-gray-200 rounded-full animate-pulse" /><div className="h-4 bg-gray-200 rounded w-28 animate-pulse" /></div></td>
                   <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-40 animate-pulse" /></td>
-                  <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24 animate-pulse" /></td>
+                  {user?.role === 'SUPER_ADMIN' && (
+                    <>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24 animate-pulse" /></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
+                    </>
+                  )}
                   <td className="px-6 py-4 text-right"><div className="h-4 bg-gray-200 rounded w-20 ml-auto animate-pulse" /></td>
                 </tr>
               ))}
@@ -1056,20 +1246,26 @@ export default function EmployeesPage() {
                         </div>
                         <div className="text-xs text-gray-600 space-y-1 mb-3">
                           <div className="truncate">{emp.email}</div>
-                          {emp.phone && <div>{emp.phone}</div>}
+                          {user?.role === 'SUPER_ADMIN' && (
+                            <>
+                              {emp.organization?.name && <div>Org: {emp.organization.name}</div>}
+                              {emp.entity?.name && <div>Entity: {emp.entity.name}</div>}
+                              {emp.location?.name && <div>Location: {emp.location.name}</div>}
+                            </>
+                          )}
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button type="button" onClick={() => handleView(emp)} disabled={loadingEmployee} className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50">
-                            View
+                        <div className="flex flex-wrap gap-1">
+                          <button type="button" onClick={() => handleView(emp)} disabled={loadingEmployee} title="View" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-50">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           </button>
-                          {canUpdate && (
-                            <button type="button" onClick={() => handleEdit(emp)} disabled={loadingEmployee} className="text-xs text-indigo-600 hover:text-indigo-800 disabled:opacity-50">
-                              Edit
+                          {canEditRow(emp) && (
+                            <button type="button" onClick={() => handleEdit(emp)} disabled={loadingEmployee} title="Edit" className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                             </button>
                           )}
                           {canDelete && (
-                            <button type="button" onClick={() => handleDelete(emp.id)} className="text-xs text-red-600 hover:text-red-800">
-                              Delete
+                            <button type="button" onClick={() => handleDelete(emp.id)} title="Delete" className="p-1.5 rounded text-red-600 hover:bg-red-50">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           )}
                         </div>
@@ -1078,17 +1274,17 @@ export default function EmployeesPage() {
                   </div>
                 )}
               </div>
-              {pagination.totalPages > 1 && (
+              {pagination.total > 0 && (
                 <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between flex-wrap gap-2">
                   <p className="text-sm text-gray-700">
                     Showing <span className="font-medium">{(currentPage - 1) * pagination.limit + 1}</span> to <span className="font-medium">{Math.min(currentPage * pagination.limit, pagination.total)}</span> of <span className="font-medium">{pagination.total}</span> results
                   </p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 border border-gray-300 rounded bg-white text-sm disabled:opacity-50">
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
                       Previous
                     </button>
-                    <span className="px-3 py-1 text-sm text-gray-700">Page {currentPage} of {pagination.totalPages}</span>
-                    <button type="button" onClick={() => setCurrentPage((p) => Math.min(pagination.totalPages, p + 1))} disabled={currentPage === pagination.totalPages} className="px-3 py-1 border border-gray-300 rounded bg-white text-sm disabled:opacity-50">
+                    <span className="px-3 py-1.5 text-sm text-gray-600">Page {currentPage} of {Math.max(1, pagination.totalPages)}</span>
+                    <button type="button" onClick={() => setCurrentPage((p) => Math.min(pagination.totalPages, p + 1))} disabled={currentPage === pagination.totalPages || pagination.totalPages === 0} className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
                       Next
                     </button>
                   </div>
@@ -1139,9 +1335,13 @@ export default function EmployeesPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   EMAIL
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  PHONE
-                </th>
+                {user?.role === 'SUPER_ADMIN' && (
+                  <>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                  </>
+                )}
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -1150,7 +1350,7 @@ export default function EmployeesPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {employees.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={user?.role === 'SUPER_ADMIN' ? 7 : 4} className="px-6 py-8 text-center text-gray-500">
                     {searchTerm || statusFilter !== 'ALL' || departmentFilter !== 'ALL' || positionFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
@@ -1180,34 +1380,46 @@ export default function EmployeesPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {emp.email}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {emp.phone || '—'}
-                    </td>
+                    {user?.role === 'SUPER_ADMIN' && (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{emp.organization?.name ?? '—'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{emp.entity?.name ?? '—'}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{emp.location?.name ?? '—'}</td>
+                      </>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleView(emp)}
-                        disabled={loadingEmployee}
-                        className="text-blue-600 hover:text-blue-900 mr-3 disabled:opacity-50"
-                      >
-                        View
-                      </button>
-                      {canUpdate && (
+                      <div className="flex items-center justify-end gap-1">
                         <button
-                          onClick={() => handleEdit(emp)}
+                          type="button"
+                          onClick={() => handleView(emp)}
                           disabled={loadingEmployee}
-                          className="text-indigo-600 hover:text-indigo-900 mr-3 disabled:opacity-50"
+                          title="View"
+                          className="p-2 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-50"
                         >
-                          Edit
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                         </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => handleDelete(emp.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
-                      )}
+                        {canEditRow(emp) && (
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(emp)}
+                            disabled={loadingEmployee}
+                            title="Edit"
+                            className="p-2 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(emp.id)}
+                            title="Delete"
+                            className="p-2 rounded text-red-600 hover:bg-red-50"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1216,56 +1428,32 @@ export default function EmployeesPage() {
           </table>
           </div>
 
-          {/* Pagination */}
-          {pagination.totalPages > 1 && (
-            <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-              <div className="flex-1 flex justify-between sm:hidden">
+          {/* Pagination - show when there is data */}
+          {pagination.total > 0 && (
+            <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6 flex-wrap gap-2">
+              <p className="text-sm text-gray-700">
+                Showing <span className="font-medium">{(currentPage - 1) * pagination.limit + 1}</span> to{' '}
+                <span className="font-medium">{Math.min(currentPage * pagination.limit, pagination.total)}</span> of{' '}
+                <span className="font-medium">{pagination.total}</span> results
+              </p>
+              <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="relative inline-flex items-center px-4 py-2 border border-black text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
+                <span className="px-3 py-1.5 text-sm text-gray-600">Page {currentPage} of {Math.max(1, pagination.totalPages)}</span>
                 <button
+                  type="button"
                   onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
-                  disabled={currentPage === pagination.totalPages}
-                  className="ml-3 relative inline-flex items-center px-4 py-2 border border-black text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                  disabled={currentPage === pagination.totalPages || pagination.totalPages === 0}
+                  className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
                 </button>
-              </div>
-              <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm text-gray-700">
-                    Showing <span className="font-medium">{(currentPage - 1) * pagination.limit + 1}</span> to{' '}
-                    <span className="font-medium">
-                      {Math.min(currentPage * pagination.limit, pagination.total)}
-                    </span> of{' '}
-                    <span className="font-medium">{pagination.total}</span> results
-                  </p>
-                </div>
-                <div>
-                  <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                    <button
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-black bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Previous
-                    </button>
-                    <span className="relative inline-flex items-center px-4 py-2 border border-black bg-white text-sm font-medium text-gray-700">
-                      Page {currentPage} of {pagination.totalPages}
-                    </span>
-                    <button
-                      onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
-                      disabled={currentPage === pagination.totalPages}
-                      className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-black bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                    >
-                      Next
-                    </button>
-                  </nav>
-                </div>
               </div>
             </div>
           )}
@@ -1276,11 +1464,11 @@ export default function EmployeesPage() {
 
         </div>
       {/* Paygroup Selection Modal (Create flow only) */}
-      {organizationId && (
+      {effectiveOrganizationId && (
         <PaygroupSelectionModal
           isOpen={showPaygroupModal}
           onClose={() => setShowPaygroupModal(false)}
-          organizationId={organizationId}
+          organizationId={effectiveOrganizationId}
           onSubmit={handlePaygroupSubmit}
         />
       )}
@@ -1292,15 +1480,23 @@ export default function EmployeesPage() {
         title={editingEmployee ? (viewMode ? 'View Employee' : 'Edit Employee') : 'Create Employee'}
         size="full"
       >
-        {organizationId && (
+        {effectiveOrganizationId && (
           <EmployeeForm
+            key={editingEmployee?.id ?? 'create'}
             employee={editingEmployee}
-            organizationId={organizationId}
+            organizationId={effectiveOrganizationId}
             initialPaygroupId={selectedPaygroupId ?? undefined}
             initialPaygroupName={selectedPaygroupName ?? undefined}
             onSuccess={handleFormSuccess}
             onCancel={handleFormCancel}
             mode={editingEmployee && viewMode ? 'view' : 'edit'}
+            editableTabs={
+              editingEmployee && !viewMode
+                ? canUpdateByRole
+                  ? undefined
+                  : (editableTabsFromPermissions ?? ((user?.role === 'EMPLOYEE' || user?.role === 'MANAGER') && user?.employee?.id === editingEmployee.id ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[]) : undefined))
+                : undefined
+            }
           />
         )}
       </Modal>

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { prisma } from '../utils/prisma';
 import { employeeChangeRequestService } from '../services/employee-change-request.service';
 
 export class EmployeeChangeRequestController {
@@ -14,6 +15,20 @@ export class EmployeeChangeRequestController {
           status: 'fail',
           message: 'employeeId, existingData and requestedData are required.',
         });
+      }
+      // EMPLOYEE and MANAGER can only submit change request for their own record
+      const role = req.user!.role as string;
+      if (role === 'EMPLOYEE' || role === 'MANAGER') {
+        const myEmployee = await prisma.employee.findUnique({
+          where: { userId: req.user!.userId },
+          select: { id: true },
+        });
+        if (!myEmployee || myEmployee.id !== employeeId) {
+          return res.status(403).json({
+            status: 'fail',
+            message: 'You can only submit changes for your own profile.',
+          });
+        }
       }
       const request = await employeeChangeRequestService.submit({
         employeeId,

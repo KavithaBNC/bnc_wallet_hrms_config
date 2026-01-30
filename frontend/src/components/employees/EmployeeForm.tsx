@@ -3,11 +3,29 @@ import { useEmployeeStore } from '../../store/employeeStore';
 import { useDepartmentStore } from '../../store/departmentStore';
 import { usePositionStore } from '../../store/positionStore';
 import employeeService, { Employee, Gender, MaritalStatus, EmployeeStatus } from '../../services/employee.service';
+import { employeeChangeRequestService } from '../../services/employee-change-request.service';
 import api from '../../services/api';
 import { subDepartmentService } from '../../services/sub-department.service';
+import entityService from '../../services/entity.service';
+import locationService from '../../services/location.service';
 import Modal from '../common/Modal';
 import DepartmentForm from '../departments/DepartmentForm';
 import PositionForm from '../positions/PositionForm';
+import EntityForm from '../entities/EntityForm';
+import LocationForm from '../locations/LocationForm';
+
+export type EmployeeFormTabKey =
+  | 'company'
+  | 'personal'
+  | 'statutory'
+  | 'bank'
+  | 'salary'
+  | 'assets'
+  | 'academic'
+  | 'previousEmployment'
+  | 'family'
+  | 'others'
+  | 'newFields';
 
 interface EmployeeFormProps {
   employee?: Employee | null;
@@ -18,6 +36,8 @@ interface EmployeeFormProps {
   onCancel?: () => void;
   /** When 'view', form is read-only and Update Employee button is hidden */
   mode?: 'view' | 'edit';
+  /** When in edit mode, only these tabs are editable. Omit/undefined = all tabs editable. */
+  editableTabs?: EmployeeFormTabKey[];
 }
 
 const EmployeeForm: React.FC<EmployeeFormProps> = ({
@@ -28,19 +48,25 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   onSuccess,
   onCancel,
   mode = 'edit',
+  editableTabs,
 }) => {
   const isViewMode = mode === 'view';
   const { createEmployee, updateEmployee, loading } = useEmployeeStore();
   const { departments, fetchDepartments } = useDepartmentStore();
   const { positions, fetchPositions } = usePositionStore();
   const [availableManagers, setAvailableManagers] = useState<Employee[]>([]);
+  const [entities, setEntities] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [costCentres, setCostCentres] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
   const [createdEmployeeEmail, setCreatedEmployeeEmail] = useState<string>('');
+  const [approvalSubmitted, setApprovalSubmitted] = useState(false);
+  const [submittingApproval, setSubmittingApproval] = useState(false);
   const [showDepartmentModal, setShowDepartmentModal] = useState(false);
   const [showPositionModal, setShowPositionModal] = useState(false);
+  const [showEntityModal, setShowEntityModal] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
   const [showSubDepartmentModal, setShowSubDepartmentModal] = useState(false);
   const [newSubDepartmentName, setNewSubDepartmentName] = useState('');
   const [subDepartmentError, setSubDepartmentError] = useState('');
@@ -187,6 +213,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup ? 'company' : 'personal'
   );
 
+  /** Tab is editable when in edit mode and (no restriction or tab is in editableTabs) */
+  const isTabEditable = (tab: EmployeeFormTabKey) =>
+    mode === 'edit' && (editableTabs == null || editableTabs.length === 0 || editableTabs.includes(tab));
+
   const [formData, setFormData] = useState({
     // Company Details (Module 2)
     paygroupDisplay: initialPaygroupName || (employee as any)?.paygroup?.name || '',
@@ -202,6 +232,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     subDepartmentId: (employee as any)?.subDepartmentId || '',
     subDepartment: (employee as any)?.subDepartment || '',
     positionId: employee?.positionId || '',
+    entityId: (employee as any)?.entityId || (employee as any)?.location?.entityId || '',
     locationId: (employee as any)?.locationId || '',
     costCentreId: (employee as any)?.costCentreId || '',
     costCentre: (employee as any)?.costCentre?.name || '',
@@ -304,12 +335,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     fetchDepartments(organizationId);
     fetchPositions({ organizationId, limit: 100 });
     fetchManagersForDropdown();
-    const fetchLocations = async () => {
+    const fetchEntities = async () => {
       try {
-        const { data } = await api.get<{ data: { locations: { id: string; name: string; code?: string }[] } }>('/locations', { params: { organizationId } });
-        setLocations(data.data?.locations ?? []);
+        const list = await entityService.getByOrganization(organizationId);
+        setEntities(list);
       } catch {
-        setLocations([]);
+        setEntities([]);
       }
     };
     const fetchCostCentres = async () => {
@@ -333,10 +364,47 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         setSubDepartmentOptions([]);
       }
     };
-    fetchLocations();
+    fetchEntities();
     fetchCostCentres();
     fetchSubDepartments();
   }, [organizationId, fetchDepartments, fetchPositions, employee?.id]);
+
+  // Fetch locations for selected entity
+  useEffect(() => {
+    if (!formData.entityId?.trim()) {
+      setLocations([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const list = await locationService.getByEntity(organizationId, formData.entityId);
+        if (!cancelled) setLocations(list);
+      } catch {
+        if (!cancelled) setLocations([]);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [organizationId, formData.entityId]);
+
+  // When "Same as permanent" is ON, keep present address in sync with permanent
+  useEffect(() => {
+    if (!formData.sameAsPermanent) return;
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        presentAddress: prev.permanentAddress,
+        presentCity: prev.permanentCity,
+        presentDistrict: prev.permanentDistrict,
+        presentState: prev.permanentState,
+        presentPincode: prev.permanentPincode,
+        presentPhoneNumber: prev.permanentPhoneNumber,
+      };
+      if (prev.presentAddress === next.presentAddress && prev.presentCity === next.presentCity && prev.presentDistrict === next.presentDistrict && prev.presentState === next.presentState && prev.presentPincode === next.presentPincode && prev.presentPhoneNumber === next.presentPhoneNumber) return prev;
+      return next;
+    });
+  }, [formData.sameAsPermanent, formData.permanentAddress, formData.permanentCity, formData.permanentDistrict, formData.permanentState, formData.permanentPincode, formData.permanentPhoneNumber]);
 
   // When editing, merge employee's sub-department name into options if not already loaded from API
   useEffect(() => {
@@ -349,6 +417,70 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       return [...prev, name].sort((a, b) => a.localeCompare(b));
     });
   }, [employee?.id]);
+
+  // When employee is loaded (e.g. from getById after approval), sync academic/previous employment/family from API
+  useEffect(() => {
+    const emp = employee as { id?: string; academicQualifications?: unknown[]; previousEmployments?: unknown[]; familyMembers?: unknown[] } | null | undefined;
+    if (!emp?.id) return;
+
+    const ensureId = (item: Record<string, unknown>) =>
+      typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id : (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `gen-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+    const rawAcademic = Array.isArray(emp.academicQualifications) ? emp.academicQualifications : [];
+    setAcademicQualifications(rawAcademic.map((q: unknown) => {
+      const row = (q && typeof q === 'object' ? q : {}) as Record<string, unknown>;
+      return {
+        id: ensureId(row),
+        degree: typeof row.degree === 'string' ? row.degree : '',
+        discipline: typeof row.discipline === 'string' ? row.discipline : '',
+        university: typeof row.university === 'string' ? row.university : '',
+        grade: typeof row.grade === 'string' ? row.grade : '',
+        percentage: typeof row.percentage === 'string' ? row.percentage : '',
+        yearOfPassing: typeof row.yearOfPassing === 'string' ? row.yearOfPassing : '',
+        nameOfInstitution: typeof row.nameOfInstitution === 'string' ? row.nameOfInstitution : '',
+        remarks: typeof row.remarks === 'string' ? row.remarks : '',
+      };
+    }));
+
+    const rawPrev = Array.isArray(emp.previousEmployments) ? emp.previousEmployments : [];
+    setPreviousEmployments(rawPrev.map((e: unknown) => {
+      const row = (e && typeof e === 'object' ? e : {}) as Record<string, unknown>;
+      return {
+        id: ensureId(row),
+        organization: typeof row.organization === 'string' ? row.organization : '',
+        designation: typeof row.designation === 'string' ? row.designation : '',
+        fromDate: typeof row.fromDate === 'string' ? row.fromDate : '',
+        toDate: typeof row.toDate === 'string' ? row.toDate : '',
+        yearsOfExperience: typeof (row.yearsOfExperience ?? row.relevantExperience) === 'string' ? String(row.yearsOfExperience ?? row.relevantExperience ?? '') : '',
+        relevantExperience: typeof row.relevantExperience === 'string' ? row.relevantExperience : '',
+        remarks: typeof row.remarks === 'string' ? row.remarks : '',
+        ctc: typeof row.ctc === 'string' ? row.ctc : '',
+      };
+    }));
+
+    const rawFamily = Array.isArray(emp.familyMembers) ? emp.familyMembers : [];
+    setFamilyMembers(rawFamily.map((m: unknown) => {
+      const row = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>;
+      const phone = row.phoneNumber ?? row.phone ?? '';
+      return {
+        id: ensureId(row),
+        firstName: typeof row.firstName === 'string' ? row.firstName : '',
+        lastName: typeof row.lastName === 'string' ? row.lastName : '',
+        relationship: typeof row.relationship === 'string' ? row.relationship : '',
+        dateOfBirth: typeof row.dateOfBirth === 'string' ? row.dateOfBirth : '',
+        phoneNumber: typeof phone === 'string' ? phone : '',
+        occupation: typeof row.occupation === 'string' ? row.occupation : '',
+        address: typeof row.address === 'string' ? row.address : '',
+        aadhaarNumber: typeof row.aadhaarNumber === 'string' ? row.aadhaarNumber : '',
+        passportNumber: typeof row.passportNumber === 'string' ? row.passportNumber : '',
+        passportIssueDate: typeof row.passportIssueDate === 'string' ? row.passportIssueDate : '',
+        passportExpiryDate: typeof row.passportExpiryDate === 'string' ? row.passportExpiryDate : '',
+        pfShare: typeof row.pfShare === 'string' ? row.pfShare : '',
+        gratuityShare: typeof row.gratuityShare === 'string' ? row.gratuityShare : '',
+        nominationRemarks: typeof row.nominationRemarks === 'string' ? row.nominationRemarks : '',
+      };
+    }));
+  }, [employee?.id, (employee as any)?.academicQualifications, (employee as any)?.previousEmployments, (employee as any)?.familyMembers]);
 
   // Fetch potential managers (all active employees in the organization)
   const fetchManagersForDropdown = async () => {
@@ -375,8 +507,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     if (isViewMode) return;
+    if (editableTabs != null && editableTabs.length > 0 && !editableTabs.includes(currentTab)) return;
     const { name, value } = e.target;
     const updates: Record<string, string> = { [name]: value };
+    // When entity changes, clear location so user picks from entity-scoped list
+    if (name === 'entityId') updates.locationId = '';
     // Sync Personal Info fields used for validation/submit
     if (name === 'personalEmail') updates.email = value;
     if (name === 'permanentPhoneNumber') updates.phoneNumber = value;
@@ -395,14 +530,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const validateCompany = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
+    if (!formData.firstName?.trim()) newErrors.firstName = 'First name is required';
+    if (!formData.dateOfBirth?.trim()) newErrors.dateOfBirth = 'Date of birth is required';
     if (!formData.gender) newErrors.gender = 'Gender is required';
-    if (!formData.dateOfBirth) newErrors.dateOfBirth = 'Date of birth is required';
-    if (!formData.joiningDate) newErrors.joiningDate = 'Date of joining is required';
-    if (!formData.departmentId) newErrors.departmentId = 'Department is required';
-    if (!formData.positionId) newErrors.positionId = 'Designation is required';
-    if (initialPaygroupId && !formData.placeOfTaxDeduction) newErrors.placeOfTaxDeduction = 'Place of tax deduction is required';
-    setErrors(newErrors);
+    if (!formData.joiningDate?.trim()) newErrors.joiningDate = 'Date of joining is required';
+    if (!formData.placeOfTaxDeduction?.trim()) {
+      newErrors.placeOfTaxDeduction = 'Place of Tax Deduction is required';
+    }
+    if (!formData.departmentId?.trim()) newErrors.departmentId = 'Department is required';
+    if (!formData.positionId?.trim()) newErrors.positionId = 'Designation is required';
+    setErrors(prev => ({ ...prev, ...newErrors }));
     return Object.keys(newErrors).length === 0;
   };
 
@@ -433,15 +570,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       newErrors.gender = 'Gender is required';
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const validateEmployment = () => {
-    const newErrors: Record<string, string> = {};
-    if (!formData.departmentId) newErrors.departmentId = 'Department is required';
-    if (!formData.positionId) newErrors.positionId = 'Position is required';
-    if (!formData.joiningDate) newErrors.joiningDate = 'Joining date is required';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -480,24 +608,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     else if (currentTab === 'salary') setCurrentTab('bank');
     else if (currentTab === 'bank') setCurrentTab('statutory');
     else if (currentTab === 'statutory') setCurrentTab('personal');
-    else if (currentTab === 'personal' && initialPaygroupId) setCurrentTab('company');
     else if (currentTab === 'personal') setCurrentTab('company');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (initialPaygroupId) {
-      if (!validateCompany() || !validatePersonal()) {
-        if (!validateCompany()) setCurrentTab('company');
-        else setCurrentTab('personal');
-        return;
-      }
-    } else {
-      if (!validatePersonal()) {
-        setCurrentTab('personal');
-        return;
-      }
+    if (!validatePersonal()) {
+      setCurrentTab('personal');
+      return;
     }
 
     try {
@@ -542,6 +661,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         departmentId: formData.departmentId && formData.departmentId.trim() ? formData.departmentId : null,
         positionId: formData.positionId && formData.positionId.trim() ? formData.positionId : null,
         reportingManagerId: formData.managerId && formData.managerId.trim() ? formData.managerId : null,
+        entityId: formData.entityId && formData.entityId.trim() ? formData.entityId : null,
         locationId: formData.locationId && formData.locationId.trim() ? formData.locationId : null,
         costCentreId: (() => {
           const text = formData.costCentre?.trim();
@@ -593,6 +713,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         submitData.paygroupId = initialPaygroupId;
       }
 
+      // When restricted to personal (+ academic/family/previousEmployment) tabs (e.g. EMPLOYEE self-edit), send only allowed fields
+      if (employee && editableTabs && editableTabs.length > 0 && editableTabs.includes('personal') && !editableTabs.includes('newFields')) {
+        const allowedKeys = new Set([
+          'organizationId', 'firstName', 'middleName', 'lastName', 'email', 'phone', 'dateOfBirth', 'gender',
+          'maritalStatus', 'personalEmail', 'address', 'emergencyContacts', 'officialEmail', 'officialMobile', 'placeOfTaxDeduction',
+          'dateOfJoining', // required by backend; keep so submit is not blocked
+        ]);
+        Object.keys(submitData).forEach(key => {
+          if (!allowedKeys.has(key)) delete submitData[key];
+        });
+      }
+
       // Remove undefined values for optional fields only (keep required fields even if undefined for validation)
       const requiredFields = ['organizationId', 'firstName', 'email', 'dateOfJoining'];
       Object.keys(submitData).forEach(key => {
@@ -605,6 +737,40 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       if (!submitData.dateOfJoining) {
         setErrors({ joiningDate: 'Joining date is required' });
         setCurrentTab(initialPaygroupId ? 'company' : 'personal');
+        return;
+      }
+
+      // MANAGER/EMPLOYEE self-edit: always submit via change request for HR approval (so HR sees it on approval page)
+      const isEmployeeSelfEdit = employee && editableTabs && editableTabs.length > 0;
+      if (isEmployeeSelfEdit) {
+        setSubmittingApproval(true);
+        try {
+          const emp = employee as any;
+          const existingData: Record<string, unknown> = {};
+          Object.keys(submitData).forEach((key) => {
+            if (key === 'address' && emp?.address) existingData[key] = typeof emp.address === 'object' ? emp.address : undefined;
+            else if (key === 'emergencyContacts' && emp?.emergencyContacts) existingData[key] = emp.emergencyContacts;
+            else if (key === 'bankDetails' && emp?.bankDetails) existingData[key] = emp.bankDetails;
+            else if (key in emp) existingData[key] = emp[key];
+          });
+          // Include academic, previous employment, and family so approval screen shows them
+          existingData.academicQualifications = emp?.academicQualifications ?? [];
+          existingData.previousEmployments = emp?.previousEmployments ?? [];
+          existingData.familyMembers = emp?.familyMembers ?? [];
+          const requestedData: Record<string, unknown> = { ...submitData };
+          requestedData.academicQualifications = academicQualifications;
+          requestedData.previousEmployments = previousEmployments;
+          requestedData.familyMembers = familyMembers;
+          await employeeChangeRequestService.submit({
+            employeeId: employee.id,
+            organizationId,
+            existingData,
+            requestedData,
+          });
+          setApprovalSubmitted(true);
+        } finally {
+          setSubmittingApproval(false);
+        }
         return;
       }
 
@@ -640,7 +806,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         });
         if (Object.keys(validationErrors).length > 0) {
           setErrors({ ...validationErrors, submit: 'Please fix the errors below.' });
-          const hasCompanyError = !!(validationErrors.joiningDate || validationErrors.departmentId || validationErrors.positionId || validationErrors.lastName);
+          const hasCompanyError = !!(validationErrors.joiningDate || validationErrors.departmentId || validationErrors.positionId);
           const hasPersonalError = !!(validationErrors.firstName || validationErrors.email || validationErrors.phoneNumber);
           if (initialPaygroupId && hasCompanyError) setCurrentTab('company');
           else if (hasPersonalError) setCurrentTab('personal');
@@ -656,9 +822,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   return (
     <>
-    <form onSubmit={handleSubmit} className="space-y-6 w-full h-full">
+    <form onSubmit={handleSubmit} className="space-y-6 w-full max-w-full min-w-0 h-full">
       {/* Layout: Vertical tab menu on the left, content on the right */}
-      <div className="flex gap-6 h-full">
+      <div className="flex gap-6 h-full min-w-0">
         {/* Tab Navigation - vertical menu */}
         <div className="w-56 flex-shrink-0">
           <nav className="flex flex-col space-y-2 bg-white rounded-lg border border-gray-200 p-3">
@@ -794,8 +960,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         </nav>
       </div>
 
-      {/* Tab Content */}
-      <div className="flex-1 space-y-6">
+      {/* Tab Content - full width */}
+      <div className="flex-1 min-w-0 space-y-6">
 
       {/* Company Details Tab */}
       {(initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && currentTab === 'company' && (
@@ -1071,12 +1237,48 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               {errors.positionId && <p className="mt-1 text-sm text-red-600">{errors.positionId}</p>}
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700">Entity</label>
+              <div className="flex gap-2">
+                <select name="entityId" value={formData.entityId} onChange={handleChange}
+                  className="flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                  <option value="">Entity</option>
+                  {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowEntityModal(true)}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
+                  title="Add New Entity"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700">Location</label>
-              <select name="locationId" value={formData.locationId} onChange={handleChange}
-                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                <option value="">Location</option>
-                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              <div className="flex gap-2">
+                <select name="locationId" value={formData.locationId} onChange={handleChange}
+                  disabled={!formData.entityId?.trim()}
+                  className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    !formData.entityId?.trim() ? 'opacity-60 cursor-not-allowed border-gray-300' : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}>
+                  <option value="">{formData.entityId?.trim() ? 'Location' : 'Select entity first'}</option>
+                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => formData.entityId?.trim() && setShowLocationModal(true)}
+                  disabled={!formData.entityId?.trim()}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={formData.entityId?.trim() ? 'Add New Location' : 'Select an entity first'}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Grade</label>
@@ -1121,7 +1323,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Personal Information Tab */}
       {currentTab === 'personal' && (
-        <div className="space-y-6">
+        <div className={`space-y-6 ${!isTabEditable('personal') ? 'pointer-events-none opacity-75' : ''}`}>
           {/* Permanent Address Section */}
           <div className="bg-gray-50 border rounded-lg p-4 text-left">
             <h3 className="text-base font-semibold text-gray-900 mb-4">Permanent Address</h3>
@@ -1485,7 +1687,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Statutory Details Tab */}
       {currentTab === 'statutory' && (
-        <div className="space-y-6">
+        <div className={`space-y-6 ${!isTabEditable('statutory') ? 'pointer-events-none opacity-75' : ''}`}>
           {/* Statutory fields – first 12 in specified order, then rest */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
             <h3 className="text-base font-medium text-gray-900">Statutory Numbers & Locations</h3>
@@ -1861,7 +2063,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Bank Details Tab */}
       {currentTab === 'bank' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('bank') ? 'pointer-events-none opacity-75' : ''}`}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Bank Name</label>
@@ -1933,7 +2135,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Salary Details Tab */}
       {currentTab === 'salary' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('salary') ? 'pointer-events-none opacity-75' : ''}`}>
           <div className="flex border-b border-gray-200">
             <button
               type="button"
@@ -2038,7 +2240,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Assets Tab */}
       {currentTab === 'assets' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('assets') ? 'pointer-events-none opacity-75' : ''}`}>
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Assets</h3>
             <button
@@ -2143,7 +2345,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Academic Qualification Tab */}
       {currentTab === 'academic' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('academic') ? 'pointer-events-none opacity-75' : ''}`}>
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Academic Qualification</h3>
             <button
@@ -2246,7 +2448,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Family Details Tab */}
       {currentTab === 'family' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('family') ? 'pointer-events-none opacity-75' : ''}`}>
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Family Details</h3>
             <button
@@ -2353,7 +2555,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Previous Employment Tab */}
       {currentTab === 'previousEmployment' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('previousEmployment') ? 'pointer-events-none opacity-75' : ''}`}>
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Previous Employment</h3>
             <button
@@ -2452,7 +2654,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* Others Tab */}
       {currentTab === 'others' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('others') ? 'pointer-events-none opacity-75' : ''}`}>
           {/* Sub-tab Navigation */}
           <div className="border-b border-gray-200">
             <nav className="-mb-px flex space-x-8">
@@ -2643,7 +2845,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
       {/* New Fields Tab */}
       {currentTab === 'newFields' && (
-        <div className="space-y-4">
+        <div className={`space-y-4 ${!isTabEditable('newFields') ? 'pointer-events-none opacity-75' : ''}`}>
           <h3 className="text-lg font-semibold text-gray-900 mb-4">New Fields</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -2744,25 +2946,64 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               Cancel
             </button>
           )}
-          {currentTab === 'newFields' && !isViewMode ? (
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Saving...' : employee ? 'Update Employee' : 'Create Employee'}
-            </button>
-          ) : currentTab === 'newFields' && isViewMode ? null : (
-            <button
-              type="button"
-              onClick={handleNext}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
-            >
-              Next
-            </button>
-          )}
+          {(() => {
+            const showSubmit = !isViewMode && (
+              !employee
+                ? true
+                : (currentTab === 'newFields' && (editableTabs == null || editableTabs.includes('newFields'))) ||
+                  (currentTab === 'personal' && isTabEditable('personal')) ||
+                  (currentTab === 'academic' && isTabEditable('academic')) ||
+                  (currentTab === 'previousEmployment' && isTabEditable('previousEmployment')) ||
+                  (currentTab === 'family' && isTabEditable('family'))
+            );
+            if (showSubmit) {
+              return (
+                <button
+                  type="submit"
+                  disabled={loading || submittingApproval}
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submittingApproval ? 'Submitting...' : loading ? 'Saving...' : employee ? 'Update Employee' : 'Create Employee'}
+                </button>
+              );
+            }
+            if (isViewMode) return null;
+            return (
+              <button
+                type="button"
+                onClick={handleNext}
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+              >
+                Next
+              </button>
+            );
+          })()}
         </div>
       </div>
+
+      {/* Approval submitted message – employee self-edit goes for HR approval */}
+      {approvalSubmitted && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mx-auto mb-4">
+              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 text-center mb-2">Changes submitted</h2>
+            <p className="text-gray-600 text-center mb-6">
+              Your changes will be updated once approved by HR.
+            </p>
+            <button
+              type="button"
+              onClick={() => { setApprovalSubmitted(false); onSuccess?.(); }}
+              className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Temporary Password Modal */}
       {showPasswordModal && temporaryPassword && (
@@ -2885,6 +3126,54 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             setShowPositionModal(false);
           }}
           onCancel={() => setShowPositionModal(false)}
+        />
+      </Modal>
+    )}
+
+    {/* Entity Modal */}
+    {showEntityModal && (
+      <Modal
+        isOpen={showEntityModal}
+        onClose={() => setShowEntityModal(false)}
+        title="Create Entity"
+        size="2xl"
+      >
+        <EntityForm
+          organizationId={organizationId}
+          onSuccess={async (createdEntity) => {
+            const list = await entityService.getByOrganization(organizationId);
+            setEntities(list);
+            if (createdEntity) {
+              setFormData(prev => ({ ...prev, entityId: createdEntity.id, locationId: '' }));
+            }
+            setShowEntityModal(false);
+          }}
+          onCancel={() => setShowEntityModal(false)}
+        />
+      </Modal>
+    )}
+
+    {/* Location Modal */}
+    {showLocationModal && formData.entityId?.trim() && (
+      <Modal
+        isOpen={showLocationModal}
+        onClose={() => setShowLocationModal(false)}
+        title="Create Location"
+        size="2xl"
+      >
+        <LocationForm
+          organizationId={organizationId}
+          entityId={formData.entityId}
+          entityName={entities.find(e => e.id === formData.entityId)?.name}
+          onSuccess={async (createdLocation) => {
+            const list = await locationService.getByEntity(organizationId, formData.entityId);
+            setLocations(list);
+            if (createdLocation) {
+              setFormData(prev => ({ ...prev, locationId: createdLocation.id }));
+            }
+            setShowLocationModal(false);
+          }}
+          onCancel={() => setShowLocationModal(false)}
         />
       </Modal>
     )}

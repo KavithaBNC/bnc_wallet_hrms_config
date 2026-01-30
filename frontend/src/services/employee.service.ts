@@ -27,6 +27,8 @@ export interface Employee {
   positionId?: string | null;
   reportingManagerId?: string | null;
   workLocation?: string;
+  entityId?: string | null;
+  locationId?: string | null;
   employmentType?: EmploymentType;
   employeeStatus: EmployeeStatus;
   // Dates
@@ -92,6 +94,17 @@ export interface Employee {
     lastName: string;
     email: string;
   };
+  entity?: {
+    id: string;
+    name: string;
+    code?: string | null;
+  };
+  location?: {
+    id: string;
+    name: string;
+    code?: string | null;
+    entityId?: string;
+  };
   subordinates?: Array<{
     id: string;
     employeeCode: string;
@@ -108,6 +121,10 @@ export interface Employee {
     isEmailVerified: boolean;
     lastLoginAt?: string;
   };
+  // From profileExtensions (getById only) – academic/previous employment/family
+  academicQualifications?: Array<Record<string, unknown>>;
+  previousEmployments?: Array<Record<string, unknown>>;
+  familyMembers?: Array<Record<string, unknown>>;
 }
 
 export interface EmployeeListResponse {
@@ -196,10 +213,12 @@ const employeeService = {
   },
 
   /**
-   * Get employee credentials (for ORG_ADMIN only)
+   * Get employee credentials (for SUPER_ADMIN, ORG_ADMIN, HR_MANAGER).
+   * Super Admin can pass organizationId to view a specific org's credentials.
    */
-  async getCredentials(): Promise<any[]> {
-    const response = await api.get('/employees/credentials');
+  async getCredentials(organizationId?: string): Promise<any[]> {
+    const params = organizationId ? { organizationId } : {};
+    const response = await api.get('/employees/credentials', { params });
     return response.data.data.credentials;
   },
 };

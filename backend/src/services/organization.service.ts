@@ -21,7 +21,9 @@ export class OrganizationService {
       }
     }
 
-    // Create organization
+    const prefix = data.employeeIdPrefix?.trim() || (data.employeeIdStartingNumber != null ? 'EMP' : null);
+    const startingNumber = data.employeeIdStartingNumber ?? 1;
+    const useOrgEmployeeId = Boolean(prefix && (data.employeeIdPrefix != null || data.employeeIdStartingNumber != null));
     const organization = await prisma.organization.create({
       data: {
         name: data.name,
@@ -36,6 +38,8 @@ export class OrganizationService {
         currency: data.currency || 'USD',
         fiscalYearStart: data.fiscalYearStart ? new Date(data.fiscalYearStart) : undefined,
         settings: data.settings || {},
+        employeeIdPrefix: prefix,
+        employeeIdNextNumber: useOrgEmployeeId ? startingNumber : null,
       },
     });
 
@@ -135,13 +139,17 @@ export class OrganizationService {
       }
     }
 
-    // Update organization
+    const { employeeIdStartingNumber, ...rest } = data;
+    const updateData: Record<string, unknown> = {
+      ...rest,
+      fiscalYearStart: data.fiscalYearStart ? new Date(data.fiscalYearStart) : undefined,
+    };
+    if (employeeIdStartingNumber !== undefined) {
+      updateData.employeeIdNextNumber = employeeIdStartingNumber;
+    }
     const updated = await prisma.organization.update({
       where: { id },
-      data: {
-        ...data,
-        fiscalYearStart: data.fiscalYearStart ? new Date(data.fiscalYearStart) : undefined,
-      },
+      data: updateData as Parameters<typeof prisma.organization.update>[0]['data'],
     });
 
     return updated;

@@ -10,6 +10,8 @@ export interface Organization {
   registrationNumber?: string;
   website?: string;
   logoUrl?: string;
+  employeeIdPrefix?: string | null;
+  employeeIdNextNumber?: number | null;
   address?: {
     street?: string;
     city?: string;
@@ -46,6 +48,8 @@ export interface CreateOrganizationData {
   sizeRange?: '1-10' | '11-50' | '51-200' | '201-500' | '501-1000' | '1000+';
   timezone?: string;
   currency?: string;
+  employeeIdPrefix?: string;
+  employeeIdStartingNumber?: number;
 }
 
 export interface OrganizationsListResponse {

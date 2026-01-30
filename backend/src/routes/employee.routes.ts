@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { employeeController } from '../controllers/employee.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate, authorize, authorizeEmployeeUpdate } from '../middlewares/auth';
 import { employeeListAccess, enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -18,12 +18,12 @@ router.use(authenticate);
 
 /**
  * @route   GET /api/v1/employees/credentials
- * @desc    Get employee credentials (for ORG_ADMIN and HR_MANAGER)
- * @access  Private (ORG_ADMIN, HR_MANAGER)
+ * @desc    Get employee credentials (for SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
  */
 router.get(
   '/credentials',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
   employeeListAccess, // This sets req.rbac.organizationId
   employeeController.getEmployeeCredentials.bind(employeeController)
 );
@@ -89,13 +89,13 @@ router.post(
 
 /**
  * @route   PUT /api/v1/employees/:id
- * @desc    Update employee
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ * @desc    Update employee. SUPER_ADMIN/ORG_ADMIN/HR_MANAGER: any employee. MANAGER/EMPLOYEE: own profile only (tab-level by permission).
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER for all; MANAGER, EMPLOYEE for own profile)
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
-  enforceOrganizationAccess, // Ensure organizationId is set from user's organization
+  authorizeEmployeeUpdate, // Allows admin roles for any update; MANAGER/EMPLOYEE only for own profile
+  enforceOrganizationAccess, // Ensure organizationId set; sets req.rbac for controller
   validate(updateEmployeeSchema),
   employeeController.update.bind(employeeController)
 );

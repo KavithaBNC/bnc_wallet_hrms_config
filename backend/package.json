@@ -21,6 +21,7 @@
     "test:rbac": "ts-node src/scripts/test-rbac.ts",
     "test:super-admin": "ts-node src/scripts/test-super-admin-access.ts",
     "verify:phase2": "ts-node src/scripts/verify-phase2-rbac.ts",
+    "seed:permissions": "ts-node src/scripts/seed-permissions.ts",
     "seed:leave": "ts-node src/scripts/seed-leave-data.ts",
     "seed:attendance": "ts-node src/scripts/seed-attendance-data.ts",
     "test:leave": "ts-node src/scripts/test-leave-management.ts",
