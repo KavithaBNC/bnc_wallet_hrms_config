@@ -39,8 +39,13 @@ export const useEmployeeStore = create<EmployeeStore>((set) => ({
     set({ loading: true, error: null });
     try {
       const response = await employeeService.getAll(params);
-      const employees = response.employees ?? [];
-      const pagination = response.pagination ?? { page: 1, limit: 20, total: 0, totalPages: 0 };
+      const employees = response.employees || [];
+      const pagination = response.pagination || {
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      };
       set({
         employees,
         pagination,
@@ -71,7 +76,7 @@ export const useEmployeeStore = create<EmployeeStore>((set) => ({
         employees: [...state.employees, result.employee],
         loading: false,
       }));
-      return result; // Return both employee and temporaryPassword
+      return result;
     } catch (error: any) {
       set({ error: error.message || 'Failed to create employee', loading: false });
       throw error;

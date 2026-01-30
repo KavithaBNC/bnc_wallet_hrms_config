@@ -9,7 +9,7 @@ interface DepartmentStore {
   error: string | null;
 
   // Actions
-  fetchDepartments: (organizationId: string, options?: { listView?: boolean; sortBy?: 'name' | 'code' | 'createdAt'; sortOrder?: 'asc' | 'desc' }) => Promise<void>;
+  fetchDepartments: (organizationId: string, options?: { listView?: boolean }) => Promise<void>;
   fetchDepartmentById: (id: string) => Promise<void>;
   fetchHierarchy: (organizationId: string) => Promise<void>;
   createDepartment: (data: any) => Promise<Department>;
@@ -26,17 +26,15 @@ export const useDepartmentStore = create<DepartmentStore>((set) => ({
   loading: false,
   error: null,
 
-  fetchDepartments: async (organizationId: string, options?: { listView?: boolean; sortBy?: 'name' | 'code' | 'createdAt'; sortOrder?: 'asc' | 'desc' }) => {
+  fetchDepartments: async (organizationId: string, options?: { listView?: boolean }) => {
     set({ loading: true, error: null });
     try {
       const response = await departmentService.getAll({
         organizationId,
         limit: 100,
         listView: options?.listView ?? true,
-        sortBy: options?.sortBy,
-        sortOrder: options?.sortOrder,
       });
-      const departments = response.departments ?? [];
+      const departments = response.departments || [];
       set({ departments, loading: false });
     } catch (error: any) {
       console.error('Error fetching departments:', error);

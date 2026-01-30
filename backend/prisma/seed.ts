@@ -99,6 +99,28 @@ async function main() {
   });
   console.log(`✅ Departments created: HR, IT, Sales`);
 
+  // 3b. Create one Sub-Department (for dropdown/reference; requires sub_departments table)
+  try {
+    const subDept = await prisma.subDepartment.upsert({
+      where: {
+        organizationId_name: { organizationId: organization.id, name: 'HR Operations' },
+      },
+      create: {
+        organizationId: organization.id,
+        name: 'HR Operations',
+        isActive: true,
+      },
+      update: {},
+    });
+    console.log(`✅ Sub-department created/ensured: ${subDept.name}`);
+  } catch (e: any) {
+    if (e.message?.includes('sub_departments') || e.message?.includes('does not exist')) {
+      console.log('⏭️  Sub-department skipped (run migration first: npm run migrate:sub-department)');
+    } else {
+      throw e;
+    }
+  }
+
   // 4. Create Positions
   console.log('💼 Creating test positions...');
   const hrManagerPosition = await prisma.jobPosition.create({

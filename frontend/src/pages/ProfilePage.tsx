@@ -30,7 +30,7 @@ const ProfilePage = () => {
       setEditFormData({
         firstName: user.employee.firstName || '',
         lastName: user.employee.lastName || '',
-        phone: (user.employee as Record<string, unknown>).phone as string || '',
+        phone: (user.employee as { phone?: string }).phone || '',
       });
     }
   }, [user]);

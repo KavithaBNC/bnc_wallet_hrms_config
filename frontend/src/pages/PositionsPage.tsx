@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { usePositionStore } from '../store/positionStore';
 import { useDepartmentStore } from '../store/departmentStore';
 import { useAuthStore } from '../store/authStore';

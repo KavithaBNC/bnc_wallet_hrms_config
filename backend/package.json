@@ -29,7 +29,9 @@
     "test:phase4": "ts-node -r tsconfig-paths/register src/scripts/test-phase4-modules.ts",
     "seed:payroll": "ts-node -r tsconfig-paths/register src/scripts/seed-payroll-data.ts",
     "mark:december": "ts-node -r tsconfig-paths/register src/scripts/mark-december-present.ts",
-    "assign:salary": "ts-node -r tsconfig-paths/register src/scripts/assign-salary-to-mani-saravanan.ts"
+    "assign:salary": "ts-node -r tsconfig-paths/register src/scripts/assign-salary-to-mani-saravanan.ts",
+    "migrate:sub-department": "ts-node -r tsconfig-paths/register src/scripts/run-sub-department-migration.ts",
+    "seed:dept-subdept": "ts-node -r tsconfig-paths/register src/scripts/seed-department-subdepartment.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

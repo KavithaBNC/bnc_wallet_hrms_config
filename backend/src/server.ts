@@ -121,6 +121,7 @@ import payrollRoutes from './routes/payroll.routes';
 import paygroupRoutes from './routes/paygroup.routes';
 import locationRoutes from './routes/location.routes';
 import costCentreRoutes from './routes/cost-centre.routes';
+import subDepartmentRoutes from './routes/sub-department.routes';
 import atsRoutes from './routes/ats.routes';
 
 // Mount routes
@@ -139,6 +140,7 @@ app.use('/api/v1/payroll', payrollRoutes);
 app.use('/api/v1/paygroups', paygroupRoutes);
 app.use('/api/v1/locations', locationRoutes);
 app.use('/api/v1/cost-centres', costCentreRoutes);
+app.use('/api/v1/sub-departments', subDepartmentRoutes);
 app.use('/api/v1/ats', atsRoutes);
 
 // ============================================================================

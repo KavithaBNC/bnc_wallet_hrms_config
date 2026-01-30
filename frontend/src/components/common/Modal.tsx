@@ -35,7 +35,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
     lg: 'max-w-lg',
     xl: 'max-w-xl',
     '2xl': 'max-w-2xl',
-    full: 'max-w-[95vw] max-h-[95vh]',
+    full: 'max-w-[95vw] w-full',
   };
 
   return (
@@ -47,9 +47,9 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
       />
 
       {/* Modal */}
-      <div className={`flex ${size === 'full' ? 'min-h-full items-start pt-4' : 'min-h-full items-center'} justify-center p-4`}>
+      <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} ${size === 'full' ? 'h-[90vh] flex flex-col' : ''} transform transition-all`}
+          className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} transform transition-all`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -76,7 +76,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, size = 
           </div>
 
           {/* Body */}
-          <div className={`p-6 ${size === 'full' ? 'flex-1 overflow-y-auto' : ''}`}>{children}</div>
+          <div className="p-6">{children}</div>
         </div>
       </div>
     </div>
