@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { usePositionStore } from '../store/positionStore';
 import { useDepartmentStore } from '../store/departmentStore';
 import { useAuthStore } from '../store/authStore';
@@ -26,8 +26,8 @@ export default function PositionsPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showExportMenu, setShowExportMenu] = useState(false);
 
-  // Get organizationId from logged-in user
-  const organizationId = user?.employee?.organizationId;
+  // Get organizationId from logged-in user (check both possible shapes)
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
 
   // Try to load user data if organizationId is missing
   useEffect(() => {
