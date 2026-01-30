@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDepartmentStore } from '../../store/departmentStore';
-import { Department } from '../../services/department.service';
+import departmentService, { Department } from '../../services/department.service';
 
 interface DepartmentFormProps {
   department?: Department | null;
@@ -19,7 +19,6 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
 
   const [formData, setFormData] = useState({
     name: department?.name || '',
-    subDepartment: (department as any)?.subDepartment || '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -63,10 +62,34 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
       return;
     }
 
+    const trimmedName = formData.name.trim();
+
+    // Duplicate name check: same department name must not exist in this organization
+    try {
+      const { departments } = await departmentService.getAll({
+        organizationId,
+        limit: 500,
+        listView: true,
+      });
+      const existingList = departments || [];
+      const isDuplicate = existingList.some(
+        (d) =>
+          d.name.trim().toLowerCase() === trimmedName.toLowerCase() &&
+          (!department || d.id !== department.id)
+      );
+      if (isDuplicate) {
+        setErrors({ name: 'A department with this name already exists. Please use a different name.' });
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking duplicate department:', err);
+      // Continue with create/update if check fails (e.g. network); backend may still enforce uniqueness
+    }
+
     try {
       const submitData = {
         organizationId,
-        name: formData.name.trim(),
+        name: trimmedName,
         isActive: true,
       };
 
@@ -89,43 +112,25 @@ const DepartmentForm: React.FC<DepartmentFormProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
         {/* Department Name */}
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-            Department Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            id="name"
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-              errors.name
-                ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-            }`}
-            placeholder="e.g., Engineering, Sales, HR"
-          />
-          {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
-        </div>
-
-        {/* Sub-Department */}
-        <div>
-          <label htmlFor="subDepartment" className="block text-sm font-medium text-gray-700">
-            Sub-Department
-          </label>
-          <input
-            type="text"
-            id="subDepartment"
-            name="subDepartment"
-            value={formData.subDepartment}
-            onChange={handleChange}
-            className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-            placeholder="Sub-Department"
-          />
-        </div>
+        <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+          Department Name <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          id="name"
+          name="name"
+          value={formData.name}
+          onChange={handleChange}
+          className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+            errors.name
+              ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+              : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+          }`}
+          placeholder="e.g., Engineering, Sales, HR"
+        />
+        {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
       </div>
 
       {/* Submit Error */}

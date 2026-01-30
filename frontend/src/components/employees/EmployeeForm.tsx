@@ -1,12 +1,10 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useEmployeeStore } from '../../store/employeeStore';
 import { useDepartmentStore } from '../../store/departmentStore';
 import { usePositionStore } from '../../store/positionStore';
-import { useAuthStore } from '../../store/authStore';
-import { useHRAuditStore } from '../../store/hrAuditStore';
 import employeeService, { Employee, Gender, MaritalStatus, EmployeeStatus } from '../../services/employee.service';
-import { employeeChangeRequestService } from '../../services/employee-change-request.service';
 import api from '../../services/api';
+import { subDepartmentService } from '../../services/sub-department.service';
 import Modal from '../common/Modal';
 import DepartmentForm from '../departments/DepartmentForm';
 import PositionForm from '../positions/PositionForm';
@@ -18,6 +16,8 @@ interface EmployeeFormProps {
   initialPaygroupName?: string;
   onSuccess?: () => void;
   onCancel?: () => void;
+  /** When 'view', form is read-only and Update Employee button is hidden */
+  mode?: 'view' | 'edit';
 }
 
 const EmployeeForm: React.FC<EmployeeFormProps> = ({
@@ -27,30 +27,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   initialPaygroupName,
   onSuccess,
   onCancel,
+  mode = 'edit',
 }) => {
+  const isViewMode = mode === 'view';
   const { createEmployee, updateEmployee, loading } = useEmployeeStore();
   const { departments, fetchDepartments } = useDepartmentStore();
   const { positions, fetchPositions } = usePositionStore();
-  const { user } = useAuthStore();
-  const auditByRole = useHRAuditStore((s) => s.byRole);
-  const getSettingsForRole = useHRAuditStore((s) => s.getSettingsForRole);
-  const auditSettings = useMemo(
-    () => getSettingsForRole(user?.role || 'USER'),
-    [user?.role, getSettingsForRole, auditByRole]
-  );
-  const auditByModule = useMemo(
-    () => new Map(auditSettings.modules.map((m) => [m.id, m])),
-    [auditSettings.modules]
-  );
-  const isModuleViewable = (tabId: string) => auditByModule.get(tabId as any)?.viewable !== false;
-  /** Employee editing own record can always edit Personal Info; otherwise use HR Audit setting */
-  const isModuleEditable = (tabId: string) => {
-    const fromAudit = auditByModule.get(tabId as any)?.editable !== false;
-    const isEmployeeSelf = (user?.role || '').toUpperCase() === 'EMPLOYEE' && employee?.id === user?.employee?.id;
-    if (tabId === 'personal' && isEmployeeSelf) return true;
-    return fromAudit;
-  };
-  const isModuleApprovalRequired = (tabId: string) => auditByModule.get(tabId as any)?.approval === true;
   const [availableManagers, setAvailableManagers] = useState<Employee[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [costCentres, setCostCentres] = useState<{ id: string; name: string; code?: string }[]>([]);
@@ -59,6 +41,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [createdEmployeeEmail, setCreatedEmployeeEmail] = useState<string>('');
   const [showDepartmentModal, setShowDepartmentModal] = useState(false);
   const [showPositionModal, setShowPositionModal] = useState(false);
+  const [showSubDepartmentModal, setShowSubDepartmentModal] = useState(false);
+  const [newSubDepartmentName, setNewSubDepartmentName] = useState('');
+  const [subDepartmentError, setSubDepartmentError] = useState('');
+  const [subDepartmentOptions, setSubDepartmentOptions] = useState<string[]>([]);
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [showAcademicModal, setShowAcademicModal] = useState(false);
   const [showPreviousEmploymentModal, setShowPreviousEmploymentModal] = useState(false);
@@ -196,7 +182,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   });
 
   const [currentTab, setCurrentTab] = useState<
-    'company' | 'personal' | 'employment' | 'statutory' | 'bank' | 'salary' | 'assets' | 'academic' | 'previousEmployment' | 'family' | 'others' | 'newFields'
+    'company' | 'personal' | 'statutory' | 'bank' | 'salary' | 'assets' | 'academic' | 'previousEmployment' | 'family' | 'others' | 'newFields'
   >(
     initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup ? 'company' : 'personal'
   );
@@ -218,6 +204,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     positionId: employee?.positionId || '',
     locationId: (employee as any)?.locationId || '',
     costCentreId: (employee as any)?.costCentreId || '',
+    costCentre: (employee as any)?.costCentre?.name || '',
     managerId: employee?.reportingManagerId || '',
     grade: (employee as any)?.grade || '',
     placeOfTaxDeduction: (employee as any)?.placeOfTaxDeduction || '',
@@ -260,23 +247,23 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     email: employee?.email || '',
     phoneNumber: employee?.phone || '',
     maritalStatus: employee?.maritalStatus || '',
-    // Permanent Address
-    permanentAddress: (employee as any)?.permanentAddress || '',
-    permanentCity: (employee as any)?.permanentCity || '',
+    // Permanent Address (map from API address JSON when no dedicated fields)
+    permanentAddress: (employee as any)?.permanentAddress || (typeof employee?.address === 'object' && employee?.address && 'street' in employee.address ? (employee.address as { street?: string }).street : '') || '',
+    permanentCity: (employee as any)?.permanentCity || (typeof employee?.address === 'object' && employee?.address && 'city' in employee.address ? (employee.address as { city?: string }).city : '') || '',
     permanentDistrict: (employee as any)?.permanentDistrict || '',
-    permanentState: (employee as any)?.permanentState || '',
-    permanentPincode: (employee as any)?.permanentPincode || '',
-    permanentPhoneNumber: (employee as any)?.permanentPhoneNumber || '',
+    permanentState: (employee as any)?.permanentState || (typeof employee?.address === 'object' && employee?.address && 'state' in employee.address ? (employee.address as { state?: string }).state : '') || '',
+    permanentPincode: (employee as any)?.permanentPincode || (typeof employee?.address === 'object' && employee?.address && 'postalCode' in employee.address ? (employee.address as { postalCode?: string }).postalCode : '') || '',
+    permanentPhoneNumber: (employee as any)?.permanentPhoneNumber || employee?.phone || '',
     personalMobile: (employee as any)?.personalMobile || '',
     personalEmail: (employee as any)?.personalEmail || employee?.personalEmail || '',
-    // Present Address
-    sameAsPermanent: (employee as any)?.sameAsPermanent ?? false,
-    presentAddress: (employee as any)?.presentAddress || '',
-    presentCity: (employee as any)?.presentCity || '',
-    presentDistrict: (employee as any)?.presentDistrict || '',
-    presentState: (employee as any)?.presentState || '',
-    presentPincode: (employee as any)?.presentPincode || '',
-    presentPhoneNumber: (employee as any)?.presentPhoneNumber || '',
+    // Present Address (from API address JSON when saved)
+    sameAsPermanent: (typeof employee?.address === 'object' && employee?.address && 'sameAsPermanent' in employee.address ? (employee.address as { sameAsPermanent?: boolean }).sameAsPermanent : (employee as any)?.sameAsPermanent) ?? false,
+    presentAddress: (typeof employee?.address === 'object' && employee?.address && 'presentAddress' in employee.address ? (employee.address as { presentAddress?: string }).presentAddress : (employee as any)?.presentAddress) || '',
+    presentCity: (typeof employee?.address === 'object' && employee?.address && 'presentCity' in employee.address ? (employee.address as { presentCity?: string }).presentCity : (employee as any)?.presentCity) || '',
+    presentDistrict: (typeof employee?.address === 'object' && employee?.address && 'presentDistrict' in employee.address ? (employee.address as { presentDistrict?: string }).presentDistrict : (employee as any)?.presentDistrict) || '',
+    presentState: (typeof employee?.address === 'object' && employee?.address && 'presentState' in employee.address ? (employee.address as { presentState?: string }).presentState : (employee as any)?.presentState) || '',
+    presentPincode: (typeof employee?.address === 'object' && employee?.address && 'presentPincode' in employee.address ? (employee.address as { presentPincode?: string }).presentPincode : (employee as any)?.presentPincode) || '',
+    presentPhoneNumber: (typeof employee?.address === 'object' && employee?.address && 'presentPhoneNumber' in employee.address ? (employee.address as { presentPhoneNumber?: string }).presentPhoneNumber : (employee as any)?.presentPhoneNumber) || '',
     // Others
     bloodGroup: (employee as any)?.bloodGroup || '',
     dateOfWedding: (employee as any)?.dateOfWedding ? (employee as any).dateOfWedding.split('T')[0] : '',
@@ -299,6 +286,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     emergencyContactName: employee?.emergencyContacts?.[0]?.name || '',
     emergencyContactRelationship: employee?.emergencyContacts?.[0]?.relationship || '',
     emergencyContactPhone: employee?.emergencyContacts?.[0]?.phone || '',
+    imei: (employee as any)?.imei || '',
+    pfAbrySchemeApplicable: (employee as any)?.pfAbrySchemeApplicable || '',
+    alternateSaturdayOff: (employee as any)?.alternateSaturdayOff || '',
+    compoffApplicable: (employee as any)?.compoffApplicable || '',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -324,14 +315,40 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const fetchCostCentres = async () => {
       try {
         const { data } = await api.get<{ data: { costCentres: { id: string; name: string; code?: string }[] } }>('/cost-centres', { params: { organizationId } });
-        setCostCentres(data.data?.costCentres ?? []);
+        const list = data.data?.costCentres ?? [];
+        setCostCentres(list);
+        if (employee?.id && (employee as any)?.costCentreId) {
+          const match = list.find((c: { id: string }) => c.id === (employee as any).costCentreId);
+          if (match) setFormData((prev) => ({ ...prev, costCentre: match.name }));
+        }
       } catch {
         setCostCentres([]);
       }
     };
+    const fetchSubDepartments = async () => {
+      try {
+        const list = await subDepartmentService.getByOrganization(organizationId);
+        setSubDepartmentOptions(list.map((s) => s.name).sort((a, b) => a.localeCompare(b)));
+      } catch {
+        setSubDepartmentOptions([]);
+      }
+    };
     fetchLocations();
     fetchCostCentres();
+    fetchSubDepartments();
   }, [organizationId, fetchDepartments, fetchPositions, employee?.id]);
+
+  // When editing, merge employee's sub-department name into options if not already loaded from API
+  useEffect(() => {
+    const value = (employee as any)?.subDepartment;
+    if (!value || typeof value !== 'string') return;
+    const name = value.split(',')[0]?.trim();
+    if (!name) return;
+    setSubDepartmentOptions((prev) => {
+      if (prev.some((o) => o.toLowerCase() === name.toLowerCase())) return prev;
+      return [...prev, name].sort((a, b) => a.localeCompare(b));
+    });
+  }, [employee?.id]);
 
   // Fetch potential managers (all active employees in the organization)
   const fetchManagersForDropdown = async () => {
@@ -357,23 +374,28 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    if (isViewMode) return;
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const updates: Record<string, string> = { [name]: value };
+    // Sync Personal Info fields used for validation/submit
+    if (name === 'personalEmail') updates.email = value;
+    if (name === 'permanentPhoneNumber') updates.phoneNumber = value;
+    setFormData(prev => ({ ...prev, ...updates }));
 
-    // Clear error for this field
-    if (errors[name]) {
-      setErrors(prev => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
+    // Clear error for this field (and synced fields) and any global submit error
+    const keysToClear = [name, 'submit'];
+    if (name === 'personalEmail') keysToClear.push('email');
+    if (name === 'permanentPhoneNumber') keysToClear.push('phoneNumber');
+    setErrors(prev => {
+      const newErrors = { ...prev };
+      keysToClear.forEach(k => delete newErrors[k]);
+      return newErrors;
+    });
   };
 
   const validateCompany = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
-    if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
     if (!formData.gender) newErrors.gender = 'Gender is required';
     if (!formData.dateOfBirth) newErrors.dateOfBirth = 'Date of birth is required';
     if (!formData.joiningDate) newErrors.joiningDate = 'Date of joining is required';
@@ -386,22 +408,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const validatePersonal = () => {
     const newErrors: Record<string, string> = {};
+    const emailVal = formData.email?.trim() || formData.personalEmail?.trim() || '';
+    const phoneVal = formData.phoneNumber?.trim() || formData.permanentPhoneNumber?.trim() || '';
 
     if (!formData.firstName.trim()) {
       newErrors.firstName = 'First name is required';
     }
 
-    if (!formData.lastName.trim()) {
-      newErrors.lastName = 'Last name is required';
-    }
-
-    if (!formData.email.trim()) {
+    if (!emailVal) {
       newErrors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
       newErrors.email = 'Invalid email format';
     }
 
-    if (!formData.phoneNumber.trim()) {
+    if (!phoneVal) {
       newErrors.phoneNumber = 'Phone number is required';
     }
 
@@ -419,19 +439,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const validateEmployment = () => {
     const newErrors: Record<string, string> = {};
-
-    if (!formData.departmentId) {
-      newErrors.departmentId = 'Department is required';
-    }
-
-    if (!formData.positionId) {
-      newErrors.positionId = 'Position is required';
-    }
-
-    if (!formData.joiningDate) {
-      newErrors.joiningDate = 'Joining date is required';
-    }
-
+    if (!formData.departmentId) newErrors.departmentId = 'Department is required';
+    if (!formData.positionId) newErrors.positionId = 'Position is required';
+    if (!formData.joiningDate) newErrors.joiningDate = 'Joining date is required';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -440,8 +450,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     if (currentTab === 'company' && validateCompany()) {
       setCurrentTab('personal');
     } else if (currentTab === 'personal' && validatePersonal()) {
-      setCurrentTab('employment');
-    } else if (currentTab === 'employment' && validateEmployment()) {
       setCurrentTab('statutory');
     } else if (currentTab === 'statutory') {
       setCurrentTab('bank');
@@ -471,8 +479,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     else if (currentTab === 'assets') setCurrentTab('salary');
     else if (currentTab === 'salary') setCurrentTab('bank');
     else if (currentTab === 'bank') setCurrentTab('statutory');
-    else if (currentTab === 'statutory') setCurrentTab('employment');
-    else if (currentTab === 'employment') setCurrentTab('personal');
+    else if (currentTab === 'statutory') setCurrentTab('personal');
     else if (currentTab === 'personal' && initialPaygroupId) setCurrentTab('company');
     else if (currentTab === 'personal') setCurrentTab('company');
   };
@@ -481,22 +488,19 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     e.preventDefault();
 
     if (initialPaygroupId) {
-      if (!validateCompany() || !validatePersonal() || !validateEmployment()) {
+      if (!validateCompany() || !validatePersonal()) {
         if (!validateCompany()) setCurrentTab('company');
-        else if (!validatePersonal()) setCurrentTab('personal');
-        else setCurrentTab('employment');
+        else setCurrentTab('personal');
         return;
       }
     } else {
-      if (!validatePersonal() || !validateEmployment()) {
+      if (!validatePersonal()) {
         setCurrentTab('personal');
         return;
       }
     }
 
     try {
-      const requiresApproval = auditSettings.addApproval || auditSettings.modules.some((m) => m.approval);
-
       // Helper function to convert empty strings to undefined
       const emptyToUndefined = (value: string | undefined) => {
         return value && value.trim() ? value.trim() : undefined;
@@ -518,7 +522,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       const hasAddress = Object.keys(addressFields).length > 0;
       
       // Build emergency contacts only if all required fields are filled
-
       const emergencyContactName = emptyToUndefined(formData.emergencyContactName);
       const emergencyContactRelationship = emptyToUndefined(formData.emergencyContactRelationship);
       const emergencyContactPhone = emptyToUndefined(formData.emergencyContactPhone);
@@ -528,9 +531,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         organizationId,
         firstName: formData.firstName.trim(),
         middleName: emptyToUndefined(formData.middleName),
-        lastName: formData.lastName.trim(),
-        email: formData.email.trim(),
-        phone: emptyToUndefined(formData.phoneNumber),
+        lastName: employee ? formData.lastName.trim() : (formData.lastName.trim() || 'N/A'),
+        email: (formData.email || formData.personalEmail || '').trim(),
+        phone: emptyToUndefined(formData.phoneNumber || formData.permanentPhoneNumber),
         officialEmail: emptyToUndefined(formData.officialEmail) || null,
         officialMobile: emptyToUndefined(formData.officialMobile) || null,
         dateOfBirth: emptyToUndefined(formData.dateOfBirth),
@@ -540,13 +543,39 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         positionId: formData.positionId && formData.positionId.trim() ? formData.positionId : null,
         reportingManagerId: formData.managerId && formData.managerId.trim() ? formData.managerId : null,
         locationId: formData.locationId && formData.locationId.trim() ? formData.locationId : null,
-        costCentreId: formData.costCentreId && formData.costCentreId.trim() ? formData.costCentreId : null,
+        costCentreId: (() => {
+          const text = formData.costCentre?.trim();
+          if (!text) return null;
+          const match = costCentres.find((c) => c.name?.toLowerCase() === text.toLowerCase() || (c.code && c.code.toLowerCase() === text.toLowerCase()));
+          return match ? match.id : null;
+        })(),
         grade: emptyToUndefined(formData.grade) || null,
         placeOfTaxDeduction: formData.placeOfTaxDeduction ? (formData.placeOfTaxDeduction as 'METRO' | 'NON_METRO') : null,
         jobResponsibility: emptyToUndefined(formData.jobResponsibility) || null,
-        dateOfJoining: formData.joiningDate && formData.joiningDate.trim() ? formData.joiningDate.trim() : undefined,
+        dateOfJoining: formData.joiningDate?.trim() || new Date().toISOString().split('T')[0],
         employeeStatus: formData.employeeStatus as EmployeeStatus,
-        address: hasAddress ? addressFields : undefined,
+        personalEmail: emptyToUndefined(formData.personalEmail) || null,
+        address: (() => {
+          const fromPermanent = formData.permanentAddress || formData.permanentCity || formData.permanentState || formData.permanentPincode;
+          const fromPresent = formData.presentAddress || formData.presentCity || formData.presentState || formData.presentPincode;
+          const base = fromPermanent ? {
+            street: emptyToUndefined(formData.permanentAddress),
+            city: emptyToUndefined(formData.permanentCity),
+            state: emptyToUndefined(formData.permanentState),
+            postalCode: emptyToUndefined(formData.permanentPincode),
+          } : (hasAddress ? addressFields : {});
+          if (Object.keys(base).length === 0 && !fromPresent) return undefined;
+          return {
+            ...base,
+            sameAsPermanent: formData.sameAsPermanent,
+            presentAddress: emptyToUndefined(formData.presentAddress),
+            presentCity: emptyToUndefined(formData.presentCity),
+            presentDistrict: emptyToUndefined(formData.presentDistrict),
+            presentState: emptyToUndefined(formData.presentState),
+            presentPincode: emptyToUndefined(formData.presentPincode),
+            presentPhoneNumber: emptyToUndefined(formData.presentPhoneNumber),
+          };
+        })(),
         emergencyContacts: hasCompleteEmergencyContact ? [{
           name: emergencyContactName!,
           relationship: emergencyContactRelationship!,
@@ -565,30 +594,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       }
 
       // Remove undefined values for optional fields only (keep required fields even if undefined for validation)
-      const requiredFields = ['organizationId', 'firstName', 'lastName', 'email', 'dateOfJoining'];
+      const requiredFields = ['organizationId', 'firstName', 'email', 'dateOfJoining'];
       Object.keys(submitData).forEach(key => {
         if (submitData[key] === undefined && !requiredFields.includes(key)) {
           delete submitData[key];
         }
       });
       
-      // Final validation check - ensure required fields are present
+      // Ensure dateOfJoining is set (we default to today above; this is a safety check)
       if (!submitData.dateOfJoining) {
         setErrors({ joiningDate: 'Joining date is required' });
-        setCurrentTab('employment');
-        return;
-      }
-
-      if (employee && requiresApproval) {
-        const existingData = JSON.parse(JSON.stringify(employee)) as Record<string, unknown>;
-        await employeeChangeRequestService.submit({
-          employeeId: employee.id,
-          organizationId,
-          existingData,
-          requestedData: submitData,
-        });
-        alert('Your changes have been submitted for HR Manager approval. They will be saved to the database after approval.');
-        onSuccess?.();
+        setCurrentTab(initialPaygroupId ? 'company' : 'personal');
         return;
       }
 
@@ -600,7 +616,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         // Show temporary password modal if it was generated
         if (result.temporaryPassword) {
           setTemporaryPassword(result.temporaryPassword);
-          setCreatedEmployeeEmail(formData.email.trim());
+          setCreatedEmployeeEmail((formData.email || formData.personalEmail || '').trim());
           setShowPasswordModal(true);
         } else {
           onSuccess?.();
@@ -613,24 +629,21 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
         const validationErrors: Record<string, string> = {};
         error.response.data.errors.forEach((err: { field: string; message: string }) => {
-          // Map backend field names to form field names
           const fieldMap: Record<string, string> = {
             'dateOfJoining': 'joiningDate',
             'phoneNumber': 'phoneNumber',
             'dateOfBirth': 'dateOfBirth',
+            'lastName': 'lastName',
           };
           const formField = fieldMap[err.field] || err.field;
           validationErrors[formField] = err.message;
         });
-        
         if (Object.keys(validationErrors).length > 0) {
-          setErrors(validationErrors);
-          // Switch to the appropriate tab based on the first error
-          if (validationErrors.joiningDate || validationErrors.departmentId || validationErrors.positionId) {
-            setCurrentTab('employment');
-          } else if (validationErrors.firstName || validationErrors.lastName || validationErrors.email) {
-            setCurrentTab('personal');
-          }
+          setErrors({ ...validationErrors, submit: 'Please fix the errors below.' });
+          const hasCompanyError = !!(validationErrors.joiningDate || validationErrors.departmentId || validationErrors.positionId || validationErrors.lastName);
+          const hasPersonalError = !!(validationErrors.firstName || validationErrors.email || validationErrors.phoneNumber);
+          if (initialPaygroupId && hasCompanyError) setCurrentTab('company');
+          else if (hasPersonalError) setCurrentTab('personal');
           return;
         }
       }
@@ -649,7 +662,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         {/* Tab Navigation - vertical menu */}
         <div className="w-56 flex-shrink-0">
           <nav className="flex flex-col space-y-2 bg-white rounded-lg border border-gray-200 p-3">
-          {(initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && isModuleViewable('company') && (
+          {(initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && (
             <button
               type="button"
               onClick={() => setCurrentTab('company')}
@@ -662,7 +675,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               Company Details
             </button>
           )}
-          {isModuleViewable('personal') && (
           <button
             type="button"
             onClick={() => setCurrentTab('personal')}
@@ -674,21 +686,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Personal Info
           </button>
-          )}
-          {isModuleViewable('employment') && (
-          <button
-            type="button"
-            onClick={() => setCurrentTab('employment')}
-            className={`${
-              currentTab === 'employment'
-                ? 'bg-blue-50 text-blue-600 border-blue-500'
-                : 'bg-white text-gray-600 border-transparent hover:bg-gray-50 hover:text-gray-800'
-            } w-full text-left px-3 py-2 rounded-md border text-sm font-medium`}
-          >
-            Employment
-          </button>
-          )}
-          {isModuleViewable('statutory') && (
           <button
             type="button"
             onClick={() => setCurrentTab('statutory')}
@@ -700,8 +697,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Statutory Details
           </button>
-          )}
-          {isModuleViewable('bank') && (
           <button
             type="button"
             onClick={() => setCurrentTab('bank')}
@@ -713,8 +708,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Bank Details
           </button>
-          )}
-          {isModuleViewable('salary') && (
           <button
             type="button"
             onClick={() => setCurrentTab('salary')}
@@ -726,8 +719,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Salary Details
           </button>
-          )}
-          {isModuleViewable('assets') && (
           <button
             type="button"
             onClick={() => setCurrentTab('assets')}
@@ -739,8 +730,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Assets
           </button>
-          )}
-          {isModuleViewable('academic') && (
           <button
             type="button"
             onClick={() => setCurrentTab('academic')}
@@ -752,8 +741,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Academic Qualification
           </button>
-          )}
-          {isModuleViewable('previousEmployment') && (
           <button
             type="button"
             onClick={() => setCurrentTab('previousEmployment')}
@@ -765,8 +752,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             Previous Employment
           </button>
-          )}
-          {isModuleViewable('family') && (
           <button
             type="button"
             onClick={() => setCurrentTab('family')}
@@ -781,8 +766,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </svg>
             Family Details
           </button>
-          )}
-          {isModuleViewable('others') && (
           <button
             type="button"
             onClick={() => setCurrentTab('others')}
@@ -797,8 +780,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </svg>
             Others
           </button>
-          )}
-          {isModuleViewable('newFields') && (
           <button
             type="button"
             onClick={() => setCurrentTab('newFields')}
@@ -810,23 +791,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             New Fields
           </button>
-          )}
         </nav>
       </div>
 
       {/* Tab Content */}
       <div className="flex-1 space-y-6">
-      {!isModuleEditable(currentTab) && (
-        <div className="p-3 bg-amber-50 text-amber-800 rounded-lg border border-amber-200 text-sm">
-          View only. You do not have permission to edit this section.
-        </div>
-      )}
-      {isModuleApprovalRequired(currentTab) && isModuleEditable(currentTab) && employee && (
-        <div className="p-3 bg-blue-50 text-blue-800 rounded-lg border border-blue-200 text-sm">
-          Changes require HR Manager approval before they are saved to the database.
-        </div>
-      )}
-      <fieldset disabled={!isModuleEditable(currentTab)} className="border-0 p-0 m-0 min-w-0 space-y-6">
 
       {/* Company Details Tab */}
       {(initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && currentTab === 'company' && (
@@ -859,7 +828,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Last Name <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700">Last Name</label>
               <input type="text" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Last Name"
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.lastName
@@ -895,7 +864,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   }}
                   className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                 />
-                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -945,7 +914,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   }}
                   className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                 />
-                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -1046,14 +1015,35 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Sub-Department</label>
-              <input
-                type="text"
-                name="subDepartment"
-                value={formData.subDepartment}
-                onChange={handleChange}
-                placeholder="Sub-Department"
-                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              />
+              <div className="flex gap-2">
+                <select
+                  name="subDepartment"
+                  value={formData.subDepartment}
+                  onChange={handleChange}
+                  className="flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                >
+                  <option value="">Sub-Department</option>
+                  {subDepartmentOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSubDepartmentModal(true);
+                    setNewSubDepartmentName('');
+                    setSubDepartmentError('');
+                  }}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
+                  title="Add New Sub-Department"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Designation <span className="text-red-500">*</span></label>
@@ -1095,19 +1085,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Cost Centre</label>
-              <select
-                name="costCentreId"
-                value={formData.costCentreId}
+              <input
+                type="text"
+                name="costCentre"
+                value={formData.costCentre}
                 onChange={handleChange}
+                placeholder="Cost Centre"
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="">Cost Centre</option>
-                {costCentres.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
@@ -1152,14 +1137,21 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Personal Email</label>
+                <label className="block text-sm font-medium text-gray-700">Personal Email <span className="text-red-500">*</span></label>
                 <input
                   type="email"
                   name="personalEmail"
                   value={formData.personalEmail}
                   onChange={handleChange}
-                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    (errors.email || errors.personalEmail)
+                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
                 />
+                {(errors.email || errors.personalEmail) && (
+                  <p className="mt-1 text-sm text-red-600">{errors.email || errors.personalEmail}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">City</label>
@@ -1204,14 +1196,21 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Phone Number</label>
+                <label className="block text-sm font-medium text-gray-700">Phone Number <span className="text-red-500">*</span></label>
                 <input
                   type="tel"
                   name="permanentPhoneNumber"
                   value={formData.permanentPhoneNumber}
                   onChange={handleChange}
-                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    (errors.phoneNumber || errors.permanentPhoneNumber)
+                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
                 />
+                {(errors.phoneNumber || errors.permanentPhoneNumber) && (
+                  <p className="mt-1 text-sm text-red-600">{errors.phoneNumber || errors.permanentPhoneNumber}</p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Personal Mobile</label>
@@ -1366,23 +1365,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Date of Wedding</label>
-                <div
-                  className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
-                    // no validation error yet, but keep consistent styling helpers
-                    'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
-                  }`}
-                >
+                <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                   <input
                     type="date"
                     value={formData.dateOfWedding || ''}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, dateOfWedding: e.target.value }))}
-                    className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
+                  onChange={(e) => setFormData((prev) => ({ ...prev, dateOfWedding: e.target.value }))}
+                  className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                   />
-                  <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </span>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </span>
                 </div>
               </div>
               <div>
@@ -1444,22 +1438,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Passport Expiry</label>
-                <div
-                  className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
-                    'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
-                  }`}
-                >
+                <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                   <input
                     type="date"
                     value={formData.passportExpiry || ''}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, passportExpiry: e.target.value }))}
-                    className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
+                  onChange={(e) => setFormData((prev) => ({ ...prev, passportExpiry: e.target.value }))}
+                  className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                   />
-                  <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </span>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </span>
                 </div>
               </div>
               <div>
@@ -1474,154 +1464,21 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Driving License Expiry</label>
-                <div
-                  className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
-                    'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
-                  }`}
-                >
+                <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                   <input
                     type="date"
                     value={formData.drivingLicenseExpiry || ''}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, drivingLicenseExpiry: e.target.value }))}
-                    className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
+                  onChange={(e) => setFormData((prev) => ({ ...prev, drivingLicenseExpiry: e.target.value }))}
+                  className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                   />
-                  <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Employment Tab */}
-      {currentTab === 'employment' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Department */}
-            <div>
-              <label htmlFor="departmentId" className="block text-sm font-medium text-gray-700">
-                Department <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="departmentId"
-                name="departmentId"
-                value={formData.departmentId}
-                onChange={handleChange}
-                className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-                  errors.departmentId
-                    ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-                }`}
-              >
-                <option value="">Select a department</option>
-                {departments.map(dept => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
-              {errors.departmentId && <p className="mt-1 text-sm text-red-600">{errors.departmentId}</p>}
-            </div>
-
-            {/* Position */}
-            <div>
-              <label htmlFor="positionId" className="block text-sm font-medium text-gray-700">
-                Position <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="positionId"
-                name="positionId"
-                value={formData.positionId}
-                onChange={handleChange}
-                className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-                  errors.positionId
-                    ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-                }`}
-              >
-                <option value="">Select a position</option>
-                {positions.map(pos => (
-                  <option key={pos.id} value={pos.id}>
-                    {pos.title}
-                  </option>
-                ))}
-              </select>
-              {errors.positionId && <p className="mt-1 text-sm text-red-600">{errors.positionId}</p>}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Manager */}
-            <div>
-              <label htmlFor="managerId" className="block text-sm font-medium text-gray-700">
-                Reporting Manager
-              </label>
-              <select
-                id="managerId"
-                name="managerId"
-                value={formData.managerId}
-                onChange={handleChange}
-                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="">No manager</option>
-                {availableManagers.map(mgr => (
-                  <option key={mgr.id} value={mgr.id}>
-                    {mgr.firstName} {mgr.lastName} ({mgr.employeeCode})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Joining Date */}
-            <div>
-              <label htmlFor="joiningDate" className="block text-sm font-medium text-gray-700">
-                Joining Date <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="date"
-                  id="joiningDate"
-                  name="joiningDate"
-                  value={formData.joiningDate}
-                  onChange={handleChange}
-                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm pl-3 pr-10 ${
-                    errors.joiningDate
-                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-                  }`}
-                />
-                <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                 </span>
+                </div>
               </div>
-              {errors.joiningDate && <p className="mt-1 text-sm text-red-600">{errors.joiningDate}</p>}
             </div>
-          </div>
-
-          {/* Employee Status */}
-          <div>
-            <label htmlFor="employeeStatus" className="block text-sm font-medium text-gray-700">
-              Employee Status
-            </label>
-            <select
-              id="employeeStatus"
-              name="employeeStatus"
-              value={formData.employeeStatus}
-              onChange={handleChange}
-              className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm max-w-xs"
-            >
-              <option value="ACTIVE">Active</option>
-              <option value="ON_LEAVE">On Leave</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="TERMINATED">Terminated</option>
-              <option value="RESIGNED">Resigned</option>
-            </select>
           </div>
         </div>
       )}
@@ -1633,15 +1490,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
             <h3 className="text-base font-medium text-gray-900">Statutory Numbers & Locations</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* 1. PF Applicable From */}
+              {/* 1. PF Applicable */}
               <div>
-                <label className="block text-sm font-medium text-gray-700">PF Applicable From</label>
+                <label className="block text-sm font-medium text-gray-700">PF Applicable</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, pfApplicableFrom: true }))}
+                    onClick={() => setFormData(prev => ({ ...prev, pfApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
-                      formData.pfApplicableFrom
+                      formData.pfApplicable
                         ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
@@ -1650,9 +1507,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, pfApplicableFrom: false }))}
+                    onClick={() => setFormData(prev => ({ ...prev, pfApplicable: false }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
-                      !formData.pfApplicableFrom
+                      !formData.pfApplicable
                         ? 'bg-red-500 border-red-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
@@ -1789,7 +1646,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onChange={handleChange}
                     className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm pl-3 pr-10"
                   />
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                  <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
@@ -1807,7 +1664,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onChange={handleChange}
                     className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm pl-3 pr-10"
                   />
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                  <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
@@ -1884,7 +1741,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onChange={handleChange}
                     className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm pl-3 pr-10"
                   />
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                  <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
@@ -1912,34 +1769,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   placeholder="Husband Name On Online PF"
                   className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
-              </div>
-              {/* PF Applicable */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700">PF Applicable</label>
-                <div className="mt-1 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, pfApplicable: true }))}
-                    className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
-                      formData.pfApplicable
-                        ? 'bg-green-500 border-green-600 text-white'
-                        : 'bg-white border-black text-gray-700'
-                    }`}
-                  >
-                    YES
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, pfApplicable: false }))}
-                    className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
-                      !formData.pfApplicable
-                        ? 'bg-red-500 border-red-600 text-white'
-                        : 'bg-white border-black text-gray-700'
-                    }`}
-                  >
-                    NO
-                  </button>
-                </div>
               </div>
               {/* Tax Applicable */}
               <div>
@@ -2146,10 +1975,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <table className="min-w-full divide-y divide-gray-200">
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {[
-                    'Arrear Basic',
-                    'Arrear HRA',
-                    'Arrear Conveyance',
-                    'Arrear Other Allowance',
                     'Fixed Gross',
                     'Vehicle Allowances',
                   ].map((label) => (
@@ -2826,7 +2651,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <input
                 type="text"
                 name="imei"
-                value={String((formData as Record<string, unknown>).imei ?? '')}
+                value={formData.imei}
                 onChange={handleChange}
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="IMEI"
@@ -2841,17 +2666,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Sub Department</option>
-                <option value="IT">IT</option>
-                <option value="HR">HR</option>
-                <option value="Finance">Finance</option>
-                <option value="Operations">Operations</option>
+                {subDepartmentOptions.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">PF ABRY Scheme Applicable</label>
               <select
                 name="pfAbrySchemeApplicable"
-                value={String((formData as Record<string, unknown>).pfAbrySchemeApplicable ?? '')}
+                value={formData.pfAbrySchemeApplicable}
                 onChange={handleChange}
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
@@ -2864,7 +2688,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <label className="block text-sm font-medium text-gray-700">Alternate Saturday Off</label>
               <select
                 name="alternateSaturdayOff"
-                value={String((formData as Record<string, unknown>).alternateSaturdayOff ?? '')}
+                value={formData.alternateSaturdayOff}
                 onChange={handleChange}
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
@@ -2877,7 +2701,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <label className="block text-sm font-medium text-gray-700">Compoff Applicable</label>
               <select
                 name="compoffApplicable"
-                value={String((formData as Record<string, unknown>).compoffApplicable ?? '')}
+                value={formData.compoffApplicable}
                 onChange={handleChange}
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
@@ -2920,7 +2744,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               Cancel
             </button>
           )}
-          {currentTab === 'newFields' ? (
+          {currentTab === 'newFields' && !isViewMode ? (
             <button
               type="submit"
               disabled={loading}
@@ -2928,7 +2752,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             >
               {loading ? 'Saving...' : employee ? 'Update Employee' : 'Create Employee'}
             </button>
-          ) : (
+          ) : currentTab === 'newFields' && isViewMode ? null : (
             <button
               type="button"
               onClick={handleNext}
@@ -2938,10 +2762,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
           )}
         </div>
-      </div>
-
-      </fieldset>
-      </div>
       </div>
 
       {/* Temporary Password Modal */}
@@ -3015,6 +2835,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           </div>
         </div>
       )}
+      </div> {/* end tab content */}
+      </div> {/* end layout flex */}
     </form>
 
     {/* Department Modal - Outside form to avoid nested forms */}
@@ -3064,6 +2886,103 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           onCancel={() => setShowPositionModal(false)}
         />
+      </Modal>
+    )}
+
+    {/* Add Sub-Department Modal */}
+    {showSubDepartmentModal && (
+      <Modal
+        isOpen={showSubDepartmentModal}
+        onClose={() => {
+          setShowSubDepartmentModal(false);
+          setNewSubDepartmentName('');
+          setSubDepartmentError('');
+        }}
+        title="Add Sub-Department"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="newSubDepartmentName" className="block text-sm font-medium text-gray-700">
+              Sub-Department Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="newSubDepartmentName"
+              value={newSubDepartmentName}
+              onChange={(e) => {
+                setNewSubDepartmentName(e.target.value);
+                if (subDepartmentError) setSubDepartmentError('');
+              }}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const name = newSubDepartmentName.trim();
+                  if (!name) return;
+                  const isDuplicate = subDepartmentOptions.some((o) => o.toLowerCase() === name.toLowerCase());
+                  if (isDuplicate) {
+                    setSubDepartmentError('This sub-department already exists. Please enter a different name.');
+                    return;
+                  }
+                  try {
+                    await subDepartmentService.create(organizationId, name);
+                    setSubDepartmentOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                    setFormData((prev) => ({ ...prev, subDepartment: name }));
+                    setNewSubDepartmentName('');
+                    setSubDepartmentError('');
+                    setShowSubDepartmentModal(false);
+                  } catch (err: any) {
+                    setSubDepartmentError(err.response?.data?.message || 'Failed to add sub-department. Try again.');
+                  }
+                }
+              }}
+              className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
+                subDepartmentError ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="e.g., Backend, Frontend, QA"
+            />
+            {subDepartmentError && <p className="mt-1 text-sm text-red-600">{subDepartmentError}</p>}
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowSubDepartmentModal(false);
+                setNewSubDepartmentName('');
+                setSubDepartmentError('');
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const name = newSubDepartmentName.trim();
+                if (!name) return;
+                const isDuplicate = subDepartmentOptions.some((o) => o.toLowerCase() === name.toLowerCase());
+                if (isDuplicate) {
+                  setSubDepartmentError('This sub-department already exists. Please enter a different name.');
+                  return;
+                }
+                try {
+                  await subDepartmentService.create(organizationId, name);
+                  setSubDepartmentOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                  setFormData((prev) => ({ ...prev, subDepartment: name }));
+                  setNewSubDepartmentName('');
+                  setSubDepartmentError('');
+                  setShowSubDepartmentModal(false);
+                } catch (err: any) {
+                  setSubDepartmentError(err.response?.data?.message || 'Failed to add sub-department. Try again.');
+                }
+              }}
+              disabled={!newSubDepartmentName.trim()}
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add Sub-Department
+            </button>
+          </div>
+        </div>
       </Modal>
     )}
 
@@ -3131,7 +3050,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   onChange={(e) => setAssetFormData({ ...assetFormData, dateOfIssuance: e.target.value })}
                   className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm pl-3 pr-10"
                 />
-                <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -3428,7 +3347,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, fromDate: e.target.value })}
                   className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm pl-3 pr-10"
                 />
-                <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -3444,7 +3363,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, toDate: e.target.value })}
                   className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm pl-3 pr-10"
                 />
-                <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -3593,18 +3512,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
-              <div
-                className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
-                  'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
-                }`}
-              >
+              <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                 <input
                   type="date"
                   value={familyFormData.dateOfBirth || ''}
                   onChange={(e) => setFamilyFormData((prev) => ({ ...prev, dateOfBirth: e.target.value }))}
                   className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                 />
-                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -3663,18 +3578,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Passport Issue Date</label>
-              <div
-                className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
-                  'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
-                }`}
-              >
+              <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                 <input
                   type="date"
                   value={familyFormData.passportIssueDate || ''}
                   onChange={(e) => setFamilyFormData((prev) => ({ ...prev, passportIssueDate: e.target.value }))}
                   className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                 />
-                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
@@ -3683,18 +3594,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Passport Expiry Date</label>
-              <div
-                className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
-                  'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
-                }`}
-              >
+              <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                 <input
                   type="date"
                   value={familyFormData.passportExpiryDate || ''}
                   onChange={(e) => setFamilyFormData((prev) => ({ ...prev, passportExpiryDate: e.target.value }))}
                   className="block w-full h-full bg-transparent text-black rounded-md border-none outline-none focus:outline-none sm:text-sm pl-3 pr-10"
                 />
-                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
+                <span role="button" tabIndex={0} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 cursor-pointer hover:text-gray-600" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); }} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const input = (e.currentTarget.parentElement as HTMLElement).querySelector('input[type=date]'); if (input && typeof (input as HTMLInputElement).showPicker === 'function') (input as HTMLInputElement).showPicker(); } }}>
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
