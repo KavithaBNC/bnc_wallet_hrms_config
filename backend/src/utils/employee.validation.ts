@@ -187,7 +187,7 @@ export const queryEmployeesSchema = z.object({
   managerEmployeeId: z.string().uuid().optional(), // For MANAGER to filter by their employee ID
   managerDepartmentId: z.string().uuid().optional(), // For MANAGER to filter by their department
   employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN']).optional(),
-  employeeStatus: z.enum(['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'TERMINATED', 'RESIGNED']).optional(),
+  employeeStatus: z.enum(['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'TERMINATED', 'RESIGNED', 'SEPARATED', 'ALL']).optional(),
   gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']).optional(),
   search: z.string().optional(),
   page: z.string().regex(/^\d+$/).optional().default('1'),

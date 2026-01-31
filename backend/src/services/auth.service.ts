@@ -138,6 +138,7 @@ export class AuthService {
             firstName: true,
             lastName: true,
             profilePictureUrl: true,
+            employeeStatus: true,
           },
         },
       },
@@ -150,6 +151,11 @@ export class AuthService {
     // Check if user is active
     if (!user.isActive) {
       throw new AppError('Your account has been deactivated', 401);
+    }
+
+    // Block login if employee is separated (status !== ACTIVE)
+    if (user.employee?.employeeStatus && user.employee.employeeStatus !== 'ACTIVE') {
+      throw new AppError('Your employment has been separated. You cannot log in.', 401);
     }
 
     // Check if account is locked

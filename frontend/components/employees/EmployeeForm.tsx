@@ -2863,8 +2863,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Alternate Saturday Off</option>
-                <option value="Yes">Yes</option>
-                <option value="No">No</option>
+                <option value="1st 3rd saturday off">1st 3rd saturday off</option>
+                <option value="2nd 4th saturday off">2nd 4th saturday off</option>
+                <option value="nil">nil</option>
               </select>
             </div>
             <div>

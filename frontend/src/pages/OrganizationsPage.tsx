@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import organizationService, { Organization, CreateOrganizationData } from '../services/organization.service';
 import Modal from '../components/common/Modal';
 import AppHeader from '../components/layout/AppHeader';
+import { APP_MODULES } from '../config/modules';
 
 export default function OrganizationsPage() {
   const navigate = useNavigate();
@@ -17,7 +18,11 @@ export default function OrganizationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showCreateAdminForm, setShowCreateAdminForm] = useState(false);
+  const [showAssignModulesForm, setShowAssignModulesForm] = useState(false);
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
+  const [orgModules, setOrgModules] = useState<string[]>([]);
+  const [loadingModules, setLoadingModules] = useState(false);
+  const [savingModules, setSavingModules] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -84,6 +89,47 @@ export default function OrganizationsPage() {
       alert('Organization created successfully!');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to create organization');
+    }
+  };
+
+  const assignableModules = APP_MODULES.filter((m) => m.visibility !== 'super_admin_only');
+
+  const openAssignModules = async (org: Organization) => {
+    setSelectedOrg(org);
+    setShowAssignModulesForm(true);
+    setError(null);
+    try {
+      setLoadingModules(true);
+      const modules = await organizationService.getModules(org.id);
+      setOrgModules(modules);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to load modules');
+      setOrgModules([]);
+    } finally {
+      setLoadingModules(false);
+    }
+  };
+
+  const toggleOrgModule = (resource: string) => {
+    setOrgModules((prev) =>
+      prev.includes(resource) ? prev.filter((r) => r !== resource) : [...prev, resource]
+    );
+  };
+
+  const handleSaveModules = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrg) return;
+    try {
+      setSavingModules(true);
+      setError(null);
+      await organizationService.setModules(selectedOrg.id, orgModules);
+      setShowAssignModulesForm(false);
+      setSelectedOrg(null);
+      alert(`Modules updated. Org Admin for ${selectedOrg.name} will only see the selected modules.`);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to save modules');
+    } finally {
+      setSavingModules(false);
     }
   };
 
@@ -215,11 +261,16 @@ export default function OrganizationsPage() {
                   </p>
                 </div>
 
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => openAssignModules(org)}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm"
+                  >
+                    Assign modules
+                  </button>
                   <button
                     onClick={() => {
                       setSelectedOrg(org);
-                      // Clear previous form data
                       setAdminFormData({
                         email: '',
                         password: '',
@@ -229,16 +280,13 @@ export default function OrganizationsPage() {
                       setError(null);
                       setShowCreateAdminForm(true);
                     }}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm"
                   >
                     Create Admin
                   </button>
                   <button
-                    onClick={() => {
-                      // View organization details
-                      alert(`Organization ID: ${org.id}\nName: ${org.name}`);
-                    }}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
+                    onClick={() => alert(`Organization ID: ${org.id}\nName: ${org.name}`)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
                   >
                     View Details
                   </button>
@@ -542,6 +590,63 @@ export default function OrganizationsPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Assign modules modal (SAP-style: which modules this org gets; Org Admin will only see these) */}
+      <Modal
+        isOpen={showAssignModulesForm}
+        onClose={() => {
+          setShowAssignModulesForm(false);
+          setSelectedOrg(null);
+          setError(null);
+        }}
+        title={`Assign modules – ${selectedOrg?.name || ''}`}
+      >
+        <p className="text-sm text-gray-600 mb-4">
+          Select which modules this organization can use. Org Admin will only see and use these modules.
+        </p>
+        {loadingModules ? (
+          <p className="text-gray-500">Loading modules...</p>
+        ) : (
+          <form onSubmit={handleSaveModules} className="space-y-4">
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {assignableModules.map((mod) => (
+                <label
+                  key={mod.path}
+                  className="flex items-center gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={orgModules.includes(mod.resource)}
+                    onChange={() => toggleOrgModule(mod.resource)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-gray-900">{mod.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex space-x-4 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAssignModulesForm(false);
+                  setSelectedOrg(null);
+                  setError(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingModules}
+                className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingModules ? 'Saving...' : 'Save modules'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );

@@ -139,7 +139,8 @@ export class RolePermissionService {
   }
 
   /**
-   * Check if a role has a specific permission
+   * Check if a role has a specific permission.
+   * For ORG_ADMIN, HR_MANAGER, MANAGER, EMPLOYEE with organizationId: only org-specific permission counts.
    */
   async hasPermission(
     role: UserRole,
@@ -147,27 +148,29 @@ export class RolePermissionService {
     action: string,
     organizationId?: string
   ): Promise<boolean> {
-    // First, find the permission
     const permission = await prisma.permission.findFirst({
-      where: {
-        resource,
-        action,
-      },
+      where: { resource, action },
     });
 
     if (!permission) {
       return false;
     }
 
-    // Check if role has this permission (system-wide or org-specific)
+    const orgScopedRoles: UserRole[] = ['ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
+    const onlyOrgSpecific = orgScopedRoles.includes(role) && organizationId;
+
     const rolePermission = await prisma.rolePermission.findFirst({
       where: {
         role: role as UserRole,
         permissionId: permission.id,
-        OR: [
-          { organizationId: null }, // System-wide permission
-          { organizationId: organizationId || null }, // Org-specific permission
-        ],
+        ...(onlyOrgSpecific
+          ? { organizationId }
+          : {
+              OR: [
+                { organizationId: null },
+                { organizationId: organizationId || null },
+              ],
+            }),
       },
     });
 
@@ -175,13 +178,58 @@ export class RolePermissionService {
   }
 
   /**
-   * Get all permissions for a user (considering their role and organization)
+   * Get all permissions for a user (considering their role and organization).
+   * For ORG_ADMIN, HR_MANAGER, MANAGER, EMPLOYEE with organizationId: only return org-specific
+   * permissions so Org Admin's assignment fully controls what they see (no system-wide merge).
    */
   async getUserPermissions(
     role: UserRoleType,
     organizationId?: string
   ): Promise<any[]> {
-    // Get system-wide permissions
+    const orgScopedRoles: UserRoleType[] = ['ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
+
+    if (orgScopedRoles.includes(role) && organizationId) {
+      const orgPermissions = await prisma.rolePermission.findMany({
+        where: {
+          role: role as UserRole,
+          organizationId,
+        },
+        include: {
+          permission: true,
+        },
+      });
+      const list = orgPermissions.map((rp) => ({
+        id: rp.permission.id,
+        name: rp.permission.name,
+        resource: rp.permission.resource,
+        action: rp.permission.action,
+        module: rp.permission.module,
+        description: rp.permission.description,
+      }));
+      if (list.length > 0) {
+        return list;
+      }
+      if (role === 'ORG_ADMIN') {
+        return list;
+      }
+      const systemPermissions = await prisma.rolePermission.findMany({
+        where: {
+          role: role as UserRole,
+          organizationId: null,
+        },
+        include: { permission: true },
+      });
+      return systemPermissions.map((rp) => ({
+        id: rp.permission.id,
+        name: rp.permission.name,
+        resource: rp.permission.resource,
+        action: rp.permission.action,
+        module: rp.permission.module,
+        description: rp.permission.description,
+      }));
+    }
+
+    // Super Admin or no org: system-wide permissions only
     const systemPermissions = await prisma.rolePermission.findMany({
       where: {
         role: role as UserRole,
@@ -192,51 +240,54 @@ export class RolePermissionService {
       },
     });
 
-    // Get org-specific permissions if organizationId is provided
-    let orgPermissions: any[] = [];
-    if (organizationId) {
-      orgPermissions = await prisma.rolePermission.findMany({
-        where: {
-          role: role as UserRole,
-          organizationId,
-        },
-        include: {
-          permission: true,
-        },
-      });
-    }
-
-    // Combine and deduplicate
-    const allPermissions = [...systemPermissions, ...orgPermissions];
-    const uniquePermissions = new Map();
-
-    allPermissions.forEach((rp) => {
-      if (!uniquePermissions.has(rp.permissionId)) {
-        uniquePermissions.set(rp.permissionId, {
-          id: rp.permission.id,
-          name: rp.permission.name,
-          resource: rp.permission.resource,
-          action: rp.permission.action,
-          module: rp.permission.module,
-          description: rp.permission.description,
-        });
-      }
-    });
-
-    return Array.from(uniquePermissions.values());
+    return systemPermissions.map((rp) => ({
+      id: rp.permission.id,
+      name: rp.permission.name,
+      resource: rp.permission.resource,
+      action: rp.permission.action,
+      module: rp.permission.module,
+      description: rp.permission.description,
+    }));
   }
 
   /**
-   * Replace all permissions for a role (remove old, assign new)
+   * Replace all permissions for a role (remove old, assign new).
+   * When restrictToOrgModules is true (Org Admin assigning for their org), only permissions for
+   * modules enabled for that organization are allowed. Super Admin is not restricted.
    */
   async replaceRolePermissions(
     role: UserRoleType | string,
     permissionIds: string[],
-    organizationId?: string
+    organizationId?: string,
+    restrictToOrgModules?: boolean
   ): Promise<{
     removed: number;
     assigned: number;
   }> {
+    if (restrictToOrgModules && organizationId && permissionIds.length > 0) {
+      const orgModules = await prisma.organizationModule.findMany({
+        where: { organizationId },
+        select: { resource: true },
+      });
+      const allowedResources = new Set(orgModules.map((m) => m.resource));
+      // Payroll Master implies Employee Separation and Employee Rejoin when payroll is assigned
+      if (allowedResources.has('payroll')) {
+        allowedResources.add('employee_separations');
+        allowedResources.add('employee_rejoin');
+      }
+      const perms = await prisma.permission.findMany({
+        where: { id: { in: permissionIds } },
+        select: { id: true, resource: true },
+      });
+      const notAllowed = perms.find((p) => !allowedResources.has(p.resource));
+      if (notAllowed) {
+        throw new AppError(
+          'Cannot assign permissions for modules not enabled for your organization. You can only assign within your allowed modules.',
+          403
+        );
+      }
+    }
+
     // Remove all existing permissions for this role (system-wide or org-specific)
     const deleted = await prisma.rolePermission.deleteMany({
       where: {

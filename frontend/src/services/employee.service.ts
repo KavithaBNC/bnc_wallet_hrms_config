@@ -143,7 +143,8 @@ export interface EmployeeQuery {
   positionId?: string;
   reportingManagerId?: string;
   employmentType?: EmploymentType;
-  employeeStatus?: EmployeeStatus;
+  /** ACTIVE (default), SEPARATED (resigned/terminated), ALL, or specific status */
+  employeeStatus?: EmployeeStatus | 'SEPARATED' | 'ALL';
   gender?: Gender;
   search?: string;
   page?: number;

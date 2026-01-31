@@ -57,8 +57,23 @@ model Organization {
   taxConfigurations    TaxConfiguration[]
   statutoryCompliances StatutoryCompliance[]
   jobOpenings          JobOpening[]
+  organizationModules  OrganizationModule[]
+  employeeSeparations  EmployeeSeparation[]
 
   @@map("organizations")
+}
+
+// Per-organization enabled modules (SAP-style: Super Admin assigns which modules each org gets)
+model OrganizationModule {
+  id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  resource       String   @db.VarChar(100) // e.g. "employees", "departments", "permissions"
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, resource])
+  @@map("organization_modules")
 }
 
 model User {
@@ -378,6 +393,7 @@ model Employee {
   referredCandidates        Candidate[]                @relation("CandidateReferrer")
   assignedApplications      Application[]              @relation("ApplicationRecruiter")
   changeRequests            EmployeeChangeRequest[]     @relation("EmployeeChangeRequests")
+  separations               EmployeeSeparation[]
 
   @@map("employees")
 }
@@ -894,6 +910,40 @@ enum PayrollStatus {
   CANCELLED
 
   @@map("payroll_status")
+}
+
+// Employee Separation (Payroll sub-module)
+model EmployeeSeparation {
+  id                    String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId            String         @map("employee_id") @db.Uuid
+  organizationId       String         @map("organization_id") @db.Uuid
+  resignationApplyDate DateTime       @map("resignation_apply_date") @db.Date
+  noticePeriod         Int            @map("notice_period") // days
+  noticePeriodReason   String?        @map("notice_period_reason") @db.VarChar(255)
+  relievingDate        DateTime       @map("relieving_date") @db.Date
+  reasonOfLeaving      String?        @map("reason_of_leaving") @db.VarChar(255)
+  separationType       SeparationType @map("separation_type")
+  remarks              String?        @db.Text
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("employee_separations")
+  @@index([organizationId])
+  @@index([employeeId])
+}
+
+enum SeparationType {
+  RESIGNATION
+  TERMINATION
+  RETIREMENT
+  CONTRACT_END
+  ABSONDING
+  OTHER
+
+  @@map("separation_type")
 }
 
 model Payslip {

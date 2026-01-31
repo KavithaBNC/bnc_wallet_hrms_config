@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import DashboardLayout from './components/layout/DashboardLayout';
 import { useAuthStore } from './store/authStore';
@@ -15,6 +15,8 @@ import PositionsPage from './pages/PositionsPage';
 import AttendancePage from './pages/AttendancePage';
 import LeavePage from './pages/LeavePage';
 import PayrollPage from './pages/PayrollPage';
+import EmployeeSeparationPage from './pages/EmployeeSeparationPage';
+import EmployeeRejoinPage from './pages/EmployeeRejoinPage';
 import SalaryStructurePage from './pages/SalaryStructurePage';
 import EmployeeSalariesPage from './pages/EmployeeSalariesPage';
 import OrganizationsPage from './pages/OrganizationsPage';
@@ -134,6 +136,34 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <PayrollPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll-master"
+            element={
+              <ProtectedRoute>
+                <Navigate to="/payroll/employee-separation" replace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/employee-separation"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeSeparationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/employee-rejoin"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeRejoinPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

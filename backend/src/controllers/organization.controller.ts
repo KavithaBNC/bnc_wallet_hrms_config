@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { organizationService } from '../services/organization.service';
+import { organizationModuleService } from '../services/organization-module.service';
+import { prisma } from '../utils/prisma';
+import { AppError } from '../middlewares/errorHandler';
 
 export class OrganizationController {
   /**
@@ -142,6 +145,55 @@ export class OrganizationController {
       });
     } catch (error) {
       return next(error);
+    }
+  }
+
+  /**
+   * Get enabled modules for an organization (SAP-style per-org module assignment)
+   * GET /api/v1/organizations/:id/modules
+   */
+  async getModules(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      if (req.user?.role === 'ORG_ADMIN') {
+        const employee = await prisma.employee.findUnique({
+          where: { userId: req.user.userId },
+          select: { organizationId: true },
+        });
+        if (!employee || employee.organizationId !== id) {
+          throw new AppError('You can only view modules for your own organization', 403);
+        }
+      }
+      const modules = await organizationModuleService.getModules(id);
+      res.status(200).json({
+        status: 'success',
+        data: { modules },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Set enabled modules for an organization (Super Admin only). Also restricts Org Admin to these modules.
+   * PUT /api/v1/organizations/:id/modules
+   */
+  async setModules(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { modules: resources } = req.body as { modules: string[] };
+      if (!Array.isArray(resources)) {
+        res.status(400).json({ status: 'fail', message: 'modules must be an array' });
+        return;
+      }
+      const result = await organizationModuleService.setModules(id, resources);
+      res.status(200).json({
+        status: 'success',
+        message: `Organization modules updated. Org Admin will only see ${result.updated} assigned module(s).`,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
     }
   }
 }

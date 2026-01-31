@@ -118,6 +118,22 @@ const organizationService = {
   },
 
   /**
+   * Get enabled modules for an organization (SAP-style per-org assignment)
+   */
+  async getModules(organizationId: string): Promise<string[]> {
+    const response = await api.get(`/organizations/${organizationId}/modules`);
+    return response.data.data.modules;
+  },
+
+  /**
+   * Set enabled modules for an organization (Super Admin only). Org Admin will only see these modules.
+   */
+  async setModules(organizationId: string, modules: string[]): Promise<{ updated: number }> {
+    const response = await api.put(`/organizations/${organizationId}/modules`, { modules });
+    return response.data.data;
+  },
+
+  /**
    * Create organization admin user
    */
   async createAdmin(organizationId: string, data: {

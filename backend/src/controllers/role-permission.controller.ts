@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { rolePermissionService } from '../services/role-permission.service';
+import { prisma } from '../utils/prisma';
+import { AppError } from '../middlewares/errorHandler';
 
 export class RolePermissionController {
   /**
@@ -44,7 +46,28 @@ export class RolePermissionController {
   async getRolePermissions(req: Request, res: Response, next: NextFunction) {
     try {
       const { role } = req.params;
-      const organizationId = req.query.organizationId as string | undefined;
+      let organizationId = req.query.organizationId as string | undefined;
+
+      if (req.user?.role === 'ORG_ADMIN') {
+        const employee = await prisma.employee.findUnique({
+          where: { userId: req.user.userId },
+          select: { organizationId: true },
+        });
+        if (!employee?.organizationId) {
+          return res.status(403).json({
+            status: 'fail',
+            message: 'Your organization could not be determined.',
+          });
+        }
+        organizationId = employee.organizationId;
+        const allowedRoles = ['HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
+        if (!allowedRoles.includes(role)) {
+          return res.status(403).json({
+            status: 'fail',
+            message: 'You can only view permissions for HR Manager, Manager, or Employee.',
+          });
+        }
+      }
 
       const permissions = await rolePermissionService.getRolePermissions(
         role as any,
@@ -67,13 +90,21 @@ export class RolePermissionController {
   async getUserPermissions(req: Request, res: Response, next: NextFunction) {
     try {
       const userRole = req.user?.role as any;
-      const organizationId = req.rbac?.organizationId || undefined;
+      let organizationId = req.rbac?.organizationId || undefined;
 
       if (!userRole) {
         return res.status(401).json({
           status: 'fail',
           message: 'Authentication required',
         });
+      }
+
+      if (!organizationId && userRole !== 'SUPER_ADMIN') {
+        const employee = await prisma.employee.findUnique({
+          where: { userId: req.user!.userId },
+          select: { organizationId: true },
+        });
+        if (employee) organizationId = employee.organizationId;
       }
 
       const permissions = await rolePermissionService.getUserPermissions(
@@ -97,7 +128,7 @@ export class RolePermissionController {
   async replaceRolePermissions(req: Request, res: Response, next: NextFunction) {
     try {
       const { role } = req.params;
-      const { permissionIds, organizationId } = req.body;
+      let { permissionIds, organizationId } = req.body;
 
       if (!Array.isArray(permissionIds)) {
         return res.status(400).json({
@@ -106,10 +137,27 @@ export class RolePermissionController {
         });
       }
 
+      if (req.user?.role === 'ORG_ADMIN') {
+        const employee = await prisma.employee.findUnique({
+          where: { userId: req.user.userId },
+          select: { organizationId: true },
+        });
+        if (!employee?.organizationId) {
+          throw new AppError('Your organization could not be determined.', 403);
+        }
+        organizationId = employee.organizationId;
+        const allowedRoles = ['HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
+        if (!allowedRoles.includes(role)) {
+          throw new AppError('You can only assign permissions to HR Manager, Manager, or Employee.', 403);
+        }
+      }
+
+      const restrictToOrgModules = req.user?.role === 'ORG_ADMIN';
       const result = await rolePermissionService.replaceRolePermissions(
         role as any,
         permissionIds,
-        organizationId
+        organizationId,
+        restrictToOrgModules
       );
 
       res.status(200).json({

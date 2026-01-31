@@ -28,7 +28,7 @@ export default function EmployeesPage() {
   const organizationName = user?.employee?.organization?.name;
   const { employees, pagination, loading, error, fetchEmployees, deleteEmployee } = useEmployeeStore();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [departmentFilter, _setDepartmentFilter] = useState<string>('ALL');
   const [positionFilter, setPositionFilter] = useState<string>('ALL');
   const [pageSize, setPageSize] = useState(20);
@@ -208,13 +208,39 @@ export default function EmployeesPage() {
     };
     if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
     if (searchTerm) params.search = searchTerm;
-    if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
+    params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
     if (positionFilter !== 'ALL') params.positionId = positionFilter;
     params.sortBy = sortBy;
     params.sortOrder = sortOrder;
     fetchEmployees(params);
   }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
+
+  // Open employee edit form when navigated from Employee Rejoin (or elsewhere) with editEmployeeId
+  useEffect(() => {
+    const editId = (location.state as { editEmployeeId?: string } | null)?.editEmployeeId;
+    if (location.pathname !== '/employees' || !editId) return;
+    let cancelled = false;
+    setLoadingEmployee(true);
+    employeeService
+      .getById(editId)
+      .then((full) => {
+        if (!cancelled) {
+          setEditingEmployee(full);
+          setViewMode(false);
+          setShowForm(true);
+        }
+        navigate('/employees', { replace: true, state: {} });
+      })
+      .catch(() => {
+        if (!cancelled) alert('Failed to load employee details');
+        navigate('/employees', { replace: true, state: {} });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEmployee(false);
+      });
+    return () => { cancelled = true; };
+  }, [location.pathname, location.state, navigate]);
 
   const fetchCredentials = useCallback(async () => {
     try {
@@ -298,7 +324,7 @@ export default function EmployeesPage() {
       sortOrder,
     };
     if (searchTerm) params.search = searchTerm;
-    if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
+    params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
     if (positionFilter !== 'ALL') params.positionId = positionFilter;
     fetchEmployees(params);
@@ -1060,8 +1086,9 @@ export default function EmployeesPage() {
               onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
               className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="ALL">All Status</option>
               <option value="ACTIVE">Active</option>
+              <option value="SEPARATED">Separated Employees</option>
+              <option value="ALL">All Status</option>
               <option value="ON_LEAVE">On Leave</option>
               <option value="SUSPENDED">Suspended</option>
               <option value="TERMINATED">Terminated</option>
@@ -1149,7 +1176,7 @@ export default function EmployeesPage() {
               const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
               if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
               if (searchTerm) params.search = searchTerm;
-              if (statusFilter !== 'ALL') params.employeeStatus = statusFilter;
+              params.employeeStatus = statusFilter;
               if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
               if (positionFilter !== 'ALL') params.positionId = positionFilter;
               fetchEmployees(params);
@@ -1226,7 +1253,7 @@ export default function EmployeesPage() {
               <div className="p-4">
                 {employees.length === 0 ? (
                   <div className="py-12 text-center text-gray-500">
-                    {searchTerm || statusFilter !== 'ALL' || positionFilter !== 'ALL'
+                    {searchTerm || statusFilter !== 'ACTIVE' || positionFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
                   </div>
@@ -1351,7 +1378,7 @@ export default function EmployeesPage() {
               {employees.length === 0 ? (
                 <tr>
                   <td colSpan={user?.role === 'SUPER_ADMIN' ? 7 : 4} className="px-6 py-8 text-center text-gray-500">
-                    {searchTerm || statusFilter !== 'ALL' || departmentFilter !== 'ALL' || positionFilter !== 'ALL'
+                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || positionFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
                   </td>

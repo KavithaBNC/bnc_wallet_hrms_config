@@ -426,9 +426,15 @@ export class EmployeeService {
       where.employmentType = query.employmentType;
     }
 
-    if (query.employeeStatus) {
+    // Default to ACTIVE so main list shows only active employees; SEPARATED = resigned/terminated; ALL = no filter
+    if (query.employeeStatus === 'SEPARATED') {
+      where.employeeStatus = { in: ['RESIGNED', 'TERMINATED'] };
+    } else if (query.employeeStatus && query.employeeStatus !== 'ALL') {
       where.employeeStatus = query.employeeStatus;
+    } else if (!query.employeeStatus) {
+      where.employeeStatus = 'ACTIVE';
     }
+    // when employeeStatus === 'ALL', no status filter applied
 
     if (query.gender) {
       where.gender = query.gender;

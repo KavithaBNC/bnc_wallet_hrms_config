@@ -35,6 +35,27 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/organizations/:id/modules
+ * @desc    Get enabled modules for an organization (SAP-style per-org assignment)
+ * @access  Private (SUPER_ADMIN for any org; ORG_ADMIN for own org only - enforce in controller if needed)
+ */
+router.get(
+  '/:id/modules',
+  organizationController.getModules.bind(organizationController)
+);
+
+/**
+ * @route   PUT /api/v1/organizations/:id/modules
+ * @desc    Set enabled modules for an organization (Super Admin only). Org Admin will only see these modules.
+ * @access  Private (SUPER_ADMIN only)
+ */
+router.put(
+  '/:id/modules',
+  authorize('SUPER_ADMIN'),
+  organizationController.setModules.bind(organizationController)
+);
+
+/**
  * @route   GET /api/v1/organizations/:id
  * @desc    Get organization by ID
  * @access  Private (All authenticated users - including HRMS_ADMIN for org management)

@@ -145,6 +145,8 @@ async function seedPermissions() {
       'attendance',
       'leaves',
       'payroll',
+      'employee_separations',
+      'employee_rejoin',
       'salary_structures',
       'employee_salaries',
       'hr_audit_settings',

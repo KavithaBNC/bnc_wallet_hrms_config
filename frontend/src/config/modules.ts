@@ -14,6 +14,8 @@ export interface AppModule {
   resource: string;
   /** 'all' = show in sidebar if user has view permission; 'super_admin_only' = only Super Admin; 'module_permission_only' = only Super Admin & Org Admin (Module Permission screen) */
   visibility: ModuleVisibility;
+  /** If set, render this item as a sub-menu under the module with this path (e.g. Payroll Master -> Employee Separation) */
+  parentPath?: string;
 }
 
 /** Sidebar modules in display order. Add new menu here and it appears in sidebar and in Module Permission screen.
@@ -28,6 +30,9 @@ export const APP_MODULES: AppModule[] = [
   { path: '/attendance', label: 'Attendance', resource: 'attendance', visibility: 'all' },
   { path: '/leave', label: 'Leave Management', resource: 'leaves', visibility: 'all' },
   { path: '/payroll', label: 'Payroll', resource: 'payroll', visibility: 'all' },
+  { path: '/payroll-master', label: 'Payroll Master', resource: 'payroll', visibility: 'all' },
+  { path: '/payroll/employee-separation', label: 'Employee Separation', resource: 'employee_separations', visibility: 'all', parentPath: '/payroll-master' },
+  { path: '/payroll/employee-rejoin', label: 'Employee Rejoin', resource: 'employee_rejoin', visibility: 'all', parentPath: '/payroll-master' },
   { path: '/salary-structures', label: 'Salary Structure', resource: 'salary_structures', visibility: 'all' },
   { path: '/employee-salaries', label: 'Employee Salary', resource: 'employee_salaries', visibility: 'all' },
   { path: '/hr-audit-settings', label: 'HR Audit Settings', resource: 'hr_audit_settings', visibility: 'all' },

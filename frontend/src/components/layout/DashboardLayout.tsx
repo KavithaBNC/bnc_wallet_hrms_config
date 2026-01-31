@@ -46,6 +46,21 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
+  '/payroll-master': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+    </svg>
+  ),
+  '/payroll/employee-separation': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    </svg>
+  ),
+  '/payroll/employee-rejoin': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+    </svg>
+  ),
   '/salary-structures': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -121,6 +136,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [canSeeAllModules, userPermissionKeys]);
 
+  // Super Admin always sees all menus from APP_MODULES (hasView returns true for all resources)
   const visibleNavItems = useMemo(() => {
     const items: AppModule[] = [];
     for (const mod of APP_MODULES) {
@@ -134,6 +150,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
     return items;
   }, [isSuperAdmin, hasView]);
+
+  // Payroll Master dropdown: open when current path is under its children (e.g. /payroll/employee-separation)
+  const payrollMasterDropdownOpen = location.pathname.startsWith('/payroll/');
+  const [payrollMasterExpanded, setPayrollMasterExpanded] = useState(payrollMasterDropdownOpen);
+  useEffect(() => {
+    if (payrollMasterDropdownOpen) setPayrollMasterExpanded(true);
+  }, [payrollMasterDropdownOpen]);
+
+  const topLevelNavItems = useMemo(() => visibleNavItems.filter((m) => !m.parentPath), [visibleNavItems]);
 
   const handleLogout = async () => {
     await logout();
@@ -160,23 +185,86 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-gray-100">
-      <aside className="w-64 flex-shrink-0 text-white flex flex-col overflow-hidden rounded-r-3xl" style={{ backgroundColor: '#2563eb' }}>
+      <aside className="w-64 flex-shrink-0 bg-white text-gray-900 flex flex-col overflow-hidden border-r border-gray-200 shadow-sm">
         <div className="p-6 flex items-center justify-center">
-          <span className="text-2xl font-bold tracking-tight">HRMS</span>
+          <span className="text-2xl font-bold tracking-tight text-black">HRMS</span>
         </div>
 
-        <nav className="flex-1 py-4 px-4 space-y-2">
-          {visibleNavItems.map((mod) => {
+        <nav className="flex-1 py-4 px-4 space-y-2 overflow-y-auto">
+          {topLevelNavItems.map((mod) => {
             const isActive = location.pathname === mod.path;
             const icon = ICONS_BY_PATH[mod.path];
+            const childItems = visibleNavItems.filter((m) => m.parentPath === mod.path);
+            const isParentWithChildren = childItems.length > 0;
+            const isPayrollMaster = mod.path === '/payroll-master';
+            const expanded = isPayrollMaster ? payrollMasterExpanded : false;
+            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : () => {};
+            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : false;
+
+            if (isParentWithChildren) {
+              return (
+                <div key={mod.path} className="space-y-1">
+                  <div
+                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+                      isActive || dropdownOpen
+                        ? 'bg-gray-100 text-black shadow-sm'
+                        : 'text-gray-900 hover:bg-gray-100 hover:text-black'
+                    }`}
+                    onClick={() => setExpanded((e: boolean) => !e)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setExpanded((x: boolean) => !x);
+                      }
+                    }}
+                  >
+                    {icon ?? null}
+                    <span className="flex-1">{mod.label}</span>
+                    <svg
+                      className={`w-5 h-5 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                  {expanded && (
+                    <div className="pl-4 space-y-1 border-l-2 border-gray-200 ml-4">
+                      {childItems.map((child) => {
+                        const childActive = location.pathname === child.path;
+                        const childIcon = ICONS_BY_PATH[child.path];
+                        return (
+                          <Link
+                            key={child.path}
+                            to={child.path}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                              childActive
+                                ? 'bg-gray-100 text-black'
+                                : 'text-gray-700 hover:bg-gray-100 hover:text-black'
+                            }`}
+                          >
+                            {childIcon ?? null}
+                            <span>{child.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={mod.path}
                 to={mod.path}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                   isActive
-                    ? 'bg-white/20 text-white shadow-lg'
-                    : 'text-white/90 hover:bg-white/10 hover:text-white'
+                    ? 'bg-gray-100 text-black shadow-sm'
+                    : 'text-gray-900 hover:bg-gray-100 hover:text-black'
                 }`}
               >
                 {icon ?? null}
@@ -186,7 +274,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           })}
         </nav>
 
-        <div className="px-4 pb-6 space-y-2 border-t border-white/10 pt-4 mt-auto">
+        <div className="px-4 pb-6 space-y-2 border-t border-gray-200 pt-4 mt-auto">
           {bottomNavItems.map((item) => {
             const isActive = location.pathname === item.to;
             return (
@@ -195,8 +283,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 to={item.to}
                 className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                   isActive
-                    ? 'bg-white/20 text-white shadow-lg'
-                    : 'text-white/90 hover:bg-white/10 hover:text-white'
+                    ? 'bg-gray-100 text-black shadow-sm'
+                    : 'text-gray-900 hover:bg-gray-100 hover:text-black'
                 }`}
               >
                 {item.icon}
@@ -206,7 +294,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           })}
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 text-white/90 hover:bg-white/10 hover:text-white"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 text-gray-900 hover:bg-gray-100 hover:text-black"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

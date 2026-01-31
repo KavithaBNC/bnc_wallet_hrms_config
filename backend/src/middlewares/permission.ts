@@ -20,8 +20,6 @@ export const checkPermission = (resource: string, action: string) => {
       return next();
     }
 
-    // HR_MANAGER and ORG_ADMIN have default access to all modules
-    // But we still check permissions for granular control
     const hasPermission = await rolePermissionService.hasPermission(
       userRole,
       resource,
@@ -30,12 +28,6 @@ export const checkPermission = (resource: string, action: string) => {
     );
 
     if (!hasPermission) {
-      // For HR_MANAGER and ORG_ADMIN, if no explicit permission found,
-      // grant access by default (backward compatibility)
-      if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN') {
-        return next();
-      }
-
       return next(
         new AppError(
           `Access denied. You do not have permission to ${action} ${resource}.`,
@@ -68,7 +60,6 @@ export const checkAnyPermission = (
       return next();
     }
 
-    // Check if user has at least one of the required permissions
     for (const perm of permissions) {
       const hasPermission = await rolePermissionService.hasPermission(
         userRole,
@@ -80,11 +71,6 @@ export const checkAnyPermission = (
       if (hasPermission) {
         return next();
       }
-    }
-
-    // For HR_MANAGER and ORG_ADMIN, grant access by default if no explicit permission
-    if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN') {
-      return next();
     }
 
     return next(
@@ -123,11 +109,6 @@ export const checkAllPermissions = (
       );
 
       if (!hasPermission) {
-        // For HR_MANAGER and ORG_ADMIN, grant access by default
-        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN') {
-          continue;
-        }
-
         return next(
           new AppError(
             `Access denied. Missing permission: ${perm.action} ${perm.resource}.`,

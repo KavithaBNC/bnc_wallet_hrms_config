@@ -6,7 +6,6 @@ import { EMPLOYEE_MODULES } from '../constants/employeeModules';
 import AppHeader from '../components/layout/AppHeader';
 
 const ROLES = [
-  { value: 'USER', label: 'User' },
   { value: 'EMPLOYEE', label: 'Employee' },
   { value: 'HR_MANAGER', label: 'HR Manager' },
   { value: 'MANAGER', label: 'Manager' },
@@ -24,7 +23,7 @@ export default function HRAuditSettingsPage() {
 
   const byRole = useHRAuditStore((s) => s.byRole);
   const { getSettingsForRole, setSettingsForRole, updateModule } = useHRAuditStore();
-  const [role, setRole] = useState('USER');
+  const [role, setRole] = useState('EMPLOYEE');
   const settings = useMemo(() => getSettingsForRole(role), [role, byRole, getSettingsForRole]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
