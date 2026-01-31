@@ -195,6 +195,8 @@ export class PermissionService {
       'employee_master_approval',
       'organizations',
       'permissions',
+      'transfer_promotions',
+      'transfer_promotion_entry',
     ];
     const actions = ['read', 'create', 'update'] as const;
     const actionDescriptions: Record<string, string> = {

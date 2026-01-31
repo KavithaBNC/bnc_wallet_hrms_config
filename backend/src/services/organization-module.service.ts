@@ -19,6 +19,8 @@ export const ASSIGNABLE_MODULE_RESOURCES = [
   'employee_salaries',
   'hr_audit_settings',
   'employee_master_approval',
+  'transfer_promotions',
+  'transfer_promotion_entry',
 ] as const;
 
 export type AssignableModuleResource = (typeof ASSIGNABLE_MODULE_RESOURCES)[number];
@@ -59,6 +61,9 @@ export class OrganizationModuleService {
       if (!resources.includes('employee_separations')) resources = [...resources, 'employee_separations'];
       if (!resources.includes('employee_rejoin')) resources = [...resources, 'employee_rejoin'];
     }
+    // Transaction sub-modules: always include so Org Admin can see and assign Increment, Transfer and Promotion Entry, Emp Code Transfer
+    if (!resources.includes('transfer_promotions')) resources = [...resources, 'transfer_promotions'];
+    if (!resources.includes('transfer_promotion_entry')) resources = [...resources, 'transfer_promotion_entry'];
     return resources;
   }
 

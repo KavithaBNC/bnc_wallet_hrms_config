@@ -38,7 +38,7 @@ export const APP_MODULES: AppModule[] = [
   { path: '/hr-audit-settings', label: 'HR Audit Settings', resource: 'hr_audit_settings', visibility: 'all' },
   { path: '/employee-master-approval', label: 'Employee Master Approval', resource: 'employee_master_approval', visibility: 'all' },
   { path: '/transaction', label: 'Transaction', resource: 'transfer_promotions', visibility: 'all' },
-  { path: '/transaction/transfer-promotions', label: 'Transfer and Promotions', resource: 'transfer_promotions', visibility: 'all', parentPath: '/transaction' },
+  { path: '/transaction/transfer-promotions', label: 'Increment', resource: 'transfer_promotions', visibility: 'all', parentPath: '/transaction' },
   { path: '/transaction/transfer-promotion-entry', label: 'Transfer and Promotion Entry', resource: 'transfer_promotion_entry', visibility: 'all', parentPath: '/transaction' },
   { path: '/transaction/emp-code-transfer', label: 'Emp Code Transfer', resource: 'transfer_promotions', visibility: 'all', parentPath: '/transaction' },
 ];

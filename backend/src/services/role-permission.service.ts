@@ -275,6 +275,9 @@ export class RolePermissionService {
         allowedResources.add('employee_separations');
         allowedResources.add('employee_rejoin');
       }
+      // Transaction modules: always allow so Org Admin can assign Increment, Transfer and Promotion Entry, Emp Code Transfer
+      allowedResources.add('transfer_promotions');
+      allowedResources.add('transfer_promotion_entry');
       const perms = await prisma.permission.findMany({
         where: { id: { in: permissionIds } },
         select: { id: true, resource: true },
