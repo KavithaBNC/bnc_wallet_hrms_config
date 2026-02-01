@@ -6,6 +6,7 @@ import {
   CreateEmployeeInput,
   UpdateEmployeeInput,
   QueryEmployeesInput,
+  RejoinEmployeeInput,
 } from '../utils/employee.validation';
 import { hashPassword } from '../utils/password';
 
@@ -350,6 +351,174 @@ export class EmployeeService {
       ...employee,
       temporaryPassword, // Include temporary password in response (only when new user was created)
     };
+  }
+
+  /**
+   * Rejoin: create a NEW employee record from a separated (resigned/terminated) employee.
+   * Old record is unchanged. New record gets new employee code, new user (newLoginEmail), ACTIVE status.
+   * @param allowedOrganizationId - If set (non-SUPER_ADMIN), previous employee must belong to this org.
+   */
+  async rejoin(data: RejoinEmployeeInput, allowedOrganizationId?: string) {
+    const { previousEmployeeId, newJoiningDate, newLoginEmail } = data;
+
+    const previous = await prisma.employee.findUnique({
+      where: { id: previousEmployeeId },
+      include: {
+        user: { select: { id: true, role: true } },
+        organization: { select: { id: true, employeeIdPrefix: true, employeeIdNextNumber: true } },
+        department: true,
+        position: true,
+      },
+    });
+
+    if (!previous) {
+      throw new AppError('Previous employee record not found', 404);
+    }
+
+    if (allowedOrganizationId && previous.organizationId !== allowedOrganizationId) {
+      throw new AppError('You can only rejoin employees from your organization', 403);
+    }
+
+    const allowedStatuses = ['RESIGNED', 'TERMINATED'];
+    if (!allowedStatuses.includes(previous.employeeStatus)) {
+      throw new AppError(
+        `Employee must be Resigned or Terminated to rejoin. Current status: ${previous.employeeStatus}`,
+        400
+      );
+    }
+
+    const existingByEmail = await prisma.employee.findUnique({
+      where: { email: newLoginEmail },
+    });
+    if (existingByEmail) {
+      throw new AppError('An employee with this login email already exists', 400);
+    }
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: newLoginEmail },
+    });
+    if (existingUser) {
+      throw new AppError('A user with this email already exists. Use a different login email for the rejoin.', 400);
+    }
+
+    let employeeCode: string;
+    const generatedCode = await this.reserveNextEmployeeCode(previous.organizationId);
+    if (generatedCode) {
+      employeeCode = generatedCode;
+    } else {
+      let attempts = 0;
+      const maxAttempts = 10;
+      let generated: string | null = null;
+      while (attempts < maxAttempts) {
+        const code = await this.generateEmployeeCode(previous.organizationId);
+        const exists = await prisma.employee.findUnique({ where: { employeeCode: code } });
+        if (!exists) {
+          generated = code;
+          break;
+        }
+        attempts++;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      employeeCode = generated ?? `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+
+    let userRole: 'EMPLOYEE' | 'HR_MANAGER' | 'MANAGER' = 'EMPLOYEE';
+    if (previous.positionId) {
+      const position = await prisma.jobPosition.findUnique({
+        where: { id: previous.positionId },
+        select: { title: true },
+      });
+      if (position) {
+        const title = position.title.toLowerCase();
+        if (title.includes('hr admin') || title.includes('hr manager') || title.includes('hr administrator')) {
+          userRole = 'HR_MANAGER';
+        } else if (title.includes('manager') && !title.includes('hr')) {
+          userRole = 'MANAGER';
+        } else if (title.includes('team lead') || title.includes('team leader')) {
+          userRole = 'MANAGER';
+        }
+      }
+    }
+
+    const temporaryPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
+    const passwordHash = await hashPassword(temporaryPassword);
+
+    const newUser = await prisma.user.create({
+      data: {
+        email: newLoginEmail,
+        passwordHash,
+        role: userRole,
+        organizationId: previous.organizationId,
+        isActive: true,
+        isEmailVerified: false,
+      },
+    });
+
+    const newJoiningDateObj = new Date(newJoiningDate);
+
+    // Prisma create expects undefined (not null) for optional JSON; copy non-null as-is
+    const jsonOrUndef = (v: unknown) => (v == null ? undefined : v);
+
+    const employee = await prisma.employee.create({
+      data: {
+        organizationId: previous.organizationId,
+        paygroupId: previous.paygroupId,
+        firstName: previous.firstName,
+        middleName: previous.middleName,
+        lastName: previous.lastName,
+        personalEmail: previous.personalEmail,
+        phone: previous.phone,
+        officialEmail: previous.officialEmail,
+        officialMobile: previous.officialMobile,
+        dateOfBirth: previous.dateOfBirth,
+        gender: previous.gender,
+        maritalStatus: previous.maritalStatus,
+        nationality: previous.nationality,
+        profilePictureUrl: previous.profilePictureUrl,
+        departmentId: previous.departmentId,
+        positionId: previous.positionId,
+        reportingManagerId: previous.reportingManagerId,
+        shiftId: previous.shiftId,
+        workLocation: previous.workLocation,
+        locationId: previous.locationId,
+        costCentreId: previous.costCentreId,
+        grade: previous.grade,
+        placeOfTaxDeduction: previous.placeOfTaxDeduction,
+        jobResponsibility: previous.jobResponsibility,
+        employmentType: previous.employmentType,
+        probationEndDate: previous.probationEndDate,
+        confirmationDate: previous.confirmationDate,
+        address: jsonOrUndef(previous.address) as Prisma.InputJsonValue | undefined,
+        emergencyContacts: jsonOrUndef(previous.emergencyContacts) as Prisma.InputJsonValue | undefined,
+        bankDetails: jsonOrUndef(previous.bankDetails) as Prisma.InputJsonValue | undefined,
+        taxInformation: jsonOrUndef(previous.taxInformation) as Prisma.InputJsonValue | undefined,
+        documents: jsonOrUndef(previous.documents) as Prisma.InputJsonValue | undefined,
+        entityId: previous.entityId,
+        profileExtensions: jsonOrUndef(previous.profileExtensions) as Prisma.InputJsonValue | undefined,
+        userId: newUser.id,
+        employeeCode,
+        email: newLoginEmail,
+        dateOfJoining: newJoiningDateObj,
+        employeeStatus: 'ACTIVE',
+        dateOfLeaving: null,
+        terminationReason: null,
+        isRejoin: true,
+        previousEmployeeId: previous.id,
+        previousEmployeeCode: previous.employeeCode,
+      },
+      include: {
+        organization: { select: { id: true, name: true } },
+        paygroup: { select: { id: true, name: true, code: true } },
+        department: { select: { id: true, name: true, code: true } },
+        position: { select: { id: true, title: true, code: true } },
+        reportingManager: {
+          select: { id: true, employeeCode: true, firstName: true, lastName: true, email: true },
+        },
+        user: { select: { id: true, email: true, role: true, isActive: true, isEmailVerified: true } },
+      },
+    });
+
+    return { ...employee, temporaryPassword };
   }
 
   /**

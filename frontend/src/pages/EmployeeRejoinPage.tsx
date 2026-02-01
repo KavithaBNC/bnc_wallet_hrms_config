@@ -14,6 +14,32 @@ const SEPARATION_TYPES: { value: string; label: string }[] = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+const NOTICE_PERIOD_REASONS: { value: string; label: string }[] = [
+  { value: '', label: '-- Select --' },
+  { value: 'WAIVED', label: 'Waived' },
+  { value: 'BUYOUT', label: 'Buyout' },
+  { value: 'SHORT_NOTICE', label: 'Short Notice' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+const REASONS_OF_LEAVING: { value: string; label: string }[] = [
+  { value: '', label: '-- Select --' },
+  { value: 'BETTER_OPPORTUNITY', label: 'Better Opportunity' },
+  { value: 'PERSONAL', label: 'Personal' },
+  { value: 'RELOCATION', label: 'Relocation' },
+  { value: 'RETIREMENT', label: 'Retirement' },
+  { value: 'TERMINATED', label: 'Terminated' },
+  { value: 'CONTRACT_END', label: 'Contract End' },
+  { value: 'OTHER', label: 'Other' },
+];
+
+const readOnlyInputClass =
+  'w-full bg-gray-50 rounded-lg border border-gray-200 py-2.5 px-3 text-gray-900 cursor-default';
+const readOnlySelectClass =
+  'w-full bg-gray-50 rounded-lg border border-gray-200 py-2.5 pl-3 pr-10 text-gray-900 cursor-default flex items-center';
+const dateIconClass = 'absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none';
+const selectIconClass = 'absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none';
+
 function formatDate(d: string) {
   if (!d) return '—';
   const date = new Date(d);
@@ -96,8 +122,8 @@ export default function EmployeeRejoinPage() {
     }
   };
 
-  const handleEditEmployee = (employeeId: string) => {
-    navigate('/employees', { state: { editEmployeeId: employeeId } });
+  const handleRejoinEmployee = (employeeId: string) => {
+    navigate(`/payroll/employee-rejoin/edit/${employeeId}`);
   };
 
   return (
@@ -308,9 +334,9 @@ export default function EmployeeRejoinPage() {
                           {row.employee?.id && (
                             <button
                               type="button"
-                              onClick={() => handleEditEmployee(row.employee!.id)}
+                              onClick={() => handleRejoinEmployee(row.employee!.id)}
                               className="text-amber-600 hover:text-amber-900 p-1.5 rounded hover:bg-amber-50 inline-flex items-center justify-center ml-1"
-                              title="Edit employee"
+                              title="Rejoin (create new employee record)"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -357,74 +383,148 @@ export default function EmployeeRejoinPage() {
           </div>
         )}
 
-        {/* Separation view modal */}
+        {/* Separation view modal – same layout as Employee Separation form (read-only) */}
         <Modal
           isOpen={showViewModal}
           onClose={() => { setShowViewModal(false); setViewSeparation(null); }}
-          title="Separation Details"
-          size="md"
+          title="Employee Separation"
+          size="lg"
         >
           {loadingSeparation ? (
             <div className="p-6 text-center text-gray-500">Loading...</div>
           ) : viewSeparation ? (
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Employee Code</label>
-                  <p className="text-gray-900">{viewSeparation.employee?.employeeCode ?? '—'}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Employee Name</label>
-                  <p className="text-gray-900">
+            <div className="space-y-4">
+              {/* Employee * */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">
+                  Employee <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className={readOnlySelectClass}>
                     {viewSeparation.employee
-                      ? `${viewSeparation.employee.firstName} ${viewSeparation.employee.lastName}`.trim()
+                      ? `${viewSeparation.employee.employeeCode ?? ''} - ${[viewSeparation.employee.firstName, viewSeparation.employee.lastName].filter(Boolean).join(' ')}`.trim()
                       : '—'}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Email</label>
-                  <p className="text-gray-900">{viewSeparation.employee?.email ?? '—'}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Separation Type</label>
-                  <p className="text-gray-900">
-                    {SEPARATION_TYPES.find((t) => t.value === viewSeparation.separationType)?.label ?? viewSeparation.separationType}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Resignation Apply Date</label>
-                  <p className="text-gray-900">{formatDate(viewSeparation.resignationApplyDate)}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Relieving Date</label>
-                  <p className="text-gray-900">{formatDate(viewSeparation.relievingDate)}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Notice Period (days)</label>
-                  <p className="text-gray-900">{viewSeparation.noticePeriod}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Notice Period Reason</label>
-                  <p className="text-gray-900">{viewSeparation.noticePeriodReason ?? '—'}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Reason of Leaving</label>
-                  <p className="text-gray-900">{viewSeparation.reasonOfLeaving ?? '—'}</p>
+                  </div>
+                  <svg className={`w-5 h-5 ${selectIconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </div>
               </div>
+
+              {/* Resignation Apply Date * */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">
+                  Resignation Apply Date <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly
+                    value={formatDate(viewSeparation.resignationApplyDate)}
+                    className={readOnlyInputClass}
+                  />
+                  <svg className={`w-5 h-5 ${dateIconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Notice Period (days) * */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">
+                  Notice Period (days) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={String(viewSeparation.noticePeriod)}
+                  className={readOnlyInputClass}
+                />
+              </div>
+
+              {/* Notice Period Reason */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">Notice Period Reason</label>
+                <div className="relative">
+                  <div className={readOnlySelectClass}>
+                    {NOTICE_PERIOD_REASONS.find((r) => r.value === viewSeparation.noticePeriodReason)?.label ??
+                      viewSeparation.noticePeriodReason ??
+                      '—'}
+                  </div>
+                  <svg className={`w-5 h-5 ${selectIconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Relieving Date * */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">
+                  Relieving Date <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    readOnly
+                    value={formatDate(viewSeparation.relievingDate)}
+                    className={readOnlyInputClass}
+                  />
+                  <svg className={`w-5 h-5 ${dateIconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Reason of Leaving */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">Reason of Leaving</label>
+                <div className="relative">
+                  <div className={readOnlySelectClass}>
+                    {REASONS_OF_LEAVING.find((r) => r.value === viewSeparation.reasonOfLeaving)?.label ??
+                      viewSeparation.reasonOfLeaving ??
+                      '—'}
+                  </div>
+                  <svg className={`w-5 h-5 ${selectIconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Separation Type * */}
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1.5">
+                  Separation Type <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className={readOnlySelectClass}>
+                    {SEPARATION_TYPES.find((t) => t.value === viewSeparation.separationType)?.label ??
+                      viewSeparation.separationType}
+                  </div>
+                  <svg className={`w-5 h-5 ${selectIconClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+
               {viewSeparation.remarks && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">Remarks</label>
-                  <p className="text-gray-900 whitespace-pre-wrap">{viewSeparation.remarks}</p>
+                  <label className="block text-sm font-medium text-gray-500 mb-1.5">Remarks</label>
+                  <div className={`${readOnlyInputClass} min-h-[80px] whitespace-pre-wrap`}>
+                    {viewSeparation.remarks}
+                  </div>
                 </div>
               )}
-              <div className="pt-4 flex justify-end">
+
+              <div className="pt-4 flex justify-end border-t border-gray-200">
                 <button
                   type="button"
                   onClick={() => { setShowViewModal(false); setViewSeparation(null); }}
-                  className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-700 hover:bg-gray-50"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                 >
-                  Close
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  Back
                 </button>
               </div>
             </div>

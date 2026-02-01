@@ -39,10 +39,9 @@ export class OrganizationModuleService {
     if (!org) {
       throw new AppError('Organization not found', 404);
     }
-    const rows = await prisma.organizationModule.findMany({
-      where: { organizationId },
-      select: { resource: true },
-    });
+    const rows = await prisma.$queryRaw<Array<{ resource: string }>>`
+      SELECT resource FROM organization_modules WHERE organization_id = ${organizationId}::uuid
+    `;
     let resources: string[];
     if (rows.length > 0) {
       resources = rows.map((r) => r.resource);
@@ -91,11 +90,14 @@ export class OrganizationModuleService {
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.organizationModule.deleteMany({ where: { organizationId } });
+      await tx.$executeRaw`DELETE FROM organization_modules WHERE organization_id = ${organizationId}::uuid`;
       if (unique.length > 0) {
-        await tx.organizationModule.createMany({
-          data: unique.map((resource) => ({ organizationId, resource })),
-        });
+        for (const resource of unique) {
+          await tx.$executeRaw`
+            INSERT INTO organization_modules (id, organization_id, resource, created_at)
+            VALUES (uuid_generate_v4(), ${organizationId}::uuid, ${resource}, NOW())
+          `;
+        }
       }
     });
 

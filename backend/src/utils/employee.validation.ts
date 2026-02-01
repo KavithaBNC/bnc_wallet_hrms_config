@@ -197,6 +197,16 @@ export const queryEmployeesSchema = z.object({
   listView: z.enum(['true', 'false']).optional(), // lighter response for list page
 });
 
+/**
+ * Validation schema for employee rejoin (create new employee from separated one)
+ */
+export const rejoinEmployeeSchema = z.object({
+  previousEmployeeId: z.string().uuid(),
+  newJoiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+  newLoginEmail: z.string().email().max(255),
+});
+
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 export type QueryEmployeesInput = z.infer<typeof queryEmployeesSchema>;
+export type RejoinEmployeeInput = z.infer<typeof rejoinEmployeeSchema>;

@@ -331,6 +331,12 @@ model Employee {
   payslips                  Payslip[]
   transferPromotionEntries  TransferPromotionEntry[]
   transferPromotions        TransferPromotion[]
+  isRejoin                  Boolean                  @default(false) @map("is_rejoin")
+  previousEmployeeId        String?                  @map("previous_employee_id") @db.Uuid
+  previousEmployeeCode     String?                  @map("previous_employee_code") @db.VarChar(50)
+
+  previousEmployee         Employee?               @relation("EmployeeRejoin", fields: [previousEmployeeId], references: [id])
+  rejoinedEmployee         Employee[]               @relation("EmployeeRejoin")
 
   @@map("employees")
 }

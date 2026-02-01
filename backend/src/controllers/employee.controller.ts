@@ -33,6 +33,36 @@ export class EmployeeController {
   }
 
   /**
+   * Rejoin: create new employee record from a separated (resigned/terminated) employee.
+   * POST /api/v1/employees/rejoin
+   */
+  async rejoin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const allowedOrganizationId =
+        req.user?.role === 'SUPER_ADMIN'
+          ? undefined
+          : (await prisma.user.findUnique({
+              where: { id: req.user!.userId },
+              select: { organizationId: true },
+            }))?.organizationId ?? undefined;
+      const result = await employeeService.rejoin(req.body, allowedOrganizationId);
+      const { temporaryPassword, ...employee } = result;
+      const response: any = {
+        status: 'success',
+        message: 'Employee rejoin successful. New employee record created.',
+        data: { employee },
+      };
+      if (temporaryPassword) {
+        response.data.temporaryPassword = temporaryPassword;
+        response.message += ' Please save the temporary password below.';
+      }
+      res.status(201).json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Get all employees with filtering (RBAC optimized)
    * GET /api/v1/employees
    */

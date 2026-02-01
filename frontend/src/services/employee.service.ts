@@ -222,6 +222,22 @@ const employeeService = {
     const response = await api.get('/employees/credentials', { params });
     return response.data.data.credentials;
   },
+
+  /**
+   * Rejoin: create new employee record from a separated (resigned/terminated) employee.
+   * New employee gets new code and new login email; previous record is unchanged.
+   */
+  async rejoin(data: {
+    previousEmployeeId: string;
+    newJoiningDate: string;
+    newLoginEmail: string;
+  }): Promise<{ employee: Employee; temporaryPassword?: string }> {
+    const response = await api.post('/employees/rejoin', data);
+    return {
+      employee: response.data.data.employee,
+      temporaryPassword: response.data.data.temporaryPassword,
+    };
+  },
 };
 
 export default employeeService;

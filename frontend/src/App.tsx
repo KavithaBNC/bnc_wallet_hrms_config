@@ -17,6 +17,7 @@ import LeavePage from './pages/LeavePage';
 import PayrollPage from './pages/PayrollPage';
 import EmployeeSeparationPage from './pages/EmployeeSeparationPage';
 import EmployeeRejoinPage from './pages/EmployeeRejoinPage';
+import EmployeeRejoinEditPage from './pages/EmployeeRejoinEditPage';
 import SalaryStructurePage from './pages/SalaryStructurePage';
 import EmployeeSalariesPage from './pages/EmployeeSalariesPage';
 import TransactionPage from './pages/TransactionPage';
@@ -170,6 +171,16 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <EmployeeRejoinPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/employee-rejoin/edit/:employeeId"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeRejoinEditPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

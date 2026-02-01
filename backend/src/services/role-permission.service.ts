@@ -265,10 +265,9 @@ export class RolePermissionService {
     assigned: number;
   }> {
     if (restrictToOrgModules && organizationId && permissionIds.length > 0) {
-      const orgModules = await prisma.organizationModule.findMany({
-        where: { organizationId },
-        select: { resource: true },
-      });
+      const orgModules = await prisma.$queryRaw<Array<{ resource: string }>>`
+        SELECT resource FROM organization_modules WHERE organization_id = ${organizationId}::uuid
+      `;
       const allowedResources = new Set(orgModules.map((m) => m.resource));
       // Payroll Master implies Employee Separation and Employee Rejoin when payroll is assigned
       if (allowedResources.has('payroll')) {

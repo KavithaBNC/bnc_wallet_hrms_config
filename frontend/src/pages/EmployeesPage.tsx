@@ -24,6 +24,7 @@ function getAvatarColor(name: string): string {
 export default function EmployeesPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
   const { user, loadUser, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
   const { employees, pagination, loading, error, fetchEmployees, deleteEmployee } = useEmployeeStore();
@@ -42,6 +43,7 @@ export default function EmployeesPage() {
   const [selectedPaygroupName, setSelectedPaygroupName] = useState<string | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [viewMode, setViewMode] = useState(false);
+  const [rejoinMode, setRejoinMode] = useState(false);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   const [loadingUser, setLoadingUser] = useState(false);
   const [loadUserAttempted, setLoadUserAttempted] = useState(false);
@@ -216,31 +218,35 @@ export default function EmployeesPage() {
     fetchEmployees(params);
   }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
 
-  // Open employee edit form when navigated from Employee Rejoin (or elsewhere) with editEmployeeId
+  // Open employee edit form when navigated with editEmployeeId or rejoinEmployeeId (from Employee Rejoin list)
   useEffect(() => {
-    const editId = (location.state as { editEmployeeId?: string } | null)?.editEmployeeId;
-    if (location.pathname !== '/employees' || !editId) return;
+    const state = location.state as { editEmployeeId?: string; rejoinEmployeeId?: string } | null;
+    const editId = state?.editEmployeeId;
+    const rejoinId = state?.rejoinEmployeeId ?? searchParams.get('rejoin');
+    const id = editId ?? rejoinId;
+    if (location.pathname !== '/employees' || !id) return;
     let cancelled = false;
     setLoadingEmployee(true);
     employeeService
-      .getById(editId)
+      .getById(id)
       .then((full) => {
         if (!cancelled) {
           setEditingEmployee(full);
           setViewMode(false);
+          setRejoinMode(!!rejoinId);
           setShowForm(true);
         }
         navigate('/employees', { replace: true, state: {} });
       })
       .catch(() => {
-        if (!cancelled) alert('Failed to load employee details');
-        navigate('/employees', { replace: true, state: {} });
+        if (!cancelled) alert(rejoinId ? 'Failed to load employee for rejoin' : 'Failed to load employee details');
+        navigate(location.pathname, { replace: true, state: {} });
       })
       .finally(() => {
         if (!cancelled) setLoadingEmployee(false);
       });
     return () => { cancelled = true; };
-  }, [location.pathname, location.state, navigate]);
+  }, [location.pathname, location.search, location.state, navigate]);
 
   const fetchCredentials = useCallback(async () => {
     try {
@@ -315,6 +321,7 @@ export default function EmployeesPage() {
   const handleFormSuccess = () => {
     setShowForm(false);
     setEditingEmployee(null);
+    setRejoinMode(false);
     const params: any = {
       organizationId,
       page: currentPage,
@@ -334,6 +341,7 @@ export default function EmployeesPage() {
     setShowForm(false);
     setEditingEmployee(null);
     setViewMode(false);
+    setRejoinMode(false);
     setSelectedPaygroupId(null);
     setSelectedPaygroupName(null);
   };
@@ -1504,21 +1512,22 @@ export default function EmployeesPage() {
       <Modal
         isOpen={showForm}
         onClose={handleFormCancel}
-        title={editingEmployee ? (viewMode ? 'View Employee' : 'Edit Employee') : 'Create Employee'}
+        title={rejoinMode ? 'Employee Rejoin' : editingEmployee ? (viewMode ? 'View Employee' : 'Edit Employee') : 'Create Employee'}
         size="full"
       >
-        {effectiveOrganizationId && (
+        {(effectiveOrganizationId || editingEmployee?.organizationId) && (
           <EmployeeForm
             key={editingEmployee?.id ?? 'create'}
             employee={editingEmployee}
-            organizationId={effectiveOrganizationId}
+            organizationId={effectiveOrganizationId ?? editingEmployee?.organizationId ?? ''}
             initialPaygroupId={selectedPaygroupId ?? undefined}
             initialPaygroupName={selectedPaygroupName ?? undefined}
             onSuccess={handleFormSuccess}
             onCancel={handleFormCancel}
             mode={editingEmployee && viewMode ? 'view' : 'edit'}
+            rejoinMode={rejoinMode}
             editableTabs={
-              editingEmployee && !viewMode
+              rejoinMode ? undefined : editingEmployee && !viewMode
                 ? canUpdateByRole
                   ? undefined
                   : (editableTabsFromPermissions ?? ((user?.role === 'EMPLOYEE' || user?.role === 'MANAGER') && user?.employee?.id === editingEmployee.id ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[]) : undefined))

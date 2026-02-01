@@ -7,6 +7,7 @@ import {
   createEmployeeSchema,
   updateEmployeeSchema,
   queryEmployeesSchema,
+  rejoinEmployeeSchema,
 } from '../utils/employee.validation';
 
 const router = Router();
@@ -72,6 +73,18 @@ router.get(
   '/:id',
   employeeListAccess, // Ensure organization filtering for employee access
   employeeController.getById.bind(employeeController)
+);
+
+/**
+ * @route   POST /api/v1/employees/rejoin
+ * @desc    Rejoin: create new employee from separated (resigned/terminated) employee
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/rejoin',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validate(rejoinEmployeeSchema),
+  employeeController.rejoin.bind(employeeController)
 );
 
 /**

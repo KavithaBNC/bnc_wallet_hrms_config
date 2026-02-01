@@ -38,6 +38,8 @@ interface EmployeeFormProps {
   mode?: 'view' | 'edit';
   /** When in edit mode, only these tabs are editable. Omit/undefined = all tabs editable. */
   editableTabs?: EmployeeFormTabKey[];
+  /** Rejoin flow: create new employee from separated one; only joining date and new login email editable. */
+  rejoinMode?: boolean;
 }
 
 const EmployeeForm: React.FC<EmployeeFormProps> = ({
@@ -49,9 +51,28 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   onCancel,
   mode = 'edit',
   editableTabs,
+  rejoinMode = false,
 }) => {
   const isViewMode = mode === 'view';
   const { createEmployee, updateEmployee, loading } = useEmployeeStore();
+  const [rejoinJoiningDate, setRejoinJoiningDate] = useState(
+    () => employee?.dateOfJoining?.split('T')[0] ?? new Date().toISOString().split('T')[0]
+  );
+  const [rejoinNewEmail, setRejoinNewEmail] = useState('');
+  const [rejoinSubmitting, setRejoinSubmitting] = useState(false);
+  const [rejoinErrors, setRejoinErrors] = useState<{ joiningDate?: string; newLoginEmail?: string }>({});
+
+  useEffect(() => {
+    if (rejoinMode && employee?.dateOfJoining) {
+      setRejoinJoiningDate(employee.dateOfJoining.split('T')[0]);
+      setRejoinErrors({});
+    }
+  }, [rejoinMode, employee?.id, employee?.dateOfJoining]);
+
+  useEffect(() => {
+    if (rejoinMode && employee) setCurrentTab('company');
+  }, [rejoinMode, !!employee]);
+
   const { departments, fetchDepartments } = useDepartmentStore();
   const { positions, fetchPositions } = usePositionStore();
   const [availableManagers, setAvailableManagers] = useState<Employee[]>([]);
@@ -614,6 +635,41 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Rejoin flow: create new employee from this (previous) record; only joining date + new login email used
+    if (rejoinMode && employee) {
+      const err: { joiningDate?: string; newLoginEmail?: string } = {};
+      if (!formData.joiningDate?.trim()) err.joiningDate = 'Date of Joining is required';
+      if (!rejoinNewEmail?.trim()) err.newLoginEmail = 'New Login Email is required';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rejoinNewEmail.trim())) err.newLoginEmail = 'Enter a valid email';
+      setRejoinErrors(err);
+      if (Object.keys(err).length > 0) {
+        setCurrentTab('company');
+        return;
+      }
+      setRejoinSubmitting(true);
+      try {
+        const result = await employeeService.rejoin({
+          previousEmployeeId: employee.id,
+          newJoiningDate: formData.joiningDate!.trim(),
+          newLoginEmail: rejoinNewEmail.trim(),
+        });
+        if (result.temporaryPassword) {
+          setTemporaryPassword(result.temporaryPassword);
+          setCreatedEmployeeEmail(rejoinNewEmail.trim());
+          setShowPasswordModal(true);
+        } else {
+          onSuccess?.();
+        }
+      } catch (error: any) {
+        const msg = error.response?.data?.message || error.message || 'Rejoin failed';
+        setRejoinErrors({ newLoginEmail: msg });
+        setCurrentTab('company');
+      } finally {
+        setRejoinSubmitting(false);
+      }
+      return;
+    }
+
     if (!validatePersonal()) {
       setCurrentTab('personal');
       return;
@@ -823,12 +879,22 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   return (
     <>
     <form onSubmit={handleSubmit} className="space-y-6 w-full max-w-full min-w-0 h-full">
+      {/* Rejoin banner: full form is shown; on Save a new employee record will be created */}
+      {rejoinMode && employee && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <p className="font-medium">Employee Rejoin</p>
+          <p className="mt-1">
+            Editing this form and saving will create a <strong>new</strong> employee record with a new employee code. The previous record ({employee.employeeCode}) remains unchanged. Set <strong>Date of Joining</strong> and <strong>New Login Email</strong> below, then click the button below to rejoin.
+          </p>
+        </div>
+      )}
+
       {/* Layout: Vertical tab menu on the left, content on the right */}
       <div className="flex gap-6 h-full min-w-0">
         {/* Tab Navigation - vertical menu */}
         <div className="w-56 flex-shrink-0">
           <nav className="flex flex-col space-y-2 bg-white rounded-lg border border-gray-200 p-3">
-          {(initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && (
+          {(rejoinMode || initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && (
             <button
               type="button"
               onClick={() => setCurrentTab('company')}
@@ -964,8 +1030,26 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       <div className="flex-1 min-w-0 space-y-6">
 
       {/* Company Details Tab */}
-      {(initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && currentTab === 'company' && (
+      {(rejoinMode || initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && currentTab === 'company' && (
         <div className="space-y-4">
+          {rejoinMode && employee && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">New Login Email <span className="text-red-500">*</span></label>
+                <input
+                  type="email"
+                  value={rejoinNewEmail}
+                  onChange={(e) => setRejoinNewEmail(e.target.value)}
+                  placeholder="e.g. new.email@company.com (for new employee login)"
+                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    rejoinErrors.newLoginEmail ? 'border-red-500' : 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
+                />
+                {rejoinErrors.newLoginEmail && <p className="mt-1 text-sm text-red-600">{rejoinErrors.newLoginEmail}</p>}
+                <p className="mt-1 text-xs text-gray-500">Used for the new employee&apos;s login. Must be unique.</p>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Paygroup</label>
@@ -2961,10 +3045,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               return (
                 <button
                   type="submit"
-                  disabled={loading || submittingApproval}
+                  disabled={loading || submittingApproval || rejoinSubmitting}
                   className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {submittingApproval ? 'Submitting...' : loading ? 'Saving...' : employee ? 'Update Employee' : 'Create Employee'}
+                  {rejoinSubmitting ? 'Rejoining...' : submittingApproval ? 'Submitting...' : loading ? 'Saving...' : rejoinMode && employee ? 'Rejoin (Create New Employee)' : employee ? 'Update Employee' : 'Create Employee'}
                 </button>
               );
             }
