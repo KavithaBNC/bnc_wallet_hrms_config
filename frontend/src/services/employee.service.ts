@@ -68,6 +68,8 @@ export interface Employee {
     url: string;
     uploadedAt: string;
   }>;
+  /** 128-float face encoding for face attendance punch */
+  faceEncoding?: number[] | null;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;

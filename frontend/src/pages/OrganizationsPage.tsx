@@ -457,7 +457,10 @@ export default function OrganizationsPage() {
 
           <div className="border-t border-gray-200 pt-4 mt-4">
             <p className="text-sm font-medium text-gray-700 mb-3">Employee ID Setup</p>
-            <p className="text-xs text-gray-500 mb-3">New employees will get IDs like <strong>&lt;Prefix&gt;&lt;Number&gt;</strong> (e.g. BNC50, BNC51). Leave empty to use default (EMP00001, …).</p>
+            <p className="text-xs text-gray-500 mb-3">
+              <strong>Prefix + Suffix:</strong> e.g. prefix <strong>BNC</strong> + starting number <strong>1000</strong> → BNC1000, BNC1001, …<br />
+              <strong>No prefix:</strong> Leave prefix empty → suffix only: 1000, 1001, 1002, …
+            </p>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -469,7 +472,7 @@ export default function OrganizationsPage() {
                   value={orgFormData.employeeIdPrefix ?? ''}
                   onChange={(e) => setOrgFormData({ ...orgFormData, employeeIdPrefix: e.target.value.trim() || undefined })}
                   className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="e.g. BNC"
+                  placeholder="Leave empty for suffix only (1000, 1001, …)"
                 />
               </div>
               <div>
@@ -488,7 +491,7 @@ export default function OrganizationsPage() {
                     });
                   }}
                   className="w-full h-10 px-4 py-2 bg-white text-black border border-black rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="e.g. 01 or 50"
+                  placeholder="e.g. 1 or 1000 (default: 1000 if prefix empty)"
                 />
               </div>
             </div>

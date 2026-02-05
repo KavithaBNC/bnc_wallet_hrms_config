@@ -5,9 +5,27 @@ import { CreateOrganizationInput, UpdateOrganizationInput } from '../utils/organ
 import { CreateOrgAdminInput } from '../utils/validation';
 import { hashPassword } from '../utils/password';
 
+/**
+ * Derive a short employee-code prefix from organization name (e.g. "BNC Motors" -> "BNC").
+ * Used when creating an org so employee codes are per-organization by default.
+ */
+function deriveEmployeeIdPrefixFromName(name: string): string {
+  const sanitized = (name || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9\s]/g, '')
+    .toUpperCase();
+  const firstWord = sanitized.split(/\s+/)[0] || '';
+  if (firstWord.length >= 2 && firstWord.length <= 10) return firstWord;
+  if (firstWord.length > 10) return firstWord.slice(0, 8);
+  if (sanitized.length >= 2) return sanitized.slice(0, 4).replace(/\s/g, '');
+  return 'EMP';
+}
+
 export class OrganizationService {
   /**
-   * Create new organization
+   * Create new organization.
+   * Employee codes for this org are enabled by default: prefix from org name (or provided)
+   * and starting number 1, so new employees get codes like BNC1, BNC2 for "BNC Motors".
    */
   async create(data: CreateOrganizationInput) {
     // Check if taxId is unique (if provided)
@@ -21,9 +39,17 @@ export class OrganizationService {
       }
     }
 
-    const prefix = data.employeeIdPrefix?.trim() || (data.employeeIdStartingNumber != null ? 'EMP' : null);
-    const startingNumber = data.employeeIdStartingNumber ?? 1;
-    const useOrgEmployeeId = Boolean(prefix && (data.employeeIdPrefix != null || data.employeeIdStartingNumber != null));
+    // If prefix left empty → suffix-only codes starting at 1000 (1000, 1001, 1002, …).
+    // If prefix provided → prefix + number (e.g. BNC1, BNC2).
+    const prefixProvided = data.employeeIdPrefix != null && String(data.employeeIdPrefix).trim() !== '';
+
+    const prefix = prefixProvided
+      ? (data.employeeIdPrefix?.trim() || deriveEmployeeIdPrefixFromName(data.name) || 'EMP')
+      : null;
+    const startingNumber = prefixProvided
+      ? (data.employeeIdStartingNumber ?? 1)
+      : (data.employeeIdStartingNumber ?? 1000); // empty prefix → suffix only, start at 1000
+
     const organization = await prisma.organization.create({
       data: {
         name: data.name,
@@ -39,7 +65,7 @@ export class OrganizationService {
         fiscalYearStart: data.fiscalYearStart ? new Date(data.fiscalYearStart) : undefined,
         settings: data.settings || {},
         employeeIdPrefix: prefix,
-        employeeIdNextNumber: useOrgEmployeeId ? startingNumber : null,
+        employeeIdNextNumber: startingNumber,
       },
     });
 

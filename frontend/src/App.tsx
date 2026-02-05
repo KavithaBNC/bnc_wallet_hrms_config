@@ -13,6 +13,7 @@ import DepartmentsPage from './pages/DepartmentsPage';
 import EmployeesPage from './pages/EmployeesPage';
 import PositionsPage from './pages/PositionsPage';
 import AttendancePage from './pages/AttendancePage';
+import FaceAttendancePage from './pages/FaceAttendancePage';
 import LeavePage from './pages/LeavePage';
 import TimeAttendancePage from './pages/TimeAttendancePage';
 import ShiftMasterPage from './pages/ShiftMasterPage';
@@ -133,6 +134,16 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <AttendancePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance/face"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FaceAttendancePage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { attendanceService } from '../services/attendance.service';
 import { useAuthStore } from '../store/authStore';
@@ -171,6 +171,8 @@ const AttendanceCalendarView = ({ records, currentMonth, onMonthChange }: Attend
                             ? 'text-green-700'
                             : record.status === 'ABSENT'
                             ? 'text-red-700'
+                            : record.status === 'LEAVE'
+                            ? 'text-purple-700'
                             : 'text-yellow-700'
                         }`}>
                           {record.status}
@@ -201,6 +203,10 @@ const AttendanceCalendarView = ({ records, currentMonth, onMonthChange }: Attend
           <div className="w-3 h-3 bg-red-500 rounded-full"></div>
           <span className="text-gray-600">Absent</span>
         </div>
+        <div className="flex items-center space-x-2">
+          <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
+          <span className="text-gray-600">Leave</span>
+        </div>
       </div>
     </div>
   );
@@ -208,6 +214,7 @@ const AttendanceCalendarView = ({ records, currentMonth, onMonthChange }: Attend
 
 const AttendancePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loadUser, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -264,14 +271,50 @@ const AttendancePage = () => {
     }
   }, [user]);
 
+  // Refetch attendance when calendar month changes so the visible month shows latest punches
+  useEffect(() => {
+    if (user) {
+      fetchRecords();
+      fetchMyRecords();
+    }
+  }, [currentMonth]);
+
+  // Refetch when tab/window gains focus so device punches (or web check-in/out) are reflected without manual refresh
+  useEffect(() => {
+    const onFocus = () => {
+      if (user) {
+        checkTodayStatus();
+        fetchRecords();
+        fetchMyRecords();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [user]);
+
+  // Refetch when returning from Face Attendance punch so calendar shows the new punch
+  useEffect(() => {
+    const state = location.state as { refreshFromFacePunch?: boolean } | null;
+    if (state?.refreshFromFacePunch && user) {
+      fetchRecords();
+      fetchMyRecords();
+      checkTodayStatus();
+      navigate('/attendance', { replace: true, state: {} });
+    }
+  }, [location.state, user]);
+
   const fetchRecords = async () => {
     try {
       setLoading(true);
       setError(null);
+      const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
       const response = await api.get('/attendance/records', {
         params: {
           page: 1,
           limit: 50,
+          startDate: monthStart,
+          endDate: monthEnd,
         },
       });
       if (response.data?.data?.records) {
@@ -290,17 +333,21 @@ const AttendancePage = () => {
     }
   };
 
-  // Fetch manager's own attendance records
+  // Fetch manager's own attendance records (for calendar/table when "My Records" is selected)
   const fetchMyRecords = async () => {
     if (!canViewTeamAttendance || !user?.employee?.id) return;
     
     try {
       setLoadingMyRecords(true);
+      const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
       const response = await api.get('/attendance/records', {
         params: {
           page: 1,
           limit: 50,
-          employeeId: user.employee.id, // Fetch own records specifically
+          employeeId: user.employee.id,
+          startDate: monthStart,
+          endDate: monthEnd,
         },
       });
       if (response.data?.data?.records) {
@@ -390,8 +437,8 @@ const AttendancePage = () => {
       
       if (response.data.status === 'success') {
         setCheckedIn(false);
-        // Refresh records and status
-        await Promise.all([fetchRecords(), checkTodayStatus()]);
+        // Refresh records and status so calendar reflects the punch
+        await Promise.all([fetchRecords(), fetchMyRecords(), checkTodayStatus()]);
       }
     } catch (err: any) {
       const errorMessage = err.response?.data?.message || 'Failed to check out';
@@ -490,7 +537,7 @@ const AttendancePage = () => {
         {/* Check-in/Check-out Section */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Today's Attendance</h2>
-          <div className="flex space-x-4">
+          <div className="flex flex-wrap items-center gap-4">
             {!checkedIn ? (
               <button
                 onClick={handleCheckIn}
@@ -513,6 +560,12 @@ const AttendancePage = () => {
                 Status: {checkedIn ? '✅ Checked In' : '⏰ Not Checked In'}
               </span>
             </div>
+            <button
+              onClick={() => navigate('/attendance/face')}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            >
+              Face Punch
+            </button>
           </div>
         </div>
 
@@ -663,6 +716,8 @@ const AttendancePage = () => {
                               ? 'bg-green-100 text-green-800'
                               : record.status === 'ABSENT'
                               ? 'bg-red-100 text-red-800'
+                              : record.status === 'LEAVE'
+                              ? 'bg-purple-100 text-purple-800'
                               : 'bg-yellow-100 text-yellow-800'
                           }`}
                         >

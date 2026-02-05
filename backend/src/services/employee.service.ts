@@ -12,26 +12,27 @@ import { hashPassword } from '../utils/password';
 
 export class EmployeeService {
   /**
-   * Reserve next employee code from organization settings (prefix + next number).
-   * Increments org's employeeIdNextNumber in a transaction. Returns null if org has no prefix/nextNumber.
-   * Format: <PREFIX><NUMBER> e.g. BNC50, BNC51. Sequence is not reused when employees are deleted.
+   * Reserve next employee code from organization settings.
+   * - If org has prefix + nextNumber: code = PREFIX + NUMBER (e.g. BNC1, BNC2).
+   * - If org has nextNumber but no prefix (empty): code = NUMBER only (e.g. 1000, 1001).
+   * - If org has no nextNumber: returns null (fallback to generateEmployeeCode).
    */
   private async reserveNextEmployeeCode(organizationId: string): Promise<string | null> {
     const org = await prisma.organization.findUnique({
       where: { id: organizationId },
       select: { employeeIdPrefix: true, employeeIdNextNumber: true },
     });
-    if (org?.employeeIdPrefix == null || org?.employeeIdPrefix.trim() === '' || org?.employeeIdNextNumber == null) {
+    if (org?.employeeIdNextNumber == null) {
       return null;
     }
-    const prefix = org.employeeIdPrefix.trim();
+    const prefix = org.employeeIdPrefix?.trim() ?? '';
     return prisma.$transaction(async (tx) => {
       const row = await tx.organization.findUnique({
         where: { id: organizationId },
         select: { employeeIdNextNumber: true },
       });
       if (!row || row.employeeIdNextNumber == null) return null;
-      const code = `${prefix}${row.employeeIdNextNumber}`;
+      const code = prefix === '' ? String(row.employeeIdNextNumber) : `${prefix}${row.employeeIdNextNumber}`;
       await tx.organization.update({
         where: { id: organizationId },
         data: { employeeIdNextNumber: row.employeeIdNextNumber + 1 },
@@ -330,6 +331,7 @@ export class EmployeeService {
         probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
         confirmationDate: data.confirmationDate ? new Date(data.confirmationDate) : null,
         dateOfLeaving: data.dateOfLeaving ? new Date(data.dateOfLeaving) : null,
+        faceEncoding: data.faceEncoding != null ? (data.faceEncoding as object) : undefined,
       },
       include: {
         organization: {
@@ -954,17 +956,30 @@ export class EmployeeService {
       });
     }
 
-    // Update employee (without role field)
+    // Update employee (without role field). Use Unchecked type so relation IDs (paygroupId, etc.) are accepted.
+    // Prisma Json fields require Prisma.JsonNull to set null, not plain null.
+    const updatePayload: Prisma.EmployeeUncheckedUpdateInput = {
+      ...employeeData,
+      dateOfBirth: employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth) : undefined,
+      dateOfJoining: employeeData.dateOfJoining ? new Date(employeeData.dateOfJoining) : undefined,
+      probationEndDate: employeeData.probationEndDate ? new Date(employeeData.probationEndDate) : undefined,
+      confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate) : undefined,
+      dateOfLeaving: employeeData.dateOfLeaving ? new Date(employeeData.dateOfLeaving) : undefined,
+      paygroupId: employeeData.paygroupId ?? undefined,
+      departmentId: employeeData.departmentId ?? undefined,
+      positionId: employeeData.positionId ?? undefined,
+      reportingManagerId: employeeData.reportingManagerId ?? undefined,
+      entityId: employeeData.entityId ?? undefined,
+      locationId: employeeData.locationId ?? undefined,
+      costCentreId: employeeData.costCentreId ?? undefined,
+      faceEncoding:
+        employeeData.faceEncoding === null
+          ? Prisma.JsonNull
+          : (employeeData.faceEncoding ?? undefined),
+    };
     const updated = await prisma.employee.update({
       where: { id },
-      data: {
-        ...employeeData,
-        dateOfBirth: employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth) : undefined,
-        dateOfJoining: employeeData.dateOfJoining ? new Date(employeeData.dateOfJoining) : undefined,
-        probationEndDate: employeeData.probationEndDate ? new Date(employeeData.probationEndDate) : undefined,
-        confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate) : undefined,
-        dateOfLeaving: employeeData.dateOfLeaving ? new Date(employeeData.dateOfLeaving) : undefined,
-      },
+      data: updatePayload,
       include: {
         organization: {
           select: { id: true, name: true },

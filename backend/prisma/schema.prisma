@@ -91,18 +91,19 @@ model BiometricDevice {
   @@map("devices")
 }
 
-// ADMS / Biometric: raw attendance logs from device (UserID, Timestamp, Status, Device)
+// ADMS / Biometric: raw attendance logs from device (UserID, Timestamp, Status, Device) or face punch
 model AttendanceLog {
   id             Int      @id @default(autoincrement())
-  deviceId       String   @map("device_id") @db.Uuid
+  deviceId       String?  @map("device_id") @db.Uuid
   userId         String   @map("user_id") @db.VarChar(100)
   punchTimestamp DateTime @map("punch_timestamp")
   status         String   @db.VarChar(20)
   employeeId     String?  @map("employee_id") @db.Uuid
+  punchSource    String?  @map("punch_source") @db.VarChar(20)
   createdAt      DateTime @default(now()) @map("created_at")
 
-  device   BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  employee Employee?       @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  device   BiometricDevice? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  employee Employee?        @relation(fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@map("attendance_logs")
 }
@@ -398,6 +399,7 @@ model Employee {
   is_rejoin                  Boolean                  @default(false) @map("is_rejoin")
   previousEmployeeId        String?                  @map("previous_employee_id") @db.Uuid
   previousEmployeeCode     String?                  @map("previous_employee_code") @db.VarChar(50)
+  faceEncoding              Json?                    @map("face_encoding")
 
   previousEmployee         Employee?               @relation("EmployeeRejoin", fields: [previousEmployeeId], references: [id])
   rejoinedEmployee         Employee[]               @relation("EmployeeRejoin")
@@ -1182,6 +1184,7 @@ enum CheckInMethod {
   WEB
   MOBILE
   GEOFENCE
+  FACE
 
   @@map("check_in_method")
 }

@@ -1,8 +1,10 @@
 /**
  * ADMS / iClock cdata: parse device payload, validate device by serial, store attendance_logs.
  * eSSL/ZKTeco devices POST key=value lines (USERID, TIMESTAMP, STATUS, SERIALNO) or similar.
+ * After storing a punch, we sync to attendance_records so the employee's calendar view shows it.
  */
 
+import { AttendanceStatus, CheckInMethod, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { logger } from '../utils/logger';
 
@@ -151,6 +153,104 @@ async function resolveEmployeeId(userId: string, companyId: string): Promise<str
   return emp?.id ?? null;
 }
 
+/** Treat device status as IN (check-in) or OUT (check-out). Common: 0/in/IN = in, 1/out/OUT = out. */
+function isPunchIn(status: string): boolean {
+  const s = (status || '').trim().toLowerCase();
+  return s === '0' || s === 'in' || s === 'checkin' || s === 'punchin' || s === 'entry';
+}
+
+function isPunchOut(status: string): boolean {
+  const s = (status || '').trim().toLowerCase();
+  return s === '1' || s === 'out' || s === 'checkout' || s === 'punchout' || s === 'exit';
+}
+
+/**
+ * Sync attendance_records for an employee on a given date from attendance_logs.
+ * Uses first IN punch as checkIn and last OUT punch as checkOut so calendar shows the data.
+ */
+async function syncAttendanceRecordFromLogs(employeeId: string, punchDate: Date): Promise<void> {
+  const dateStart = new Date(punchDate);
+  dateStart.setHours(0, 0, 0, 0);
+  const dateEnd = new Date(punchDate);
+  dateEnd.setHours(23, 59, 59, 999);
+
+  const logs = await prisma.attendanceLog.findMany({
+    where: {
+      employeeId,
+      punchTimestamp: { gte: dateStart, lte: dateEnd },
+    },
+    orderBy: { punchTimestamp: 'asc' },
+  });
+
+  const ins = logs.filter((l) => isPunchIn(l.status));
+  const outs = logs.filter((l) => isPunchOut(l.status));
+  const checkIn = ins[0]?.punchTimestamp ?? null;
+  const checkOut = outs.length > 0 ? outs[outs.length - 1].punchTimestamp : null;
+
+  if (!checkIn) return;
+
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { organizationId: true, shiftId: true, shift: { select: { breakDuration: true } } },
+  });
+  if (!employee) return;
+
+  const isWeekend = (d: Date) => {
+    const day = d.getDay();
+    return day === 0 || day === 6;
+  };
+  let status: AttendanceStatus = AttendanceStatus.PRESENT;
+  if (isWeekend(dateStart)) status = AttendanceStatus.WEEKEND;
+  else {
+    const holiday = await prisma.holiday.findFirst({
+      where: {
+        organizationId: employee.organizationId,
+        date: { gte: dateStart, lte: dateEnd },
+      },
+    });
+    if (holiday) status = AttendanceStatus.HOLIDAY;
+  }
+
+  const breakMins = employee.shift?.breakDuration ?? 0;
+  const breakHours = breakMins / 60;
+  const totalHours = checkOut ? (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60) : 0;
+  const workHoursVal = checkOut ? Math.max(0, totalHours - breakHours) : 0;
+  const standardHours = 8;
+  const overtimeHours = Math.max(0, workHoursVal - standardHours);
+
+  await prisma.attendanceRecord.upsert({
+    where: {
+      employeeId_date: { employeeId, date: dateStart },
+    },
+    create: {
+      employeeId,
+      shiftId: employee.shiftId,
+      date: dateStart,
+      checkIn,
+      checkOut: checkOut ?? undefined,
+      totalHours: new Prisma.Decimal(totalHours),
+      breakHours: new Prisma.Decimal(breakHours),
+      workHours: new Prisma.Decimal(workHoursVal),
+      overtimeHours: new Prisma.Decimal(overtimeHours),
+      status,
+      checkInMethod: CheckInMethod.BIOMETRIC,
+      notes: 'From biometric device punch',
+    },
+    update: {
+      checkIn,
+      checkOut: checkOut ?? undefined,
+      totalHours: new Prisma.Decimal(totalHours),
+      breakHours: new Prisma.Decimal(breakHours),
+      workHours: new Prisma.Decimal(workHoursVal),
+      overtimeHours: new Prisma.Decimal(overtimeHours),
+      status,
+      checkInMethod: CheckInMethod.BIOMETRIC,
+      notes: 'From biometric device punch',
+    },
+  });
+  logger.info(`[iclock] Synced attendance_record for employee=${employeeId} date=${dateStart.toISOString().slice(0, 10)}`);
+}
+
 /**
  * Process parsed ADMS records: validate device by serial, insert into attendance_logs, respond so device clears buffer.
  */
@@ -237,10 +337,19 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
       const createdAtLiteral = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace('T', ' ');
 
       await prisma.$executeRaw`
-        INSERT INTO attendance_logs (device_id, user_id, punch_timestamp, status, employee_id, created_at)
-        VALUES (${device.id}::uuid, ${rec.userId.trim()}, ${literalTs}::timestamp, ${rec.status.trim()}, ${employeeId ?? null}::uuid, ${createdAtLiteral}::timestamp)
+        INSERT INTO attendance_logs (device_id, user_id, punch_timestamp, status, employee_id, punch_source, created_at)
+        VALUES (${device.id}::uuid, ${rec.userId.trim()}, ${literalTs}::timestamp, ${rec.status.trim()}, ${employeeId ?? null}::uuid, 'BIOMETRIC', ${createdAtLiteral}::timestamp)
       `;
       result.processed++;
+
+      // Sync to attendance_records so employee's calendar view shows the punch automatically
+      if (employeeId && punchTime) {
+        const punchDate = new Date(punchTime);
+        punchDate.setHours(0, 0, 0, 0);
+        syncAttendanceRecordFromLogs(employeeId, punchDate).catch((err) => {
+          logger.warn(`[iclock] Sync to attendance_record failed employeeId=${employeeId} - ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
     } catch (err) {
       result.skipped++;
       const msg = err instanceof Error ? err.message : String(err);

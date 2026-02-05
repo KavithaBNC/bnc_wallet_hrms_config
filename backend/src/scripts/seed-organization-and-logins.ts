@@ -22,6 +22,26 @@ function genEmployeeCode(): string {
   return `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
+/** Reserve next employee code for org (prefix + next number). Falls back to random if org has no prefix/next. */
+async function getNextOrgEmployeeCode(orgId: string): Promise<string> {
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { employeeIdPrefix: true, employeeIdNextNumber: true },
+  });
+  if (!org?.employeeIdPrefix?.trim() || org.employeeIdNextNumber == null) {
+    let code = genEmployeeCode();
+    while (await prisma.employee.findUnique({ where: { employeeCode: code } })) code = genEmployeeCode();
+    return code;
+  }
+  const prefix = org.employeeIdPrefix.trim();
+  const next = org.employeeIdNextNumber;
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: { employeeIdNextNumber: next + 1 },
+  });
+  return `${prefix}${next}`;
+}
+
 async function ensureOrganization() {
   let org = await prisma.organization.findFirst({ where: { name: CREDENTIALS.organization.name } });
   if (!org) {
@@ -35,11 +55,24 @@ async function ensureOrganization() {
         currency: 'INR',
         address: {},
         settings: {},
+        employeeIdPrefix: 'BNC',
+        employeeIdNextNumber: 1,
       },
     });
-    console.log('✅ Organization created:', org.name);
+    console.log('✅ Organization created:', org.name, '(employee codes: BNC1, BNC2, ...)');
   } else {
-    console.log('✅ Organization exists:', org.name);
+    if (org.employeeIdPrefix == null || org.employeeIdNextNumber == null) {
+      org = await prisma.organization.update({
+        where: { id: org.id },
+        data: {
+          employeeIdPrefix: org.employeeIdPrefix ?? 'BNC',
+          employeeIdNextNumber: org.employeeIdNextNumber ?? 1,
+        },
+      });
+      console.log('✅ Organization updated with employee code prefix/sequence');
+    } else {
+      console.log('✅ Organization exists:', org.name);
+    }
   }
   return org;
 }
@@ -57,10 +90,7 @@ async function ensureSuperAdmin(orgId: string) {
     return { email, password };
   }
   const passwordHash = await hashPassword(password);
-  let employeeCode = genEmployeeCode();
-  while (await prisma.employee.findUnique({ where: { employeeCode } })) {
-    employeeCode = genEmployeeCode();
-  }
+  const employeeCode = await getNextOrgEmployeeCode(orgId);
   const newUser = await prisma.user.create({
     data: {
       email,
@@ -100,10 +130,7 @@ async function ensureOrgAdmin(orgId: string) {
     return { email, password };
   }
   const passwordHash = await hashPassword(password);
-  let employeeCode = genEmployeeCode();
-  while (await prisma.employee.findUnique({ where: { employeeCode } })) {
-    employeeCode = genEmployeeCode();
-  }
+  const employeeCode = await getNextOrgEmployeeCode(orgId);
   const newUser = await prisma.user.create({
     data: {
       email,
@@ -143,10 +170,7 @@ async function ensureHrUser(orgId: string) {
     return { email, password };
   }
   const passwordHash = await hashPassword(password);
-  let employeeCode = genEmployeeCode();
-  while (await prisma.employee.findUnique({ where: { employeeCode } })) {
-    employeeCode = genEmployeeCode();
-  }
+  const employeeCode = await getNextOrgEmployeeCode(orgId);
   const newUser = await prisma.user.create({
     data: {
       email,

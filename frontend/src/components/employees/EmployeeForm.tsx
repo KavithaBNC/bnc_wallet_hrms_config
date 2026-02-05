@@ -14,6 +14,7 @@ import DepartmentForm from '../departments/DepartmentForm';
 import PositionForm from '../positions/PositionForm';
 import EntityForm from '../entities/EntityForm';
 import LocationForm from '../locations/LocationForm';
+import { FaceCapture } from './FaceCapture';
 
 export type EmployeeFormTabKey =
   | 'company'
@@ -348,9 +349,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     pfAbrySchemeApplicable: (employee as any)?.pfAbrySchemeApplicable || '',
     alternateSaturdayOff: (employee as any)?.alternateSaturdayOff || '',
     compoffApplicable: (employee as any)?.compoffApplicable || '',
+    face_encoding: (employee as any)?.faceEncoding && Array.isArray((employee as any).faceEncoding) ? (employee as any).faceEncoding as number[] : ([] as number[]),
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [faceCaptureError, setFaceCaptureError] = useState('');
 
   useEffect(() => {
     if (initialPaygroupName) {
@@ -816,6 +819,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               ifscCode: emptyToUndefined(formData.bankIfscCode),
             }
           : undefined,
+        faceEncoding: (formData as any).face_encoding?.length === 128 ? (formData as any).face_encoding : undefined,
       };
       if (initialPaygroupId) {
         submitData.paygroupId = initialPaygroupId;
@@ -1484,6 +1488,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             <label className="block text-sm font-medium text-gray-700">Job Responsibility</label>
             <textarea name="jobResponsibility" value={formData.jobResponsibility} onChange={handleChange} rows={3} placeholder="Job Responsibility"
               className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
+          </div>
+          <div className="border-t pt-4 mt-4">
+            <FaceCapture
+              existingEncoding={(formData as any).face_encoding?.length === 128 ? (formData as any).face_encoding : null}
+              onEncodingCaptured={(encoding) => setFormData((prev) => ({ ...prev, face_encoding: encoding }))}
+              onError={setFaceCaptureError}
+              disabled={isViewMode}
+            />
+            {faceCaptureError && <p className="mt-2 text-sm text-red-600">{faceCaptureError}</p>}
           </div>
         </div>
       )}

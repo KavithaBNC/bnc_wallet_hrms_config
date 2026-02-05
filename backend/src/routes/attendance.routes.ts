@@ -43,6 +43,13 @@ router.post(
   attendanceController.checkOut.bind(attendanceController)
 );
 
+/**
+ * @route   POST /api/v1/attendance/face-punch
+ * @desc    Face punch: base64 image → match employee → insert attendance_logs + record (punch_source FACE)
+ * @access  Private (any authenticated user; org from user profile or body)
+ */
+router.post('/face-punch', attendanceController.facePunch.bind(attendanceController));
+
 // Enforce organization access for routes that need organization filtering
 router.use(enforceOrganizationAccess);
 

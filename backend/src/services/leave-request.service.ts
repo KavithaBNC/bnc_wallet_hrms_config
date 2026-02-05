@@ -1,6 +1,6 @@
 
 import { AppError } from '../middlewares/errorHandler';
-import { LeaveStatus, Prisma } from '@prisma/client';
+import { AttendanceStatus, LeaveStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { emailService } from './email.service';
 import { leavePolicyService } from './leave-policy.service';
@@ -635,6 +635,31 @@ export class LeaveRequestService {
         available: new Prisma.Decimal(Math.max(0, availableDays)), // Don't go below 0
       },
     });
+
+    // Create attendance records with status LEAVE for each day so they show on the employee's calendar
+    const start = new Date(leaveRequest.startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(leaveRequest.endDate);
+    end.setHours(23, 59, 59, 999);
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateOnly = new Date(d);
+      dateOnly.setHours(0, 0, 0, 0);
+      await prisma.attendanceRecord.upsert({
+        where: {
+          employeeId_date: { employeeId: leaveRequest.employeeId, date: dateOnly },
+        },
+        create: {
+          employeeId: leaveRequest.employeeId,
+          date: dateOnly,
+          status: AttendanceStatus.LEAVE,
+          notes: `Leave: ${leaveRequest.leaveType?.name ?? 'Approved leave'}`,
+        },
+        update: {
+          status: AttendanceStatus.LEAVE,
+          notes: `Leave: ${leaveRequest.leaveType?.name ?? 'Approved leave'}`,
+        },
+      });
+    }
 
     // Send approval notification to employee
     try {

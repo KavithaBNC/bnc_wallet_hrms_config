@@ -86,6 +86,8 @@ export const createEmployeeSchema = z.object({
     url: z.string(),
     uploadedAt: z.string(),
   })).optional(),
+
+  faceEncoding: z.array(z.number()).length(128).optional().nullable(),
 });
 
 /**
@@ -170,7 +172,9 @@ export const updateEmployeeSchema = z.object({
     url: z.string(),
     uploadedAt: z.string(),
   })).optional(),
-  
+
+  faceEncoding: z.array(z.number()).length(128).optional().nullable(),
+
   // User role (for ORG_ADMIN and HR_MANAGER only)
   role: z.enum(['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE']).optional(),
 });

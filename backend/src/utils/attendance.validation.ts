@@ -9,6 +9,7 @@ export const checkInSchema = z.object({
     ipAddress: z.string().ip().optional(),
   }).optional(),
   notes: z.string().max(500).optional(),
+  checkInMethod: z.enum(['WEB', 'MOBILE', 'GEOFENCE', 'BIOMETRIC', 'FACE']).optional(),
 });
 
 // Check-out Validation

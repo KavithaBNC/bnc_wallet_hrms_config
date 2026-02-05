@@ -122,14 +122,16 @@ export class AuthService {
    * Login user
    */
   async login(data: LoginInput) {
-    // Normalize email (trim + lowercase) so login is case-insensitive
-    const email = data.email.trim().toLowerCase();
-    if (!email) {
+    // Normalize email (trim) and find with case-insensitive match (PostgreSQL is case-sensitive by default)
+    const emailInput = (data.email || '').trim();
+    if (!emailInput) {
       throw new AppError('Invalid email or password', 401);
     }
-    // Find user by email
-    const user = await prisma.user.findUnique({
-      where: { email },
+    // Find user by email (case-insensitive so Admin@hrms.com and admin@hrms.com both work)
+    const user = await prisma.user.findFirst({
+      where: {
+        email: { equals: emailInput, mode: 'insensitive' },
+      },
       include: {
         employee: {
           select: {

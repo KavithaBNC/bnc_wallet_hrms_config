@@ -113,9 +113,10 @@ export class AttendanceService {
       status = AttendanceStatus.HOLIDAY;
     }
 
-    // Determine check-in method based on location
-    let checkInMethod: CheckInMethod = CheckInMethod.WEB;
-    if (data.location) {
+    // Determine check-in method: explicit (e.g. FACE), or from location
+    let checkInMethod: CheckInMethod =
+      (data.checkInMethod as CheckInMethod) ?? CheckInMethod.WEB;
+    if (checkInMethod === CheckInMethod.WEB && data.location) {
       checkInMethod = employee.shift?.geofenceEnabled ? CheckInMethod.GEOFENCE : CheckInMethod.MOBILE;
     }
 
