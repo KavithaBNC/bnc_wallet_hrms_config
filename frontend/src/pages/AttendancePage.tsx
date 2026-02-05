@@ -5,7 +5,7 @@ import { attendanceService } from '../services/attendance.service';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import shiftService, { Shift } from '../services/shift.service';
-import { startOfMonth, endOfMonth, eachDayOfInterval, format, isToday, getDay } from 'date-fns';
+import { startOfMonth, endOfMonth, eachDayOfInterval, format, isToday, getDay, addMonths } from 'date-fns';
 
 interface AttendanceRecord {
   id: string;
@@ -138,13 +138,29 @@ const AttendanceCalendarView = ({ records, currentMonth, onMonthChange, employee
   });
 
   const navigateMonth = (direction: 'prev' | 'next') => {
-    const newDate = new Date(currentMonth);
-    if (direction === 'prev') {
-      newDate.setMonth(newDate.getMonth() - 1);
-    } else {
-      newDate.setMonth(newDate.getMonth() + 1);
+    try {
+      // Use date-fns addMonths to handle edge cases (e.g., Jan 31 -> Feb 28/29)
+      const newDate = direction === 'prev' 
+        ? addMonths(currentMonth, -1)
+        : addMonths(currentMonth, 1);
+      onMonthChange(newDate);
+    } catch (error) {
+      console.error('Error navigating month:', error);
+      // Fallback: manually set month with proper handling
+      const newDate = new Date(currentMonth);
+      const currentDay = newDate.getDate();
+      if (direction === 'prev') {
+        newDate.setMonth(newDate.getMonth() - 1);
+      } else {
+        newDate.setMonth(newDate.getMonth() + 1);
+      }
+      // Ensure the date is valid (handle cases like Jan 31 -> Feb)
+      if (newDate.getDate() !== currentDay) {
+        // Date was adjusted, set to first day of month
+        newDate.setDate(1);
+      }
+      onMonthChange(newDate);
     }
-    onMonthChange(newDate);
   };
 
   const goToToday = () => {
@@ -352,19 +368,58 @@ const AttendancePage = () => {
 
   useEffect(() => {
     if (user) {
-      try {
-        fetchRecords();
-        fetchMyRecords(); // Always fetch manager's own records
-        checkTodayStatus();
-      } catch (err: any) {
-        console.error('Error in useEffect:', err);
-        setComponentError(err.message || 'Failed to initialize attendance page');
-      }
+      // Use async IIFE to properly handle async functions
+      (async () => {
+        try {
+          await Promise.allSettled([
+            fetchRecords(),
+            fetchMyRecords(), // Always fetch manager's own records
+            checkTodayStatus(),
+          ]);
+        } catch (err: any) {
+          console.error('Error in useEffect:', err);
+          setComponentError(err.message || 'Failed to initialize attendance page');
+        }
+      })();
     }
   }, [user, currentMonth, viewMode]); // Refetch when month or view mode changes
 
+  // Also check status when records are fetched
+  useEffect(() => {
+    if (user?.employee?.id && (records.length > 0 || myRecords.length > 0)) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayStr = today.toISOString().split('T')[0];
+      
+      // Check in fetched records (prefer myRecords for managers, otherwise records)
+      const recordsToCheck = canViewTeamAttendance && myRecords.length > 0 ? myRecords : records;
+      
+      const todayRecord = recordsToCheck.find((r: AttendanceRecord) => {
+        try {
+          const recordDate = new Date(r.date).toISOString().split('T')[0];
+          return recordDate === todayStr && r.employee?.id === user.employee?.id;
+        } catch (e) {
+          return false;
+        }
+      });
+      
+      if (todayRecord?.checkIn && !todayRecord?.checkOut) {
+        setCheckedIn(true);
+      } else if (todayRecord?.checkOut) {
+        setCheckedIn(false);
+      }
+    }
+  }, [records, myRecords, user, canViewTeamAttendance]);
+
   const fetchRecords = async () => {
     try {
+      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+      if (!organizationId) {
+        console.warn('Organization ID not available, skipping fetchRecords');
+        setRecords([]);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       
@@ -378,6 +433,7 @@ const AttendancePage = () => {
         limit: 1000, // Increased limit to ensure we get all records for the month
         startDate: format(monthStart, 'yyyy-MM-dd'),
         endDate: format(monthEnd, 'yyyy-MM-dd'),
+        organizationId,
       };
       
       // If viewing "my" records or user is not a manager, fetch only their own records
@@ -396,10 +452,19 @@ const AttendancePage = () => {
         setRecords([]);
       }
     } catch (err: any) {
+      const status = err.response?.status;
       const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch attendance records';
-      setError(errorMsg);
-      console.error('Error fetching records:', err);
-      // Don't crash the component, just show error
+      
+      // 404 or "not found" errors are expected when there are no records for a month
+      // Don't show these as errors, just set empty records
+      if (status === 404 || errorMsg.toLowerCase().includes('not found')) {
+        console.log('No records found for this month (expected)');
+        setRecords([]);
+        setError(null); // Clear any previous errors
+      } else {
+        setError(errorMsg);
+        console.error('Error fetching records:', err);
+      }
       setRecords([]);
     } finally {
       setLoading(false);
@@ -409,6 +474,13 @@ const AttendancePage = () => {
   // Fetch manager's own attendance records
   const fetchMyRecords = async () => {
     if (!canViewTeamAttendance || !user?.employee?.id) return;
+    
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    if (!organizationId) {
+      console.warn('Organization ID not available, skipping fetchMyRecords');
+      setMyRecords([]);
+      return;
+    }
     
     try {
       setLoadingMyRecords(true);
@@ -422,6 +494,7 @@ const AttendancePage = () => {
           employeeId: user.employee.id, // Fetch own records specifically
           startDate: format(monthStart, 'yyyy-MM-dd'),
           endDate: format(monthEnd, 'yyyy-MM-dd'),
+          organizationId,
         },
       });
       if (response.data?.data?.records) {
@@ -430,7 +503,13 @@ const AttendancePage = () => {
         setMyRecords([]);
       }
     } catch (err: any) {
-      console.error('Error fetching my records:', err);
+      const status = err.response?.status;
+      // 404 or "not found" errors are expected when there are no records
+      if (status === 404 || err.response?.data?.message?.toLowerCase().includes('not found')) {
+        console.log('No my records found for this month (expected)');
+      } else {
+        console.error('Error fetching my records:', err);
+      }
       setMyRecords([]);
     } finally {
       setLoadingMyRecords(false);
@@ -439,22 +518,24 @@ const AttendancePage = () => {
 
   const checkTodayStatus = async () => {
     try {
+      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+      if (!organizationId || !user?.employee?.id) {
+        return; // Skip if organization or employee ID not available
+      }
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayStr = today.toISOString().split('T')[0];
       
-      // For managers, check their own records, not team records
+      // Always fetch own records for status check
       const params: any = {
         page: 1,
         limit: 50,
         startDate: todayStr,
         endDate: todayStr,
+        organizationId,
+        employeeId: user.employee.id,
       };
-      
-      // If manager, fetch own records for status check
-      if (canViewTeamAttendance && user?.employee?.id) {
-        params.employeeId = user.employee.id;
-      }
       
       const response = await api.get('/attendance/records', { params });
       
@@ -495,7 +576,15 @@ const AttendancePage = () => {
       setCheckedIn(true);
       await Promise.all([fetchRecords(), fetchMyRecords(), checkTodayStatus()]);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to check in');
+      const errorMessage = err.response?.data?.message || 'Failed to check in';
+      setError(errorMessage);
+      
+      // If error says "already checked in", update state to show check-out button
+      if (errorMessage.toLowerCase().includes('already checked in')) {
+        setCheckedIn(true);
+        // Refresh status to get the actual record
+        await checkTodayStatus();
+      }
     } finally {
       setCheckingIn(false);
     }
@@ -716,12 +805,6 @@ const AttendancePage = () => {
           </div>
           {loading || (viewMode === 'my' && loadingMyRecords) ? (
             <div className="p-8 text-center text-gray-500">Loading...</div>
-          ) : (viewMode === 'my' ? myRecords : records).length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              {viewMode === 'my' 
-                ? 'No attendance records found for you' 
-                : 'No attendance records found'}
-            </div>
           ) : displayMode === 'calendar' ? (
             <AttendanceCalendarView 
               records={viewMode === 'my' && myRecords.length > 0 ? myRecords : records}
@@ -730,6 +813,12 @@ const AttendancePage = () => {
               employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : undefined}
               organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
             />
+          ) : (viewMode === 'my' ? myRecords : records).length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              {viewMode === 'my' 
+                ? 'No attendance records found for you' 
+                : 'No attendance records found'}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">

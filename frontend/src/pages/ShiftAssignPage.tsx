@@ -44,6 +44,17 @@ function formatDate(d: string | undefined): string {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+const POLICY_MARKER = '__POLICY_RULES__';
+
+/** Extract user remarks for display; hide raw policy JSON in list view */
+function formatRemarksForDisplay(remarks: string | null | undefined): { text: string; hasPolicy: boolean } {
+  if (!remarks || typeof remarks !== 'string') return { text: '—', hasPolicy: false };
+  const idx = remarks.indexOf(POLICY_MARKER);
+  if (idx === -1) return { text: remarks.trim() || '—', hasPolicy: false };
+  const userPart = remarks.slice(0, idx).trim();
+  return { text: userPart || 'Policy rules configured', hasPolicy: true };
+}
+
 function associateDisplay(rule: ShiftAssignmentRule, nameMap: Map<string, string>): string {
   const ids = Array.isArray(rule.employeeIds) ? rule.employeeIds : [];
   if (ids.length === 0) return '—';
@@ -400,8 +411,8 @@ export default function ShiftAssignPage() {
                         </td>
                       )}
                       {visibleColumns.has('remarks') && (
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {rule.remarks ?? '—'}
+                        <td className="px-4 py-3 text-sm text-gray-500 max-w-[200px]" title={rule.remarks ?? undefined}>
+                          {formatRemarksForDisplay(rule.remarks).text}
                         </td>
                       )}
                       {visibleColumns.has('action') && (

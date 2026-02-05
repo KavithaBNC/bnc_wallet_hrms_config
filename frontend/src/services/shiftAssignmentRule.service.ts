@@ -23,6 +23,7 @@ export interface ShiftAssignmentRuleListParams {
   page?: number;
   limit?: number;
   search?: string;
+  remarksMarker?: string; // Filter by specific marker in remarks to identify sub-module type
 }
 
 export interface ShiftAssignmentRuleListResponse {
@@ -38,6 +39,7 @@ const shiftAssignmentRuleService = {
         page: params.page ?? 1,
         limit: params.limit ?? 10,
         search: params.search || undefined,
+        remarksMarker: params.remarksMarker || undefined,
       },
     });
     return data.data;

@@ -13,6 +13,17 @@ import DepartmentsPage from './pages/DepartmentsPage';
 import EmployeesPage from './pages/EmployeesPage';
 import PositionsPage from './pages/PositionsPage';
 import AttendancePage from './pages/AttendancePage';
+import AttendancePolicyPage from './pages/AttendancePolicyPage';
+import LateAndOthersPage from './pages/LateAndOthersPage';
+import LateAndOthersFormPage from './pages/LateAndOthersFormPage';
+import WeekOfAssignPage from './pages/WeekOfAssignPage';
+import WeekOffAssignFormPage from './pages/WeekOffAssignFormPage';
+import HolidayAssignPage from './pages/HolidayAssignPage';
+import HolidayAssignFormPage from './pages/HolidayAssignFormPage';
+import ExcessTimeConversionPage from './pages/ExcessTimeConversionPage';
+import ExcessTimeConversionFormPage from './pages/ExcessTimeConversionFormPage';
+import OTUsageRulePage from './pages/OTUsageRulePage';
+import OTUsageRuleFormPage from './pages/OTUsageRuleFormPage';
 import LeavePage from './pages/LeavePage';
 import TimeAttendancePage from './pages/TimeAttendancePage';
 import ShiftMasterPage from './pages/ShiftMasterPage';
@@ -55,7 +66,7 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50">
+      <div className="flex flex-col min-h-screen w-full bg-gray-50">
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<HomePage />} />
@@ -136,6 +147,166 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <AttendancePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <AttendancePolicyPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/late-and-others"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LateAndOthersPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/late-and-others/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LateAndOthersFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/late-and-others/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LateAndOthersFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/week-of-assign"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <WeekOfAssignPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/week-of-assign/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <WeekOffAssignFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/week-of-assign/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <WeekOffAssignFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/holiday-assign"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <HolidayAssignPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/holiday-assign/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <HolidayAssignFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/holiday-assign/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <HolidayAssignFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/excess-time-conversion"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeConversionPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/excess-time-conversion/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeConversionFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/excess-time-conversion/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeConversionFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/ot-usage-rule"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <OTUsageRulePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/ot-usage-rule/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <OTUsageRuleFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance-policy/ot-usage-rule/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <OTUsageRuleFormPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

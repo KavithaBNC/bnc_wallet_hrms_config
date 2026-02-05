@@ -69,6 +69,7 @@ export class ShiftAssignmentRuleService {
     page?: string;
     limit?: string;
     search?: string;
+    remarksMarker?: string; // Filter by specific marker in remarks (e.g., '__POLICY_RULES__', '__WEEK_OFF_DATA__', etc.)
   }) {
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
@@ -79,6 +80,10 @@ export class ShiftAssignmentRuleService {
       where.OR = [
         { displayName: { contains: query.search.trim(), mode: 'insensitive' } },
       ];
+    }
+    // Filter by remarks marker to identify sub-module type
+    if (query.remarksMarker) {
+      where.remarks = { contains: query.remarksMarker };
     }
     const [rules, total] = await Promise.all([
       prisma.shiftAssignmentRule.findMany({
@@ -168,6 +173,121 @@ export class ShiftAssignmentRuleService {
     if (!existing) throw new AppError('Shift assignment rule not found', 404);
     await prisma.shiftAssignmentRule.delete({ where: { id } });
     return { message: 'Shift assignment rule deleted successfully' };
+  }
+
+  /**
+   * Get applicable attendance policy rules for a shift, employee, and date
+   * This finds the most specific rule matching:
+   * - shiftId
+   * - effectiveDate (on or before the attendance date)
+   * - employeeId (if specified in rule), paygroup, department, or organization-wide
+   * Returns parsed policy rules JSON or null if no rule found
+   */
+  async getApplicablePolicyRules(
+    shiftId: string,
+    employeeId: string,
+    attendanceDate: Date,
+    organizationId: string
+  ): Promise<Record<string, any> | null> {
+    // Get employee info to match paygroup/department
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: {
+        paygroupId: true,
+        departmentId: true,
+      },
+    });
+
+    if (!employee) {
+      return null;
+    }
+
+    const dateStart = new Date(attendanceDate);
+    dateStart.setHours(0, 0, 0, 0);
+
+    // Find all rules for this shift that are effective on or before the attendance date
+    const rules = await prisma.shiftAssignmentRule.findMany({
+      where: {
+        organizationId,
+        shiftId,
+        effectiveDate: {
+          lte: dateStart,
+        },
+      },
+      orderBy: [
+        { priority: 'desc' }, // Higher priority first
+        { effectiveDate: 'desc' }, // More recent first
+      ],
+      include: {
+        shift: { select: { id: true, name: true } },
+        paygroup: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+      },
+    });
+
+    if (rules.length === 0) {
+      return null;
+    }
+
+    // Find the most specific matching rule
+    // Priority order: employee-specific > paygroup+department > paygroup only > department only > organization-wide
+    let matchedRule = null;
+
+    for (const rule of rules) {
+      const employeeIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];
+      
+      // Check employee-specific match
+      if (employeeIds.length > 0 && employeeIds.includes(employeeId)) {
+        matchedRule = rule;
+        break;
+      }
+
+      // Check paygroup + department match
+      if (rule.paygroupId && rule.departmentId) {
+        if (rule.paygroupId === employee.paygroupId && rule.departmentId === employee.departmentId) {
+          matchedRule = rule;
+          break;
+        }
+      }
+      // Check paygroup only match
+      else if (rule.paygroupId && !rule.departmentId) {
+        if (rule.paygroupId === employee.paygroupId) {
+          matchedRule = rule;
+          break;
+        }
+      }
+      // Check department only match
+      else if (!rule.paygroupId && rule.departmentId) {
+        if (rule.departmentId === employee.departmentId) {
+          matchedRule = rule;
+          break;
+        }
+      }
+      // Organization-wide (no paygroup, no department)
+      else if (!rule.paygroupId && !rule.departmentId) {
+        matchedRule = rule;
+        break;
+      }
+    }
+
+    if (!matchedRule || !matchedRule.remarks) {
+      return null;
+    }
+
+    // Parse policy rules from remarks
+    const POLICY_MARKER = '__POLICY_RULES__';
+    const markerIdx = matchedRule.remarks.indexOf(POLICY_MARKER);
+    
+    if (markerIdx === -1) {
+      return null;
+    }
+
+    const jsonStr = matchedRule.remarks.slice(markerIdx + POLICY_MARKER.length);
+    try {
+      return JSON.parse(jsonStr) as Record<string, any>;
+    } catch {
+      return null;
+    }
   }
 }
 

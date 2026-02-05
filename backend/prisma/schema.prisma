@@ -541,7 +541,7 @@ model ShiftAssignmentRule {
   departmentId   String?      @map("department_id") @db.Uuid
   effectiveDate  DateTime     @map("effective_date") @db.Date
   priority       Int?         @db.Integer
-  remarks        String?      @db.VarChar(500)
+  remarks        String?      @db.Text
   employeeIds    Json?        @map("employee_ids") // array of UUID strings
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")

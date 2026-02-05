@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
@@ -304,6 +304,88 @@ export default function AssociateShiftGridPage() {
   const paginatedEmployees = filteredEmployees.slice((page - 1) * pageSize, page * pageSize);
   const totalPages = Math.ceil(filteredEmployees.length / pageSize);
 
+  // Excel-like fill handle: drag to copy shift value to multiple cells (rectangular range)
+  const fillDragRef = useRef<{
+    sourceShiftName: string;
+    lastRow: number;
+    lastCol: number;
+  } | null>(null);
+
+  const handleFillMouseDown = useCallback((
+    e: React.MouseEvent,
+    _empId: string,
+    _dateStr: string,
+    shiftName: string,
+    rowIndex: number,
+    colIndex: number
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    fillDragRef.current = {
+      sourceShiftName: shiftName,
+      lastRow: rowIndex,
+      lastCol: colIndex,
+    };
+
+    const fillRectangle = (r0: number, c0: number, r1: number, c1: number) => {
+      const rMin = Math.min(r0, r1);
+      const rMax = Math.max(r0, r1);
+      const cMin = Math.min(c0, c1);
+      const cMax = Math.max(c0, c1);
+      setShiftAssignments((prev) => {
+        const newMap = new Map(prev);
+        for (let r = rMin; r <= rMax; r++) {
+          for (let c = cMin; c <= cMax; c++) {
+            const emp = paginatedEmployees[r];
+            const date = dateRange[c];
+            if (emp && date) {
+              const key = `${emp.id}-${format(date, 'yyyy-MM-dd')}`;
+              newMap.set(key, {
+                employeeId: emp.id,
+                date: format(date, 'yyyy-MM-dd'),
+                shiftName: fillDragRef.current!.sourceShiftName,
+                isWeekOff: fillDragRef.current!.sourceShiftName === 'W',
+              });
+            }
+          }
+        }
+        return newMap;
+      });
+    };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!fillDragRef.current) return;
+      const el = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+      const cell = el?.closest('td[data-fill-cell]');
+      if (cell) {
+        const targetRow = cell.getAttribute('data-row');
+        const targetCol = cell.getAttribute('data-col');
+        if (targetRow !== null && targetCol !== null) {
+          const r = parseInt(targetRow, 10);
+          const c = parseInt(targetCol, 10);
+          if (r !== fillDragRef.current.lastRow || c !== fillDragRef.current.lastCol) {
+            fillRectangle(rowIndex, colIndex, r, c);
+            fillDragRef.current.lastRow = r;
+            fillDragRef.current.lastCol = c;
+          }
+        }
+      }
+    };
+
+    const onMouseUp = () => {
+      fillDragRef.current = null;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'crosshair';
+    document.body.style.userSelect = 'none';
+  }, [dateRange, paginatedEmployees]);
+
   const getShiftAssignment = (employeeId: string, date: Date): ShiftAssignment | null => {
     const dateStr = format(date, 'yyyy-MM-dd');
     const key = `${employeeId}-${dateStr}`;
@@ -311,30 +393,36 @@ export default function AssociateShiftGridPage() {
   };
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
+    <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Time attendance"
         subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
-      <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-6">
-        <nav className="flex text-sm text-gray-600 mb-4" aria-label="Breadcrumb">
-          <Link to="/dashboard" className="hover:text-gray-900">Home</Link>
-          <span className="mx-2">/</span>
-          <Link to="/time-attendance" className="hover:text-gray-900">Time attendance</Link>
-          <span className="mx-2">/</span>
-          <Link to="/time-attendance/associate-shift-change" className="hover:text-gray-900">Associate Shift Change</Link>
-          <span className="mx-2">/</span>
-          <span className="text-gray-900 font-medium">Associate Shift</span>
-        </nav>
+      <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50">
+        <div className="w-full max-w-[1600px] mx-auto">
+          {/* Breadcrumbs - Employee module style */}
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
+            <nav className="flex items-center gap-1.5 text-sm text-gray-500" aria-label="Breadcrumb">
+              <span className="font-semibold text-gray-900">Time attendance</span>
+              <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+              </svg>
+              <Link to="/time-attendance/associate-shift-change" className="text-gray-500 hover:text-gray-900">Associate Shift Change</Link>
+              <span className="mx-1 text-gray-400">/</span>
+              <span className="text-gray-500">Associate Shift</span>
+            </nav>
+          </div>
 
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-          {/* Header Section */}
-          <div className="px-6 py-4 border-b border-gray-200 bg-blue-600">
-            <div className="flex items-center justify-between">
-              <h1 className="text-xl font-semibold text-white">Associate Shift</h1>
-              <div className="flex items-center gap-4">
+          <div className="bg-white rounded-lg shadow mb-6">
+            {/* Header Section - Employee module style */}
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">Associate Shift</h2>
+                  <p className="text-gray-600 mt-1">Manage shift assignments for associates</p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
@@ -342,11 +430,12 @@ export default function AssociateShiftGridPage() {
                       prevMonth.setMonth(prevMonth.getMonth() - 1);
                       setCurrentMonth(prevMonth);
                     }}
-                    className="px-3 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded text-white"
+                    className="h-9 px-3 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-1"
+                    aria-label="Previous month"
                   >
-                    ←
+                    ← Previous Month
                   </button>
-                  <div className="bg-white px-4 py-2 rounded text-sm font-medium text-blue-600">
+                  <div className="h-9 px-4 bg-gray-50 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 flex items-center">
                     {format(currentMonth, 'MMMM yyyy')}
                   </div>
                   <button
@@ -355,83 +444,84 @@ export default function AssociateShiftGridPage() {
                       nextMonth.setMonth(nextMonth.getMonth() + 1);
                       setCurrentMonth(nextMonth);
                     }}
-                    className="px-3 py-1 bg-white bg-opacity-20 hover:bg-opacity-30 rounded text-white"
+                    className="h-9 px-3 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-1"
+                    aria-label="Next month"
                   >
-                    →
+                    Next Month →
                   </button>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Controls Section */}
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700">W - Week Off</span>
-                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">W</span>
+            {/* Controls Section - Employee module style */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-500">W - Week Off</span>
+                    <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">W</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-sm font-medium text-gray-500 mb-1.5">Search</label>
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        setPage(1);
+                      }}
+                      placeholder="Search by name or code..."
+                      className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">Search:</label>
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value);
-                      setPage(1);
-                    }}
-                    placeholder="Search by name or code..."
-                    className="h-8 px-3 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
+                  <button
+                    onClick={handlePrint}
+                    className="h-9 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Print
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="h-9 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition"
+                  >
+                    {saving ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handlePrint}
-                  className="px-4 py-2 bg-white border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Print
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="px-4 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-                >
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
               </div>
             </div>
-          </div>
 
-          {/* Table Section */}
-          <div className="overflow-x-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
-            {loading ? (
-              <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              </div>
-            ) : (
-              <div className="relative">
-                <table className="min-w-full divide-y divide-gray-200 border-collapse">
-                  <thead className="bg-gray-50 sticky top-0 z-20">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300 sticky left-0 bg-gray-50 z-30 shadow-sm">
-                        Associate Code
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300 sticky left-[140px] bg-gray-50 z-30 shadow-sm">
-                        Associate Name
-                      </th>
-                      {dateRange.map((date) => (
-                        <th
-                          key={format(date, 'yyyy-MM-dd')}
-                          className="px-3 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-300 min-w-[140px] bg-gray-50"
-                        >
-                          <div className="font-semibold">{format(date, 'dd/MM/yyyy')}</div>
-                          <div className="text-gray-600 font-normal mt-1">({format(date, 'EEE')})</div>
+            {/* Table Section */}
+            <div className="overflow-x-auto" style={{ maxHeight: 'calc(100vh - 400px)' }}>
+              {loading ? (
+                <div className="flex justify-center items-center py-12">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  <p className="mt-4 text-gray-600 ml-4">Loading shifts...</p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <table className="min-w-full divide-y divide-gray-200 border-collapse">
+                    <thead className="bg-gray-50 sticky top-0 z-20">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 sticky left-0 bg-gray-50 z-30 shadow-sm">
+                          Associate Code
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 sticky left-[140px] bg-gray-50 z-30 shadow-sm">
+                          Associate Name
+                        </th>
+                        {dateRange.map((date) => (
+                          <th
+                            key={format(date, 'yyyy-MM-dd')}
+                            className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 min-w-[140px] bg-gray-50"
+                          >
+                            <div className="font-semibold">{format(date, 'dd/MM/yyyy')}</div>
+                            <div className="text-gray-600 font-normal mt-1">({format(date, 'EEE')})</div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedEmployees.length === 0 ? (
                       <tr>
@@ -440,7 +530,7 @@ export default function AssociateShiftGridPage() {
                         </td>
                       </tr>
                     ) : (
-                      paginatedEmployees.map((emp) => (
+                      paginatedEmployees.map((emp, rowIndex) => (
                         <tr key={emp.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r border-gray-300 sticky left-0 bg-white z-20 shadow-sm">
                             {emp.employeeCode}
@@ -448,25 +538,23 @@ export default function AssociateShiftGridPage() {
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-300 sticky left-[140px] bg-white z-20 shadow-sm">
                             {fullName(emp)}
                           </td>
-                          {dateRange.map((date) => {
+                          {dateRange.map((date, colIndex) => {
                             const assignment = getShiftAssignment(emp.id, date);
                             // Use first shift from Shift Master as default, or 'W' if no shifts available
                             const defaultShift = shifts && shifts.length > 0 ? shifts[0].name : 'W';
                             const shiftName = assignment?.shiftName || defaultShift;
                             const isWeekOff = assignment?.isWeekOff || false;
                             const dateStr = format(date, 'yyyy-MM-dd');
-                            
-                            // Debug: Log shifts array when rendering first dropdown
-                            if (emp.id === paginatedEmployees[0]?.id && dateStr === format(dateRange[0], 'yyyy-MM-dd')) {
-                              console.log('🔍 Rendering dropdown - shifts array:', shifts);
-                              console.log('🔍 Rendering dropdown - shifts count:', shifts?.length || 0);
-                              console.log('🔍 Rendering dropdown - shift names:', shifts.map(s => s.name));
-                            }
 
                             return (
                               <td
                                 key={dateStr}
-                                className="px-2 py-2 text-center border-r border-gray-300 bg-white"
+                                data-fill-cell
+                                data-emp-id={emp.id}
+                                data-date={dateStr}
+                                data-row={rowIndex}
+                                data-col={colIndex}
+                                className="px-2 py-2 text-center border-r border-gray-300 bg-white relative"
                               >
                                 <select
                                   value={isWeekOff ? 'W' : shiftName}
@@ -478,20 +566,31 @@ export default function AssociateShiftGridPage() {
                                       updateShiftAssignment(emp.id, dateStr, newValue);
                                     }
                                   }}
-                                  className={`w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                                  className={`w-full px-2 py-1.5 pr-6 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                                     isWeekOff ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-900'
                                   }`}
                                 >
                                   {/* Week Off option - always first */}
                                   <option value="W">W</option>
                                   {/* Shift Master options - dynamically loaded from Shift Master */}
-                                  {/* Display only Shift Name from Shift Master List - NO STATIC VALUES */}
                                   {shifts.map((shift) => (
                                     <option key={shift.id} value={shift.name}>
                                       {shift.name}
                                     </option>
                                   ))}
                                 </select>
+                                {/* Excel-like fill handle - drag to copy value to adjacent cells */}
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  title="Drag to fill cells with this value (like Excel)"
+                                  aria-label="Drag to fill cells with this value"
+                                  onMouseDown={(e) => handleFillMouseDown(e, emp.id, dateStr, isWeekOff ? 'W' : shiftName, rowIndex, colIndex)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
+                                  }}
+                                  className="absolute bottom-1 right-1 w-2.5 h-2.5 bg-blue-600 rounded-sm cursor-crosshair opacity-70 hover:opacity-100 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                />
                               </td>
                             );
                           })}
@@ -504,57 +603,61 @@ export default function AssociateShiftGridPage() {
             )}
           </div>
 
-          {/* Footer Section */}
-          <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={handleClose}
-                  className="px-4 py-2 bg-red-600 text-white rounded text-sm font-medium hover:bg-red-700 flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Close
-                </button>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-700">Show</label>
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setPage(1);
-                    }}
-                    className="px-2 py-1 border border-gray-300 rounded text-sm"
+            {/* Footer Section - Employee module style */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
+                  <button
+                    onClick={handleClose}
+                    className="h-9 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition flex items-center gap-2"
                   >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
-                  <label className="text-sm text-gray-700">entries</label>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Close
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium text-gray-900">Show</label>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setPage(1);
+                      }}
+                      className="h-9 px-2 py-1 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 font-medium min-w-[4rem] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      aria-label="Entries per page"
+                    >
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                    <label className="text-sm font-medium text-gray-900">entries</label>
+                  </div>
+                  <div className="text-sm font-medium text-gray-900">
+                    Showing {paginatedEmployees.length > 0 ? (page - 1) * pageSize + 1 : 0} to{' '}
+                    {Math.min(page * pageSize, filteredEmployees.length)} of {filteredEmployees.length} entries
+                  </div>
                 </div>
-                <div className="text-sm text-gray-700">
-                  Showing {paginatedEmployees.length > 0 ? (page - 1) * pageSize + 1 : 0} to{' '}
-                  {Math.min(page * pageSize, filteredEmployees.length)} of {filteredEmployees.length} entries
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="h-9 px-3 py-1 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition"
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </button>
+                  <span className="h-9 px-3 py-1 bg-blue-600 text-white rounded-lg text-sm font-medium flex items-center">{page}</span>
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                    className="h-9 px-3 py-1 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 transition"
+                    aria-label="Next page"
+                  >
+                    Next
+                  </button>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Previous
-                </button>
-                <span className="px-3 py-1 bg-blue-600 text-white rounded text-sm font-medium">{page}</span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page >= totalPages}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                >
-                  Next
-                </button>
               </div>
             </div>
           </div>
