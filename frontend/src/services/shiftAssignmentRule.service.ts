@@ -24,6 +24,7 @@ export interface ShiftAssignmentRuleListParams {
   limit?: number;
   search?: string;
   remarksMarker?: string; // Filter by specific marker in remarks to identify sub-module type
+  excludeAttendancePolicyRules?: boolean; // Exclude rules from attendance policy sub-modules (Holiday, Comp Off, OT, Week Off, Late & Others)
 }
 
 export interface ShiftAssignmentRuleListResponse {
@@ -40,6 +41,7 @@ const shiftAssignmentRuleService = {
         limit: params.limit ?? 10,
         search: params.search || undefined,
         remarksMarker: params.remarksMarker || undefined,
+        excludeAttendancePolicyRules: params.excludeAttendancePolicyRules ? 'true' : undefined,
       },
     });
     return data.data;

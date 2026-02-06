@@ -64,12 +64,22 @@ export class ShiftAssignmentRuleService {
     return rule;
   }
 
+  /** Markers used by attendance policy sub-modules - exclude these for "pure" Shift Assign list */
+  static readonly ATTENDANCE_POLICY_MARKERS = [
+    '__HOLIDAY_DATA__',
+    '__EVENT_RULE_DATA__',
+    '__OT_USAGE_RULE_DATA__',
+    '__WEEK_OFF_DATA__',
+    '__POLICY_RULES__',
+  ];
+
   async getAll(query: {
     organizationId?: string;
     page?: string;
     limit?: string;
     search?: string;
     remarksMarker?: string; // Filter by specific marker in remarks (e.g., '__POLICY_RULES__', '__WEEK_OFF_DATA__', etc.)
+    excludeAttendancePolicyRules?: string; // 'true' to exclude rules from attendance policy sub-modules (Holiday, Comp Off, OT, Week Off, Late & Others)
   }) {
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
@@ -84,6 +94,16 @@ export class ShiftAssignmentRuleService {
     // Filter by remarks marker to identify sub-module type
     if (query.remarksMarker) {
       where.remarks = { contains: query.remarksMarker };
+    }
+    // Exclude attendance policy rules (Shift Assign list shows only "pure" shift assignments)
+    if (query.excludeAttendancePolicyRules === 'true') {
+      const markers = ShiftAssignmentRuleService.ATTENDANCE_POLICY_MARKERS;
+      where.AND = [
+        ...(where.AND as Prisma.ShiftAssignmentRuleWhereInput[] || []),
+        ...markers.map((m) => ({
+          OR: [{ remarks: null }, { remarks: { not: { contains: m } } }],
+        })),
+      ];
     }
     const [rules, total] = await Promise.all([
       prisma.shiftAssignmentRule.findMany({

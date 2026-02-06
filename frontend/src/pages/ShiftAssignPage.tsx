@@ -44,15 +44,26 @@ function formatDate(d: string | undefined): string {
   return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-const POLICY_MARKER = '__POLICY_RULES__';
+/** Markers for embedded rule data - strip from list view, show only user remarks */
+const REMARKS_DATA_MARKERS = [
+  '__POLICY_RULES__',
+  '__WEEK_OFF_DATA__',
+  '__HOLIDAY_DATA__',
+  '__EVENT_RULE_DATA__',
+  '__OT_USAGE_RULE_DATA__',
+];
 
-/** Extract user remarks for display; hide raw policy JSON in list view */
+/** Extract user remarks for display; hide raw policy/rule JSON in list view */
 function formatRemarksForDisplay(remarks: string | null | undefined): { text: string; hasPolicy: boolean } {
   if (!remarks || typeof remarks !== 'string') return { text: '—', hasPolicy: false };
-  const idx = remarks.indexOf(POLICY_MARKER);
-  if (idx === -1) return { text: remarks.trim() || '—', hasPolicy: false };
-  const userPart = remarks.slice(0, idx).trim();
-  return { text: userPart || 'Policy rules configured', hasPolicy: true };
+  let earliestIdx = -1;
+  for (const marker of REMARKS_DATA_MARKERS) {
+    const idx = remarks.indexOf(marker);
+    if (idx >= 0 && (earliestIdx === -1 || idx < earliestIdx)) earliestIdx = idx;
+  }
+  if (earliestIdx === -1) return { text: remarks.trim() || '—', hasPolicy: false };
+  const userPart = remarks.slice(0, earliestIdx).trim();
+  return { text: userPart || '—', hasPolicy: true };
 }
 
 function associateDisplay(rule: ShiftAssignmentRule, nameMap: Map<string, string>): string {
@@ -93,6 +104,7 @@ export default function ShiftAssignPage() {
         search: searchTerm.trim() || undefined,
         page,
         limit: pageSize,
+        excludeAttendancePolicyRules: true,
       });
       setRules(result.rules || []);
       setPagination(result.pagination || { page: 1, limit: pageSize, total: 0, totalPages: 0 });
@@ -373,7 +385,9 @@ export default function ShiftAssignPage() {
                     </td>
                   </tr>
                 ) : (
-                  rules.map((rule) => (
+                  rules.map((rule) => {
+                    const remarksDisplay = formatRemarksForDisplay(rule.remarks);
+                    return (
                     <tr key={rule.id} className="hover:bg-gray-50">
                       {visibleColumns.has('displayName') && (
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -411,8 +425,8 @@ export default function ShiftAssignPage() {
                         </td>
                       )}
                       {visibleColumns.has('remarks') && (
-                        <td className="px-4 py-3 text-sm text-gray-500 max-w-[200px]" title={rule.remarks ?? undefined}>
-                          {formatRemarksForDisplay(rule.remarks).text}
+                        <td className="px-4 py-3 text-sm text-gray-500 max-w-[200px]" title={remarksDisplay.text || undefined}>
+                          {remarksDisplay.text}
                         </td>
                       )}
                       {visibleColumns.has('action') && (
@@ -442,7 +456,8 @@ export default function ShiftAssignPage() {
                         </td>
                       )}
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

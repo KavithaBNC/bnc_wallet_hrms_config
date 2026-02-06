@@ -35,7 +35,7 @@ export default function ShiftAssignFormPage() {
   const [priority, setPriority] = useState('');
   const [shiftId, setShiftId] = useState('');
   const [remarks, setRemarks] = useState('');
-  const [policyRulesJson, setPolicyRulesJson] = useState<string | null>(null);
+  const [embeddedRemarksData, setEmbeddedRemarksData] = useState<string | null>(null);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Array<{ id: string; name: string; code?: string | null }>>([]);
@@ -71,14 +71,18 @@ export default function ShiftAssignFormPage() {
         setPriority(rule.priority != null ? String(rule.priority) : '');
         setShiftId(rule.shiftId);
         const rawRemarks = rule.remarks ?? '';
-        const policyMarker = '__POLICY_RULES__';
-        const markerIdx = rawRemarks.indexOf(policyMarker);
-        if (markerIdx >= 0) {
-          setRemarks(rawRemarks.slice(0, markerIdx).trim());
-          setPolicyRulesJson(rawRemarks.slice(markerIdx + policyMarker.length));
+        const markers = ['__POLICY_RULES__', '__WEEK_OFF_DATA__', '__HOLIDAY_DATA__', '__EVENT_RULE_DATA__', '__OT_USAGE_RULE_DATA__'];
+        let earliestIdx = -1;
+        for (const m of markers) {
+          const idx = rawRemarks.indexOf(m);
+          if (idx >= 0 && (earliestIdx === -1 || idx < earliestIdx)) earliestIdx = idx;
+        }
+        if (earliestIdx >= 0) {
+          setRemarks(rawRemarks.slice(0, earliestIdx).trim());
+          setEmbeddedRemarksData(rawRemarks.slice(earliestIdx));
         } else {
           setRemarks(rawRemarks);
-          setPolicyRulesJson(null);
+          setEmbeddedRemarksData(null);
         }
         const ids = Array.isArray(rule.employeeIds) ? rule.employeeIds : [];
         if (ids.length > 0) {
@@ -142,10 +146,10 @@ export default function ShiftAssignFormPage() {
     setSaving(true);
     try {
       let remarksValue: string | undefined;
-      if (remarks.trim() || policyRulesJson) {
+      if (remarks.trim() || embeddedRemarksData) {
         const userPart = remarks.trim();
-        remarksValue = policyRulesJson
-          ? (userPart ? `${userPart}\n__POLICY_RULES__${policyRulesJson}` : `__POLICY_RULES__${policyRulesJson}`)
+        remarksValue = embeddedRemarksData
+          ? (userPart ? `${userPart}\n${embeddedRemarksData}` : embeddedRemarksData)
           : (userPart || undefined);
       }
       const payload = {
