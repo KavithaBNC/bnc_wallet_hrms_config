@@ -4,6 +4,7 @@ import { attendanceService } from '../services/attendance.service';
 import { biometricSyncService } from '../services/biometric-sync.service';
 import { matchFace } from '../services/face.service';
 import { prisma } from '../utils/prisma';
+import { BulkShiftAssignmentsInput } from '../utils/attendance.validation';
 
 export class AttendanceController {
   /**
@@ -402,7 +403,6 @@ export class AttendanceController {
 
   /**
    * Manual punch: Admin/HR records IN/OUT for an employee at a given date/time.
-   * Uses same processAttendancePunch engine; IN/OUT toggle applies for that date.
    * POST /api/v1/attendance/manual
    */
   async manualPunch(req: Request, res: Response, next: NextFunction) {
@@ -426,7 +426,7 @@ export class AttendanceController {
 
   /**
    * Card punch: Biometric/kiosk records IN/OUT for an employee (current time).
-   * Same processAttendancePunch engine, source CARD. POST /api/v1/attendance/card
+   * POST /api/v1/attendance/card
    */
   async cardPunch(req: Request, res: Response, next: NextFunction) {
     try {
@@ -440,6 +440,41 @@ export class AttendanceController {
           status: result.punch.status,
           punchTime: result.punch.punchTime.toISOString(),
           punchSource: 'CARD',
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Bulk update shift assignments
+   * POST /api/v1/attendance/shift-assignments/bulk
+   */
+  async bulkUpdateShiftAssignments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, assignments } = req.body as BulkShiftAssignmentsInput;
+
+      const results = await attendanceService.bulkUpdateShiftAssignments(
+        organizationId,
+        assignments
+      );
+
+      const successCount = results.filter(r => r.status === 'success').length;
+      const errorCount = results.filter(r => r.status === 'error').length;
+      const skippedCount = results.filter(r => r.status === 'skipped').length;
+
+      return res.status(200).json({
+        status: 'success',
+        message: `Shift assignments updated: ${successCount} successful, ${skippedCount} skipped, ${errorCount} errors`,
+        data: {
+          results,
+          summary: {
+            total: results.length,
+            successful: successCount,
+            skipped: skippedCount,
+            errors: errorCount,
+          },
         },
       });
     } catch (error) {

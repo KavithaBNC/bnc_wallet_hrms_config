@@ -7,9 +7,9 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: light;
+  color: #213547;
+  background-color: #f9fafb;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -20,13 +20,131 @@
 body {
   margin: 0;
   display: flex;
-  place-items: center;
+  flex-direction: column;
   min-width: 320px;
   min-height: 100vh;
+  width: 100%;
+  background-color: #f9fafb;
 }
 
 #root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   width: 100%;
-  margin: 0 auto;
-  text-align: center;
+  text-align: left;
+}
+
+/* Print styles - hide sidebar, header, and UI elements */
+@media print {
+  /* Hide sidebar */
+  aside,
+  nav[aria-label="Main navigation"],
+  [class*="sidebar"],
+  [class*="Sidebar"] {
+    display: none !important;
+  }
+  
+  /* Hide header */
+  header,
+  [class*="header"],
+  [class*="Header"],
+  [class*="app-header"],
+  [class*="AppHeader"] {
+    display: none !important;
+  }
+  
+  /* Hide action buttons, filters, and navigation */
+  button:not(.print-keep),
+  .no-print,
+  [class*="filter"],
+  [class*="action"],
+  nav[aria-label="Breadcrumb"],
+  .breadcrumb,
+  [aria-label="Breadcrumb"] {
+    display: none !important;
+  }
+  
+  /* Hide pagination */
+  [class*="pagination"],
+  [class*="Pagination"] {
+    display: none !important;
+  }
+  
+  /* Hide export menu and column menu */
+  [class*="export-menu"],
+  [class*="column-menu"] {
+    display: none !important;
+  }
+  
+  /* Hide elements with no-print class */
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Page setup */
+  @page {
+    margin: 1cm;
+  }
+  
+  body {
+    margin: 0;
+    padding: 20px;
+    background: white !important;
+  }
+  
+  /* Show page title when printing */
+  h1, h2 {
+    color: black !important;
+    margin-bottom: 10px !important;
+  }
+  
+  /* Ensure table is visible and properly formatted */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto;
+    margin-top: 10px !important;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  
+  th, td {
+    border: 1px solid #333 !important;
+    padding: 8px !important;
+    text-align: left !important;
+  }
+  
+  th {
+    background: #2563eb !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-weight: bold !important;
+  }
+  
+  /* Show only main content */
+  main {
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Ensure proper page breaks */
+  .page-break-before {
+    page-break-before: always;
+  }
+  
+  .page-break-after {
+    page-break-after: always;
+  }
+  
+  /* Ensure full width for print */
+  * {
+    box-shadow: none !important;
+  }
 }

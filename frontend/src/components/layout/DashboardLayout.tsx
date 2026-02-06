@@ -36,6 +36,36 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   ),
+  '/attendance-policy': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+    </svg>
+  ),
+  '/attendance-policy/late-and-others': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  '/attendance-policy/week-of-assign': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  ),
+  '/attendance-policy/holiday-assign': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+    </svg>
+  ),
+  '/attendance-policy/excess-time-conversion': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  '/attendance-policy/ot-usage-rule': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  ),
   '/leave': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -59,6 +89,11 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
   '/time-attendance/associate-shift-change': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  '/time-attendance/associate-shift-grid': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
     </svg>
   ),
   '/payroll': (
@@ -99,6 +134,16 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
   '/employee-master-approval': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  '/esop': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+    </svg>
+  ),
+  '/esop/add': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
     </svg>
   ),
   '/organizations': (
@@ -245,6 +290,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     if (timeAttendanceDropdownOpen) setTimeAttendanceExpanded(true);
   }, [timeAttendanceDropdownOpen]);
 
+  // ESOP dropdown: open when current path is under /esop
+  const esopDropdownOpen = location.pathname.startsWith('/esop');
+  const [esopExpanded, setEsopExpanded] = useState(esopDropdownOpen);
+  useEffect(() => {
+    if (esopDropdownOpen) setEsopExpanded(true);
+  }, [esopDropdownOpen]);
+
+  // Attendance Policy dropdown: open when current path is under /attendance-policy
+  const attendancePolicyDropdownOpen = location.pathname.startsWith('/attendance-policy');
+  const [attendancePolicyExpanded, setAttendancePolicyExpanded] = useState(attendancePolicyDropdownOpen);
+  useEffect(() => {
+    if (attendancePolicyDropdownOpen) setAttendancePolicyExpanded(true);
+  }, [attendancePolicyDropdownOpen]);
+
   const topLevelNavItems = useMemo(() => visibleNavItems.filter((m) => !m.parentPath), [visibleNavItems]);
 
   const handleLogout = async () => {
@@ -295,9 +354,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const isPayrollMaster = mod.path === '/payroll-master';
             const isTransaction = mod.path === '/transaction';
             const isTimeAttendance = mod.path === '/time-attendance';
-            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : false;
-            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : () => {};
-            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : false;
+            const isEsop = mod.path === '/esop';
+            const isAttendancePolicy = mod.path === '/attendance-policy';
+            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : false;
+            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : () => {};
+            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : false;
 
             if (isParentWithChildren) {
               return (

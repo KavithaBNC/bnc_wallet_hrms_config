@@ -108,6 +108,16 @@ export const syncBiometricSchema = z
   })
   .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
 
+// Bulk Shift Assignments
+export const bulkShiftAssignmentsSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  assignments: z.array(z.object({
+    employeeId: z.string().uuid('Invalid employee ID'),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+    shiftName: z.string().min(1, 'Shift name is required'),
+  })).min(1, 'At least one assignment is required'),
+});
+
 // Types
 export type CheckInInput = z.infer<typeof checkInSchema>;
 export type CheckOutInput = z.infer<typeof checkOutSchema>;
@@ -118,3 +128,4 @@ export type RejectRegularizationInput = z.infer<typeof rejectRegularizationSchem
 export type QueryAttendanceSummaryInput = z.infer<typeof queryAttendanceSummarySchema>;
 export type QueryAttendanceReportInput = z.infer<typeof queryAttendanceReportSchema>;
 export type SyncBiometricInput = z.infer<typeof syncBiometricSchema>;
+export type BulkShiftAssignmentsInput = z.infer<typeof bulkShiftAssignmentsSchema>;

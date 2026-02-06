@@ -131,6 +131,7 @@ import subDepartmentRoutes from './routes/sub-department.routes';
 import atsRoutes from './routes/ats.routes';
 import transferPromotionRoutes from './routes/transfer-promotion.routes';
 import transferPromotionEntryRoutes from './routes/transfer-promotion-entry.routes';
+import esopRoutes from './routes/esop.routes';
 
 // Mount routes (iclock at root so device can hit /iclock/cdata)
 app.use('/iclock', iclockRoutes);
@@ -161,6 +162,7 @@ app.use('/api/v1/sub-departments', subDepartmentRoutes);
 app.use('/api/v1/ats', atsRoutes);
 app.use('/api/v1/transaction/transfer-promotions', transferPromotionRoutes);
 app.use('/api/v1/transaction/transfer-promotion-entry', transferPromotionEntryRoutes);
+app.use('/api/v1/esop', esopRoutes);
 
 // ============================================================================
 // ERROR HANDLING

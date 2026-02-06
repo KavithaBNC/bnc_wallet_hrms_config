@@ -57,6 +57,7 @@ model Organization {
   retiredEmployeeCodes   RetiredEmployeeCode[]
   shiftAssignmentRules   ShiftAssignmentRule[]
   companies              Company[]
+  esopRecords            Esop[]
 
   @@map("organizations")
 }
@@ -410,6 +411,7 @@ model Employee {
   payslips                  Payslip[]
   transferPromotionEntries  TransferPromotionEntry[]
   transferPromotions        TransferPromotion[]
+  esopRecords               Esop[]
   is_rejoin                  Boolean                  @default(false) @map("is_rejoin")
   previousEmployeeId        String?                  @map("previous_employee_id") @db.Uuid
   previousEmployeeCode     String?                  @map("previous_employee_code") @db.VarChar(50)
@@ -467,6 +469,23 @@ model TransferPromotionEntry {
   promotionTo    JobPosition? @relation("EntryPromotionTo", fields: [promotionToId], references: [id], onDelete: SetNull)
 
   @@map("transfer_promotion_entry")
+}
+
+model Esop {
+  id               String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  employeeId       String    @map("employee_id") @db.Uuid
+  financialYear    String    @map("financial_year") @db.VarChar(20)
+  noOfEsop         Int       @default(0) @map("no_of_esop") @db.Integer
+  dateOfAllocation DateTime? @map("date_of_allocation") @db.Date
+  visted           String?   @db.VarChar(255)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("esop")
 }
 
 model AttendanceRecord {
@@ -539,7 +558,7 @@ model ShiftAssignmentRule {
   departmentId   String?      @map("department_id") @db.Uuid
   effectiveDate  DateTime     @map("effective_date") @db.Date
   priority       Int?         @db.Integer
-  remarks        String?      @db.VarChar(500)
+  remarks        String?      @db.Text
   employeeIds    Json?        @map("employee_ids") // array of UUID strings
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")

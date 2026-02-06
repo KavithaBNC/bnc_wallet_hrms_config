@@ -35,6 +35,7 @@ export default function ShiftAssignFormPage() {
   const [priority, setPriority] = useState('');
   const [shiftId, setShiftId] = useState('');
   const [remarks, setRemarks] = useState('');
+  const [embeddedRemarksData, setEmbeddedRemarksData] = useState<string | null>(null);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Array<{ id: string; name: string; code?: string | null }>>([]);
@@ -69,7 +70,20 @@ export default function ShiftAssignFormPage() {
         setEffectiveDate(rule.effectiveDate?.slice(0, 10) || new Date().toISOString().slice(0, 10));
         setPriority(rule.priority != null ? String(rule.priority) : '');
         setShiftId(rule.shiftId);
-        setRemarks(rule.remarks ?? '');
+        const rawRemarks = rule.remarks ?? '';
+        const markers = ['__POLICY_RULES__', '__WEEK_OFF_DATA__', '__HOLIDAY_DATA__', '__EVENT_RULE_DATA__', '__OT_USAGE_RULE_DATA__'];
+        let earliestIdx = -1;
+        for (const m of markers) {
+          const idx = rawRemarks.indexOf(m);
+          if (idx >= 0 && (earliestIdx === -1 || idx < earliestIdx)) earliestIdx = idx;
+        }
+        if (earliestIdx >= 0) {
+          setRemarks(rawRemarks.slice(0, earliestIdx).trim());
+          setEmbeddedRemarksData(rawRemarks.slice(earliestIdx));
+        } else {
+          setRemarks(rawRemarks);
+          setEmbeddedRemarksData(null);
+        }
         const ids = Array.isArray(rule.employeeIds) ? rule.employeeIds : [];
         if (ids.length > 0) {
           employeeService.getAll({ organizationId, page: 1, limit: 500, employeeStatus: 'ACTIVE' }).then((r) => {
@@ -131,6 +145,13 @@ export default function ShiftAssignFormPage() {
     setError(null);
     setSaving(true);
     try {
+      let remarksValue: string | undefined;
+      if (remarks.trim() || embeddedRemarksData) {
+        const userPart = remarks.trim();
+        remarksValue = embeddedRemarksData
+          ? (userPart ? `${userPart}\n${embeddedRemarksData}` : embeddedRemarksData)
+          : (userPart || undefined);
+      }
       const payload = {
         organizationId,
         displayName: displayName.trim(),
@@ -139,7 +160,7 @@ export default function ShiftAssignFormPage() {
         departmentId: departmentId || undefined,
         effectiveDate,
         priority: priority.trim() ? Number(priority) : undefined,
-        remarks: remarks.trim() || undefined,
+        remarks: remarksValue,
         employeeIds: selectedEmployees.map((emp) => emp.id),
       };
       if (isEdit && id) {

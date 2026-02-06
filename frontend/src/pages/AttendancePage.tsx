@@ -5,7 +5,8 @@ import { attendanceService } from '../services/attendance.service';
 import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
-import { startOfMonth, endOfMonth, eachDayOfInterval, format, isToday, getDay } from 'date-fns';
+import shiftService, { Shift } from '../services/shift.service';
+import { startOfMonth, endOfMonth, eachDayOfInterval, format, isToday, getDay, addMonths } from 'date-fns';
 
 interface AttendanceRecord {
   id: string;
@@ -21,6 +22,12 @@ interface AttendanceRecord {
     lastName: string;
     employeeCode: string;
   };
+  shift?: {
+    id: string;
+    name: string;
+    startTime: string;
+    endTime: string;
+  } | null;
 }
 
 interface AttendancePunch {
@@ -61,9 +68,11 @@ interface AttendanceCalendarViewProps {
   punches: AttendancePunch[];
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
+  employeeId?: string;
+  organizationId?: string;
 }
 
-const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange }: AttendanceCalendarViewProps) => {
+const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId }: AttendanceCalendarViewProps) => {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -71,6 +80,86 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange 
   // Get first day of month to calculate offset
   const firstDayOfWeek = getDay(monthStart);
   const daysOffset = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; // Monday = 0
+  
+  // State for shift assignments
+  const [shiftAssignments, setShiftAssignments] = useState<Map<string, string>>(new Map()); // date -> shiftName
+  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [loadingShifts, setLoadingShifts] = useState(false);
+  
+  // Fetch shifts from Shift Master
+  useEffect(() => {
+    if (!organizationId) return;
+    
+    shiftService.getAll({
+      organizationId,
+      limit: 1000,
+    }).then((res) => {
+      setShifts(res?.shifts || []);
+    }).catch(() => {
+      setShifts([]);
+    });
+  }, [organizationId]);
+  
+  // Fetch or determine shift assignments for each day
+  useEffect(() => {
+    if (!employeeId || !organizationId) return;
+    
+    setLoadingShifts(true);
+    
+    // Create shift assignments map - default to "General Shift" for all dates
+    // Override with explicitly assigned shifts from attendance records
+    const assignments = new Map<string, string>();
+    const defaultShift = 'General Shift';
+    
+    console.log('📅 Calendar: Determining shift assignments for employee:', employeeId);
+    console.log('📅 Calendar: Total records received:', records.length);
+    console.log('📅 Calendar: Records with shifts:', records.filter(r => r.shift?.name).map(r => ({
+      date: format(new Date(r.date), 'yyyy-MM-dd'),
+      shift: r.shift?.name,
+      employeeId: r.employee.id
+    })));
+    
+    daysInMonth.forEach((date) => {
+      const dateStr = format(date, 'yyyy-MM-dd');
+      const dayOfWeek = date.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      // Check if there's an attendance record with shift for this date (from saved shift assignments)
+      // IMPORTANT: Check all records, not just ones with check-in/check-out
+      const dayRecord = records.find(r => {
+        const recordDate = format(new Date(r.date), 'yyyy-MM-dd');
+        const matchesDate = recordDate === dateStr;
+        const matchesEmployee = r.employee.id === employeeId;
+        return matchesDate && matchesEmployee;
+      });
+      
+      if (dayRecord) {
+        console.log(`📅 Calendar: Found record for ${dateStr}:`, {
+          hasShift: !!dayRecord.shift,
+          shiftName: dayRecord.shift?.name,
+          employeeId: dayRecord.employee.id,
+          matchesTargetEmployee: dayRecord.employee.id === employeeId
+        });
+      }
+      
+      if (dayRecord?.shift?.name) {
+        // Use shift from attendance record (this reflects saved shift assignments from Associate Shift Grid)
+        // This overrides the default "General Shift" for this specific date
+        console.log(`✅ Calendar: Using saved shift "${dayRecord.shift.name}" for ${dateStr}`);
+        assignments.set(dateStr, dayRecord.shift.name);
+      } else if (isWeekend) {
+        // Weekend - show as Weekoff
+        assignments.set(dateStr, 'Weekoff');
+      } else {
+        // Default to "General Shift" for all weekdays without explicit assignment
+        assignments.set(dateStr, defaultShift);
+      }
+    });
+    
+    console.log('📅 Calendar: Final shift assignments:', Array.from(assignments.entries()));
+    setShiftAssignments(assignments);
+    setLoadingShifts(false);
+  }, [daysInMonth, records, employeeId, shifts, organizationId]);
   
   // Create a map of date strings to records for quick lookup.
   // Use checkIn's local date so punches show on the correct calendar day (fixes timezone "yesterday" bug).
@@ -96,13 +185,29 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange 
   punchesByDateEmployee.forEach((arr) => arr.sort((a, b) => new Date(a.punchTime).getTime() - new Date(b.punchTime).getTime()));
 
   const navigateMonth = (direction: 'prev' | 'next') => {
-    const newDate = new Date(currentMonth);
-    if (direction === 'prev') {
-      newDate.setMonth(newDate.getMonth() - 1);
-    } else {
-      newDate.setMonth(newDate.getMonth() + 1);
+    try {
+      // Use date-fns addMonths to handle edge cases (e.g., Jan 31 -> Feb 28/29)
+      const newDate = direction === 'prev' 
+        ? addMonths(currentMonth, -1)
+        : addMonths(currentMonth, 1);
+      onMonthChange(newDate);
+    } catch (error) {
+      console.error('Error navigating month:', error);
+      // Fallback: manually set month with proper handling
+      const newDate = new Date(currentMonth);
+      const currentDay = newDate.getDate();
+      if (direction === 'prev') {
+        newDate.setMonth(newDate.getMonth() - 1);
+      } else {
+        newDate.setMonth(newDate.getMonth() + 1);
+      }
+      // Ensure the date is valid (handle cases like Jan 31 -> Feb)
+      if (newDate.getDate() !== currentDay) {
+        // Date was adjusted, set to first day of month
+        newDate.setDate(1);
+      }
+      onMonthChange(newDate);
     }
-    onMonthChange(newDate);
   };
 
   const goToToday = () => {
@@ -164,6 +269,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange 
           const isCurrentDay = isToday(day);
           const isWeekendDay = isWeekend(day);
           const dayNumber = format(day, 'd');
+          const shiftName = shiftAssignments.get(dateStr) || 'General Shift'; // Default to "General Shift"
 
           return (
             <div
@@ -188,6 +294,17 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange 
               </div>
               
               <div className="space-y-1.5">
+                {/* Display shift name badge - always shown (default is "General Shift") */}
+                {shiftName && (
+                  <div className={`inline-block px-2 py-1 rounded text-xs font-semibold mb-1 ${
+                    shiftName === 'Weekoff' || shiftName === 'W'
+                      ? 'bg-gray-700 text-white'
+                      : 'bg-blue-600 text-white'
+                  }`}>
+                    {shiftName === 'W' ? 'Weekoff' : shiftName}
+                  </div>
+                )}
+                
                 {dayRecords.length > 0 ? (
                   dayRecords.map((record) => {
                     const dateStr = format(day, 'yyyy-MM-dd');
@@ -211,10 +328,10 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange 
                         {/* First In and Last Out (or Currently In if still clocked in) */}
                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-semibold">
                           {firstIn && (
-                            <span className="text-blue-700">First In: {formatTime(firstIn)}</span>
+                            <span className="text-blue-700">First In: {formatTime(typeof firstIn === 'string' ? firstIn : (firstIn as Date).toISOString())}</span>
                           )}
                           {lastOut ? (
-                            <span className="text-red-700">Last Out: {formatTime(lastOut)}</span>
+                            <span className="text-red-700">Last Out: {formatTime(typeof lastOut === 'string' ? lastOut : (lastOut as Date).toISOString())}</span>
                           ) : isCurrentlyIn && lastInTime ? (
                             <span className="text-amber-700">Currently In (since {formatTime(lastInTime)})</span>
                           ) : firstIn && (
@@ -353,17 +470,44 @@ const AttendancePage = () => {
 
   useEffect(() => {
     if (user) {
-      try {
-        fetchRecords();
-        fetchMyRecords(); // Always fetch manager's own records
-        fetchPunches();
-        checkTodayStatus();
-      } catch (err: any) {
-        console.error('Error in useEffect:', err);
-        setComponentError(err.message || 'Failed to initialize attendance page');
+      (async () => {
+        try {
+          await Promise.allSettled([
+            fetchRecords(),
+            fetchMyRecords(),
+            fetchPunches(),
+            checkTodayStatus(),
+          ]);
+        } catch (err: any) {
+          console.error('Error in useEffect:', err);
+          setComponentError(err.message || 'Failed to initialize attendance page');
+        }
+      })();
+    }
+  }, [user, currentMonth, viewMode]);
+
+  // Also check status when records are fetched
+  useEffect(() => {
+    if (user?.employee?.id && (records.length > 0 || myRecords.length > 0)) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayStr = today.toISOString().split('T')[0];
+      const recordsToCheck = canViewTeamAttendance && myRecords.length > 0 ? myRecords : records;
+      const todayRecord = recordsToCheck.find((r: AttendanceRecord) => {
+        try {
+          const recordDate = new Date(r.date).toISOString().split('T')[0];
+          return recordDate === todayStr && r.employee?.id === user.employee?.id;
+        } catch (e) {
+          return false;
+        }
+      });
+      if (todayRecord?.checkIn && !todayRecord?.checkOut) {
+        setCheckedIn(true);
+      } else if (todayRecord?.checkOut) {
+        setCheckedIn(false);
       }
     }
-  }, [user]);
+  }, [records, myRecords, user, canViewTeamAttendance]);
 
   // Refetch attendance and punches when calendar month or (for HR) selected employee changes
   useEffect(() => {
@@ -447,7 +591,12 @@ const AttendancePage = () => {
 
   const fetchRecords = async () => {
     try {
-      // HR-only: when viewing team, don't fetch all employees; require selected employee
+      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+      if (!organizationId) {
+        console.warn('Organization ID not available, skipping fetchRecords');
+        setRecords([]);
+        return;
+      }
       if (isHRForCalendar && viewMode === 'team' && !selectedEmployeeId) {
         setRecords([]);
         setLoading(false);
@@ -455,15 +604,18 @@ const AttendancePage = () => {
       }
       setLoading(true);
       setError(null);
-      const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-      const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+      const monthStart = startOfMonth(currentMonth);
+      const monthEnd = endOfMonth(currentMonth);
       const params: Record<string, unknown> = {
         page: 1,
-        limit: 50,
-        startDate: monthStart,
-        endDate: monthEnd,
+        limit: 1000,
+        startDate: format(monthStart, 'yyyy-MM-dd'),
+        endDate: format(monthEnd, 'yyyy-MM-dd'),
+        organizationId,
       };
-      if (isHRForCalendar && viewMode === 'team' && selectedEmployeeId) {
+      if (viewMode === 'my' || !canViewTeamAttendance) {
+        if (user?.employee?.id) params.employeeId = user.employee.id;
+      } else if (isHRForCalendar && viewMode === 'team' && selectedEmployeeId) {
         params.employeeId = selectedEmployeeId;
       }
       const response = await api.get('/attendance/records', {
@@ -475,10 +627,19 @@ const AttendancePage = () => {
         setRecords([]);
       }
     } catch (err: any) {
+      const status = err.response?.status;
       const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch attendance records';
-      setError(errorMsg);
-      console.error('Error fetching records:', err);
-      // Don't crash the component, just show error
+      
+      // 404 or "not found" errors are expected when there are no records for a month
+      // Don't show these as errors, just set empty records
+      if (status === 404 || errorMsg.toLowerCase().includes('not found')) {
+        console.log('No records found for this month (expected)');
+        setRecords([]);
+        setError(null); // Clear any previous errors
+      } else {
+        setError(errorMsg);
+        console.error('Error fetching records:', err);
+      }
       setRecords([]);
     } finally {
       setLoading(false);
@@ -512,17 +673,25 @@ const AttendancePage = () => {
   const fetchMyRecords = async () => {
     if (!canViewTeamAttendance || !user?.employee?.id) return;
     
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    if (!organizationId) {
+      console.warn('Organization ID not available, skipping fetchMyRecords');
+      setMyRecords([]);
+      return;
+    }
+    
     try {
       setLoadingMyRecords(true);
-      const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-      const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+      const monthStart = startOfMonth(currentMonth);
+      const monthEnd = endOfMonth(currentMonth);
       const response = await api.get('/attendance/records', {
         params: {
           page: 1,
-          limit: 50,
+          limit: 100,
           employeeId: user.employee.id,
-          startDate: monthStart,
-          endDate: monthEnd,
+          startDate: format(monthStart, 'yyyy-MM-dd'),
+          endDate: format(monthEnd, 'yyyy-MM-dd'),
+          organizationId,
         },
       });
       if (response.data?.data?.records) {
@@ -531,7 +700,13 @@ const AttendancePage = () => {
         setMyRecords([]);
       }
     } catch (err: any) {
-      console.error('Error fetching my records:', err);
+      const status = err.response?.status;
+      // 404 or "not found" errors are expected when there are no records
+      if (status === 404 || err.response?.data?.message?.toLowerCase().includes('not found')) {
+        console.log('No my records found for this month (expected)');
+      } else {
+        console.error('Error fetching my records:', err);
+      }
       setMyRecords([]);
     } finally {
       setLoadingMyRecords(false);
@@ -540,22 +715,24 @@ const AttendancePage = () => {
 
   const checkTodayStatus = async () => {
     try {
+      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+      if (!organizationId || !user?.employee?.id) {
+        return; // Skip if organization or employee ID not available
+      }
+
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayStr = today.toISOString().split('T')[0];
       
-      // For managers, check their own records, not team records
+      // Always fetch own records for status check
       const params: any = {
         page: 1,
         limit: 50,
         startDate: todayStr,
         endDate: todayStr,
+        organizationId,
+        employeeId: user.employee.id,
       };
-      
-      // If manager, fetch own records for status check
-      if (canViewTeamAttendance && user?.employee?.id) {
-        params.employeeId = user.employee.id;
-      }
       
       const response = await api.get('/attendance/records', { params });
       
@@ -597,7 +774,15 @@ const AttendancePage = () => {
       setCheckedIn(true);
       await Promise.all([fetchRecords(), fetchMyRecords(), checkTodayStatus()]);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to check in');
+      const errorMessage = err.response?.data?.message || 'Failed to check in';
+      setError(errorMessage);
+      
+      // If error says "already checked in", update state to show check-out button
+      if (errorMessage.toLowerCase().includes('already checked in')) {
+        setCheckedIn(true);
+        // Refresh status to get the actual record
+        await checkTodayStatus();
+      }
     } finally {
       setCheckingIn(false);
     }
@@ -1011,19 +1196,21 @@ const AttendancePage = () => {
             </div>
           ) : loading || (viewMode === 'my' && loadingMyRecords) ? (
             <div className="p-8 text-center text-gray-500">Loading...</div>
+          ) : displayMode === 'calendar' ? (
+            <AttendanceCalendarView
+              records={viewMode === 'my' && myRecords.length > 0 ? myRecords : records}
+              punches={punches}
+              currentMonth={currentMonth}
+              onMonthChange={setCurrentMonth}
+              employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : (selectedEmployeeId || user?.employee?.id)}
+              organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
+            />
           ) : (viewMode === 'my' ? myRecords : records).length === 0 ? (
             <div className="p-8 text-center text-gray-500">
               {viewMode === 'my' 
                 ? 'No attendance records found for you' 
                 : 'No attendance records found'}
             </div>
-          ) : displayMode === 'calendar' ? (
-            <AttendanceCalendarView 
-              records={viewMode === 'my' ? myRecords : records}
-              punches={punches}
-              currentMonth={currentMonth}
-              onMonthChange={setCurrentMonth}
-            />
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">

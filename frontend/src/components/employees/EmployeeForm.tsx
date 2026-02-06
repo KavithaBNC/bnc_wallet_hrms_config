@@ -9,6 +9,7 @@ import { subDepartmentService } from '../../services/sub-department.service';
 import entityService from '../../services/entity.service';
 import locationService from '../../services/location.service';
 import { employeeSalaryService } from '../../services/payroll.service';
+import { esopService, EsopRecord } from '../../services/esop.service';
 import Modal from '../common/Modal';
 import DepartmentForm from '../departments/DepartmentForm';
 import PositionForm from '../positions/PositionForm';
@@ -27,7 +28,8 @@ export type EmployeeFormTabKey =
   | 'previousEmployment'
   | 'family'
   | 'others'
-  | 'newFields';
+  | 'newFields'
+  | 'esop';
 
 interface EmployeeFormProps {
   employee?: Employee | null;
@@ -108,6 +110,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [salaryHistory, setSalaryHistory] = useState<Array<{ effectiveDate: string; grossSalary: number; isCurrent: boolean }>>([]);
   const [salaryLoading, setSalaryLoading] = useState(false);
   const [othersTab, setOthersTab] = useState<'certifications' | 'knownLanguages'>('certifications');
+  const [esopRecords, setEsopRecords] = useState<EsopRecord[]>([]);
+  const [esopLoading, setEsopLoading] = useState(false);
   const [assets, setAssets] = useState<Array<{
     id: string;
     assetName: string;
@@ -236,10 +240,29 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   });
 
   const [currentTab, setCurrentTab] = useState<
-    'company' | 'personal' | 'statutory' | 'bank' | 'salary' | 'assets' | 'academic' | 'previousEmployment' | 'family' | 'others' | 'newFields'
+    'company' | 'personal' | 'statutory' | 'bank' | 'salary' | 'assets' | 'academic' | 'previousEmployment' | 'family' | 'others' | 'newFields' | 'esop'
   >(
     initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup ? 'company' : 'personal'
   );
+
+  // Fetch ESOP records when ESOP tab is selected and employee exists
+  useEffect(() => {
+    if (currentTab === 'esop' && employee?.id) {
+      setEsopLoading(true);
+      esopService
+        .getByEmployeeId(employee.id)
+        .then((records) => {
+          setEsopRecords(records);
+        })
+        .catch((error) => {
+          console.error('Failed to fetch ESOP records:', error);
+          setEsopRecords([]);
+        })
+        .finally(() => {
+          setEsopLoading(false);
+        });
+    }
+  }, [currentTab, employee?.id]);
 
   /** Tab is editable when in edit mode and (no restriction or tab is in editableTabs) */
   const isTabEditable = (tab: EmployeeFormTabKey) =>
@@ -671,11 +694,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setCurrentTab('others');
     } else if (currentTab === 'others') {
       setCurrentTab('newFields');
+    } else if (currentTab === 'newFields') {
+      if (employee?.id) {
+        setCurrentTab('esop');
+      }
     }
   };
 
   const handleBack = () => {
-    if (currentTab === 'newFields') setCurrentTab('others');
+    if (currentTab === 'esop') setCurrentTab('newFields');
+    else if (currentTab === 'newFields') setCurrentTab('others');
     else if (currentTab === 'others') setCurrentTab('family');
     else if (currentTab === 'family') setCurrentTab('previousEmployment');
     else if (currentTab === 'previousEmployment') setCurrentTab('academic');
@@ -1110,6 +1138,22 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           >
             New Fields
           </button>
+          {employee?.id && (
+            <button
+              type="button"
+              onClick={() => setCurrentTab('esop')}
+              className={`${
+                currentTab === 'esop'
+                  ? 'bg-blue-50 text-blue-600 border-blue-500'
+                  : 'bg-white text-gray-600 border-transparent hover:bg-gray-50 hover:text-gray-800'
+              } w-full text-left px-3 py-2 rounded-md border text-sm font-medium flex items-center gap-2`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              ESOP
+            </button>
+          )}
         </nav>
       </div>
 
@@ -3175,6 +3219,69 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         </div>
       )}
 
+      {currentTab === 'esop' && employee?.id && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">ESOP Records</h3>
+          </div>
+          
+          {esopLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : esopRecords.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p>No ESOP records found for this employee.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-b border-gray-300">
+                      Financial Year
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-b border-gray-300">
+                      No of ESOP
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-b border-gray-300">
+                      Date of Allocation
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-b border-gray-300">
+                      Vested
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-b border-gray-300">
+                      Created At
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {esopRecords.map((record) => (
+                    <tr key={record.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
+                        {record.financialYear}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
+                        {record.noOfEsop}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
+                        {record.dateOfAllocation ? new Date(record.dateOfAllocation).toLocaleDateString('en-GB') : '-'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
+                        {record.visted || '-'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-b border-gray-200">
+                        {new Date(record.createdAt).toLocaleDateString('en-GB')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Submit Error + Error List */}
       {errors.submit && (
         <div className="rounded-md bg-red-50 border border-red-200 p-4">
@@ -3257,6 +3364,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               );
             }
             if (isViewMode) return null;
+            // Don't show Next button on ESOP tab (it's the last tab)
+            if (currentTab === 'esop') return null;
             return (
               <button
                 type="button"
