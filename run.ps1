@@ -31,4 +31,5 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$projectRoot\
 
 Write-Host "`nBackend: http://localhost:5000" -ForegroundColor Green
 Write-Host "Frontend: http://localhost:3000" -ForegroundColor Green
-Write-Host "`nTwo new terminal windows were opened. Close them to stop the servers." -ForegroundColor Gray
+Write-Host "`nFor face capture (add employee with face): run .\run-face-service.ps1 in another terminal (Docker required)." -ForegroundColor Gray
+Write-Host "Two new terminal windows were opened. Close them to stop the servers." -ForegroundColor Gray

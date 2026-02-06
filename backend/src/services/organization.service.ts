@@ -396,6 +396,82 @@ export class OrganizationService {
       };
     });
   }
+
+  /**
+   * Get biometric devices for an organization (devices whose company belongs to this org).
+   */
+  async getDevicesForOrganization(organizationId: string) {
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+    });
+    if (!organization) {
+      throw new AppError('Organization not found', 404);
+    }
+    const devices = await prisma.biometricDevice.findMany({
+      where: {
+        company: {
+          organizationId,
+        },
+      },
+      include: {
+        company: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return devices;
+  }
+
+  /**
+   * Add a biometric device to an organization.
+   * Uses or creates the org's company (one company per org).
+   */
+  async addDeviceToOrganization(
+    organizationId: string,
+    data: { serialNumber: string; name?: string }
+  ) {
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+    });
+    if (!organization) {
+      throw new AppError('Organization not found', 404);
+    }
+    const serialNumber = (data.serialNumber || '').trim();
+    if (!serialNumber) {
+      throw new AppError('Serial number is required', 400);
+    }
+    const existing = await prisma.biometricDevice.findUnique({
+      where: { serialNumber },
+    });
+    if (existing) {
+      throw new AppError(
+        `A device with serial number "${serialNumber}" is already registered to another organization/company.`,
+        400
+      );
+    }
+    let company = await prisma.company.findFirst({
+      where: { organizationId },
+    });
+    if (!company) {
+      company = await prisma.company.create({
+        data: {
+          name: `${organization.name} Company`,
+          organizationId,
+        },
+      });
+    }
+    const device = await prisma.biometricDevice.create({
+      data: {
+        companyId: company.id,
+        serialNumber,
+        name: (data.name || '').trim() || `Device ${serialNumber.slice(-6)}`,
+        isActive: true,
+      },
+      include: {
+        company: { select: { id: true, name: true } },
+      },
+    });
+    return device;
+  }
 }
 
 export const organizationService = new OrganizationService();

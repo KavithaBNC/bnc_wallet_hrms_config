@@ -23,6 +23,19 @@ export const checkOutSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
+// Manual punch (Admin/HR): employeeId, date, time; optional punchAt (ISO) = timestamp in user's local → correct timezone
+export const manualPunchSchema = z.object({
+  employeeId: z.string().uuid('Invalid employee ID'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  time: z.string().regex(/^\d{1,2}:\d{2}(:\d{2})?$/, 'Invalid time format (HH:mm or HH:mm:ss)'),
+  punchAt: z.string().optional(), // ISO timestamp from frontend (user local → UTC) so display matches
+});
+
+// Card punch (biometric/kiosk): same engine as face/manual, source CARD
+export const cardPunchSchema = z.object({
+  employeeId: z.string().uuid('Invalid employee ID'),
+});
+
 // Attendance Record Query
 export const queryAttendanceRecordsSchema = z.object({
   employeeId: z.string().uuid().optional(),
@@ -63,6 +76,18 @@ export const queryAttendanceSummarySchema = z.object({
   employeeId: z.string().uuid('Invalid employee ID'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+});
+
+// Work hours for a single day (punches + total from IN/OUT pairs)
+export const queryWorkHoursSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional(),
+});
+
+// Punches in date range (for calendar – show all IN/OUT per day)
+export const queryPunchesSchema = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  employeeId: z.string().uuid().optional(),
 });
 
 // Attendance Report Query

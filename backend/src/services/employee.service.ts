@@ -42,74 +42,53 @@ export class EmployeeService {
   }
 
   /**
+   * Generate unique employee code with given prefix (fallback when org has no nextNumber set).
+   * No padding: prefix '' → 3000, 3001; prefix 'BNC' → BNC3000, BNC3001 (matches reserve path).
+   */
+  private async generateEmployeeCodeWithPrefix(organizationId: string, prefix: string): Promise<string> {
+    const effectivePrefix = (prefix ?? '').trim();
+    const employees = await prisma.employee.findMany({
+      where: {
+        organizationId,
+        ...(effectivePrefix ? { employeeCode: { startsWith: effectivePrefix } } : {}),
+      },
+      select: { employeeCode: true },
+    });
+    const regex = effectivePrefix
+      ? new RegExp(`^${effectivePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`)
+      : /^(\d+)$/;
+    const numbers = employees
+      .map((emp) => {
+        const match = emp.employeeCode.match(regex);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          return num > 0 && num <= 999999 ? num : 0;
+        }
+        return 0;
+      })
+      .filter((num) => num > 0);
+    let nextNumber = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+    if (nextNumber > 999999) {
+      return `${effectivePrefix || 'EMP'}${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    }
+    const employeeCode = effectivePrefix ? `${effectivePrefix}${nextNumber}` : String(nextNumber);
+    const existing = await prisma.employee.findUnique({ where: { employeeCode } });
+    if (existing) {
+      nextNumber++;
+      if (nextNumber > 999999) {
+        return `${effectivePrefix || 'EMP'}${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      }
+      return effectivePrefix ? `${effectivePrefix}${nextNumber}` : String(nextNumber);
+    }
+    return employeeCode;
+  }
+
+  /**
    * Generate unique employee code (fallback when org has no prefix/nextNumber)
    * Format: EMP00001, EMP00002, etc.
    */
   private async generateEmployeeCode(organizationId: string): Promise<string> {
-    const prefix = 'EMP';
-    
-    // Get all employees for this organization with codes starting with EMP
-    const employees = await prisma.employee.findMany({
-      where: {
-        organizationId,
-        employeeCode: {
-          startsWith: prefix,
-        },
-      },
-      select: {
-        employeeCode: true,
-      },
-    });
-
-    let nextNumber = 1;
-
-    if (employees.length > 0) {
-      // Extract numbers from employee codes in format EMP##### (5 digits)
-      const numbers = employees
-        .map(emp => {
-          // Match EMP followed by exactly 5 digits (standard format)
-          const match = emp.employeeCode.match(/^EMP0*(\d{1,5})$/);
-          if (match) {
-            const num = parseInt(match[1], 10);
-            // Only consider numbers that are reasonable (1-99999)
-            return num > 0 && num <= 99999 ? num : 0;
-          }
-          return 0;
-        })
-        .filter(num => num > 0);
-
-      if (numbers.length > 0) {
-        // Find the highest number and increment
-        nextNumber = Math.max(...numbers) + 1;
-      } else {
-        // No standard format codes found, use total count + 1
-        nextNumber = employees.length + 1;
-      }
-    }
-
-    // Ensure number doesn't exceed 5 digits
-    if (nextNumber > 99999) {
-      // Fallback to timestamp-based if we exceed reasonable range
-      return `${prefix}${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    }
-
-    const employeeCode = `${prefix}${nextNumber.toString().padStart(5, '0')}`;
-
-    // Double-check if this code already exists (race condition protection)
-    const existing = await prisma.employee.findUnique({
-      where: { employeeCode },
-    });
-
-    if (existing) {
-      // If exists, try next number (should be rare)
-      nextNumber++;
-      if (nextNumber > 99999) {
-        return `${prefix}${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      }
-      return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
-    }
-
-    return employeeCode;
+    return this.generateEmployeeCodeWithPrefix(organizationId, 'EMP');
   }
 
   /**
@@ -140,16 +119,25 @@ export class EmployeeService {
       // Try org-level prefix + next number first; else fallback to legacy EMP00001 format
       let generatedCode: string | null | undefined = await this.reserveNextEmployeeCode(data.organizationId);
       if (generatedCode) {
+        const existingByCode = await prisma.employee.findUnique({
+          where: { employeeCode: generatedCode },
+        });
         const isRetired = await prisma.retiredEmployeeCode.findUnique({
           where: { organizationId_code: { organizationId: data.organizationId, code: generatedCode } },
         });
-        if (isRetired) generatedCode = null; // fall through to loop to get a different code
+        if (existingByCode || isRetired) generatedCode = null; // already used or retired, fall through to get a different code
       }
       if (!generatedCode) {
+        // Org has no next number set (or reserved code was taken). Use org's prefix if set; else EMP.
+        const orgForPrefix = await prisma.organization.findUnique({
+          where: { id: data.organizationId },
+          select: { employeeIdPrefix: true },
+        });
+        const fallbackPrefix = orgForPrefix?.employeeIdPrefix?.trim() ?? 'EMP';
         let attempts = 0;
         const maxAttempts = 10;
         while (attempts < maxAttempts) {
-          generatedCode = await this.generateEmployeeCode(data.organizationId);
+          generatedCode = await this.generateEmployeeCodeWithPrefix(data.organizationId, fallbackPrefix);
           const existingCode = await prisma.employee.findUnique({
             where: { employeeCode: generatedCode },
           });
@@ -320,52 +308,57 @@ export class EmployeeService {
     // Create employee record
     // Exclude employeeCode from data spread since we're setting it explicitly
     const { employeeCode: _, ...employeeData } = data;
-    
-    const employee = await prisma.employee.create({
-      data: {
-        ...employeeData,
-        employeeCode, // Explicitly set as string (guaranteed to be defined)
-        userId: userAccountId,
-        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
-        dateOfJoining: new Date(data.dateOfJoining),
-        probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
-        confirmationDate: data.confirmationDate ? new Date(data.confirmationDate) : null,
-        dateOfLeaving: data.dateOfLeaving ? new Date(data.dateOfLeaving) : null,
-        faceEncoding: data.faceEncoding != null ? (data.faceEncoding as object) : undefined,
-      },
-      include: {
-        organization: {
-          select: { id: true, name: true },
-        },
-        paygroup: {
-          select: { id: true, name: true, code: true },
-        },
-        department: {
-          select: { id: true, name: true, code: true },
-        },
-        position: {
-          select: { id: true, title: true, code: true },
-        },
-        reportingManager: {
-          select: {
-            id: true,
-            employeeCode: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            email: true,
-            role: true,
-            isActive: true,
-            isEmailVerified: true,
-          },
-        },
-      },
+
+    const createPayload = (code: string) => ({
+      ...employeeData,
+      employeeCode: code,
+      userId: userAccountId,
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+      dateOfJoining: new Date(data.dateOfJoining),
+      probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
+      confirmationDate: data.confirmationDate ? new Date(data.confirmationDate) : null,
+      dateOfLeaving: data.dateOfLeaving ? new Date(data.dateOfLeaving) : null,
+      faceEncoding: data.faceEncoding != null ? (data.faceEncoding as object) : undefined,
     });
+
+    const include = {
+      organization: { select: { id: true, name: true } },
+      paygroup: { select: { id: true, name: true, code: true } },
+      department: { select: { id: true, name: true, code: true } },
+      position: { select: { id: true, title: true, code: true } },
+      reportingManager: {
+        select: { id: true, employeeCode: true, firstName: true, lastName: true, email: true },
+      },
+      user: {
+        select: { id: true, email: true, role: true, isActive: true, isEmailVerified: true },
+      },
+    };
+
+    let employee;
+    try {
+      employee = await prisma.employee.create({
+        data: createPayload(employeeCode),
+        include,
+      });
+    } catch (err: unknown) {
+      const isUniqueEmployeeCode =
+        err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === 'P2002' &&
+        err && typeof err === 'object' && 'meta' in err &&
+        (err as { meta?: { target?: string[] } }).meta?.target?.includes('employee_code');
+      if (isUniqueEmployeeCode) {
+        const fallbackCode = `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        const exists = await prisma.employee.findUnique({ where: { employeeCode: fallbackCode } });
+        if (exists) {
+          throw new AppError('Employee code already exists. Please use a different code or leave it blank to auto-generate.', 400);
+        }
+        employee = await prisma.employee.create({
+          data: createPayload(fallbackCode),
+          include,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     // Return employee with temporary password if it was created
     return {
@@ -1042,12 +1035,13 @@ export class EmployeeService {
       );
     }
 
-    // Soft delete
+    // Soft delete: clear face encoding so "Face already registered" does not show if record is viewed later
     await prisma.employee.update({
       where: { id },
       data: {
         deletedAt: new Date(),
         employeeStatus: 'TERMINATED',
+        faceEncoding: Prisma.JsonNull,
       },
     });
 

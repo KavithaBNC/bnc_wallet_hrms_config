@@ -52,6 +52,234 @@ export class AttendanceService {
   }
 
   /**
+   * Get all punches for an employee on a given day (sorted by punch time).
+   */
+  async getPunchesForDay(employeeId: string, date: Date) {
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    return prisma.attendancePunch.findMany({
+      where: {
+        employeeId,
+        punchTime: { gte: dayStart, lt: dayEnd },
+      },
+      orderBy: { punchTime: 'asc' },
+    });
+  }
+
+  /**
+   * Universal Multi-Punch Engine: single logic for FACE, CARD, and MANUAL.
+   * - Date: use manualDate + manualTime if provided, else now.
+   * - Toggle: no punch → IN; last IN → OUT; last OUT → IN.
+   * - Safety: for FACE/CARD, reject if last punch was within 2 minutes; skip for MANUAL.
+   */
+  async processAttendancePunch(
+    employeeId: string,
+    source: 'FACE' | 'CARD' | 'MANUAL',
+    manualDate?: string,
+    manualTime?: string,
+    punchAtISO?: string
+  ): Promise<{ punch: { id: string; punchTime: Date; status: string; punchSource: string }; dayStart: Date }> {
+    let punchTimestamp: Date;
+    if (punchAtISO) {
+      // Frontend sends punchAt as ISO (built from user's local date+time) so 4:59 PM stays 4:59 PM
+      punchTimestamp = new Date(punchAtISO);
+    } else if (manualDate && manualTime) {
+      // Fallback: manualDate = yyyy-MM-dd, manualTime = HH:mm or HH:mm:ss (treated as UTC for API-only callers)
+      const [y, m, d] = manualDate.split('-').map(Number);
+      const timeParts = manualTime.split(':').map(Number);
+      const h = timeParts[0] ?? 0;
+      const min = timeParts[1] ?? 0;
+      const s = timeParts[2] ?? 0;
+      punchTimestamp = new Date(Date.UTC(y, m - 1, d, h, min, s, 0));
+    } else {
+      punchTimestamp = new Date();
+    }
+
+    const dayStr = punchTimestamp.toISOString().slice(0, 10);
+    const dayStart = new Date(dayStr + 'T00:00:00.000Z');
+    const dayEnd = new Date(dayStart);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+    const lastPunch = await prisma.attendancePunch.findFirst({
+      where: {
+        employeeId,
+        punchTime: { gte: dayStart, lt: dayEnd },
+      },
+      orderBy: { punchTime: 'desc' },
+    });
+
+    const DUPLICATE_PUNCH_WAIT_SECONDS = 120; // 2 minutes for FACE/CARD
+    const lastPunchAgoMs = lastPunch ? punchTimestamp.getTime() - lastPunch.punchTime.getTime() : 0;
+    if (source !== 'MANUAL' && lastPunch && lastPunchAgoMs < DUPLICATE_PUNCH_WAIT_SECONDS * 1000) {
+      const retryAfter = Math.ceil((DUPLICATE_PUNCH_WAIT_SECONDS * 1000 - lastPunchAgoMs) / 1000);
+      throw new AppError(
+        `Duplicate punch detected. Please wait ${retryAfter} seconds between punches.`,
+        400
+      );
+    }
+
+    let newStatus: string;
+    if (!lastPunch) {
+      newStatus = 'IN';
+    } else {
+      const last = lastPunch.status?.toUpperCase() || '';
+      newStatus = last === 'IN' ? 'OUT' : 'IN';
+    }
+
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, employeeCode: true },
+    });
+    if (!employee) throw new AppError('Employee not found', 404);
+
+    const punch = await prisma.attendancePunch.create({
+      data: {
+        employeeId,
+        punchTime: punchTimestamp,
+        status: newStatus,
+        punchSource: source,
+      },
+    });
+
+    await prisma.attendanceLog.create({
+      data: {
+        deviceId: null,
+        userId: employee.employeeCode,
+        punchTimestamp,
+        status: newStatus === 'IN' ? '0' : '1',
+        employeeId,
+        punchSource: source,
+      },
+    });
+
+    await this.syncAttendanceRecordFromPunches(employeeId, dayStart);
+
+    return {
+      punch: {
+        id: punch.id,
+        punchTime: punch.punchTime,
+        status: punch.status,
+        punchSource: punch.punchSource || source,
+      },
+      dayStart,
+    };
+  }
+
+  /**
+   * Get all punches for an employee in a date range (for calendar display of every IN/OUT).
+   */
+  async getPunchesInRange(employeeId: string, startDate: string, endDate: string) {
+    const start = new Date(startDate + 'T00:00:00.000Z');
+    const end = new Date(endDate + 'T00:00:00.000Z');
+    end.setUTCDate(end.getUTCDate() + 1);
+
+    return prisma.attendancePunch.findMany({
+      where: {
+        employeeId,
+        punchTime: { gte: start, lt: end },
+      },
+      orderBy: { punchTime: 'asc' },
+    });
+  }
+
+  /**
+   * Calculate total work hours from IN/OUT punch pairs for a day.
+   * Pairs each IN with the following OUT; if the last punch is IN, optionally
+   * include time until `asOf` (e.g. now) as current working duration.
+   * @param employeeId - Employee UUID
+   * @param date - Date (calendar day)
+   * @param asOf - If provided and last punch is IN, add (asOf - last IN) to total
+   * @returns { totalWorkHours, pairs: [{ in, out, hours }], lastPunchStatus }
+   */
+  async calculateWorkHoursFromPunches(
+    employeeId: string,
+    date: Date,
+    asOf?: Date
+  ): Promise<{
+    totalWorkHours: number;
+    pairs: Array<{ in: Date; out: Date; hours: number }>;
+    lastPunchStatus: 'IN' | 'OUT' | null;
+  }> {
+    const punches = await this.getPunchesForDay(employeeId, date);
+    const pairs: Array<{ in: Date; out: Date; hours: number }> = [];
+    let totalWorkHours = 0;
+    let lastPunchStatus: 'IN' | 'OUT' | null = null;
+
+    for (let i = 0; i < punches.length; i++) {
+      const p = punches[i];
+      const status = (p.status?.toUpperCase() === 'OUT' ? 'OUT' : 'IN') as 'IN' | 'OUT';
+      lastPunchStatus = status;
+
+      if (status === 'IN') {
+        const nextOut = punches.slice(i + 1).find((x) => (x.status?.toUpperCase() || '') === 'OUT');
+        const outTime = nextOut
+          ? nextOut.punchTime
+          : asOf
+            ? new Date(asOf)
+            : null;
+        if (outTime) {
+          const hours = (outTime.getTime() - p.punchTime.getTime()) / (1000 * 60 * 60);
+          pairs.push({ in: p.punchTime, out: outTime, hours: Math.max(0, hours) });
+          totalWorkHours += Math.max(0, hours);
+        }
+      }
+    }
+
+    return { totalWorkHours, pairs, lastPunchStatus };
+  }
+
+  /**
+   * Sync attendance record for a day from punch data: first IN → checkIn,
+   * last OUT → checkOut, total work hours from IN/OUT pairs.
+   */
+  async syncAttendanceRecordFromPunches(employeeId: string, date: Date) {
+    const punches = await this.getPunchesForDay(employeeId, date);
+    if (punches.length === 0) return null;
+
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      include: { shift: true },
+    });
+    if (!employee) return null;
+
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const { totalWorkHours } = await this.calculateWorkHoursFromPunches(employeeId, date, new Date());
+
+    const firstIn = punches.find((p) => (p.status?.toUpperCase() || '') === 'IN');
+    const outPunches = punches.filter((p) => (p.status?.toUpperCase() || '') === 'OUT');
+    const lastOut = outPunches.length > 0 ? outPunches[outPunches.length - 1].punchTime : null;
+
+    let status: AttendanceStatus = AttendanceStatus.PRESENT;
+    if (this.isWeekend(dayStart)) status = AttendanceStatus.WEEKEND;
+    else if (await this.isHoliday(dayStart, employee.organizationId)) status = AttendanceStatus.HOLIDAY;
+
+    return prisma.attendanceRecord.upsert({
+      where: {
+        employeeId_date: { employeeId, date: dayStart },
+      },
+      create: {
+        employeeId,
+        shiftId: employee.shiftId || null,
+        date: dayStart,
+        checkIn: firstIn?.punchTime ?? null,
+        checkOut: lastOut ?? null,
+        workHours: new Prisma.Decimal(Math.round(totalWorkHours * 100) / 100),
+        status,
+      },
+      update: {
+        checkIn: firstIn?.punchTime ?? null,
+        checkOut: lastOut ?? null,
+        workHours: new Prisma.Decimal(Math.round(totalWorkHours * 100) / 100),
+        status,
+      },
+    });
+  }
+
+  /**
    * Check-in with geofence validation and shift support
    */
   async checkIn(employeeId: string, data: CheckInInput) {

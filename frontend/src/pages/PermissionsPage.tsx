@@ -58,6 +58,7 @@ const PermissionsPage = () => {
   const effectiveOrgId = isSuperAdmin ? selectedOrgId : userOrgId;
 
   const [orgEnabledResources, setOrgEnabledResources] = useState<string[]>([]);
+  const [orgModulesLoaded, setOrgModulesLoaded] = useState(false);
   const allModules = useMemo(() => getModulesForPermissionScreen(), []);
   const modules = useMemo(() => {
     if (isSuperAdmin) return allModules;
@@ -101,14 +102,19 @@ const PermissionsPage = () => {
           setOrganizations([]);
         }
       }
-      if (isOrgAdmin && userOrgId) {
-        try {
-          const list = await organizationService.getModules(userOrgId);
-          setOrgEnabledResources(list);
-        } catch (e) {
-          console.warn('Load org modules:', e);
-          setOrgEnabledResources([]);
+      if (isOrgAdmin) {
+        if (userOrgId) {
+          try {
+            const list = await organizationService.getModules(userOrgId);
+            setOrgEnabledResources(list);
+          } catch (e) {
+            console.warn('Load org modules:', e);
+            setOrgEnabledResources([]);
+          }
         }
+        setOrgModulesLoaded(true);
+      } else if (isSuperAdmin) {
+        setOrgModulesLoaded(true);
       }
       await loadPermissions();
     };
@@ -116,13 +122,15 @@ const PermissionsPage = () => {
   }, [isSuperAdmin, isOrgAdmin, userOrgId]);
 
   useEffect(() => {
-    if (selectedRole) {
-      loadRolePermissions();
-    } else {
+    if (!selectedRole) {
       setSelectedPermissionIds([]);
       setRolePermissions([]);
+      return;
     }
-  }, [selectedRole, effectiveOrgId ?? '']);
+    // Org Admin: wait for org modules to be loaded so we filter pre-selection correctly
+    if (isOrgAdmin && !orgModulesLoaded) return;
+    loadRolePermissions();
+  }, [selectedRole, effectiveOrgId ?? '', orgEnabledResources, isOrgAdmin, orgModulesLoaded]);
 
   const loadPermissions = async () => {
     try {
@@ -147,11 +155,13 @@ const PermissionsPage = () => {
         effectiveOrgId ?? undefined
       );
       setRolePermissions(perms);
-      // All roles (Org Admin, HR Manager, Manager, Employee): show only what is assigned
+      // For Org Admin: only pre-select permissions for modules enabled for their org, so Save never sends "forbidden" IDs
       const ids = perms
-        .filter((rp) =>
-          (PERMISSION_SCREEN_ACTIONS as readonly string[]).includes(rp.permission.action)
-        )
+        .filter((rp) => {
+          if (!(PERMISSION_SCREEN_ACTIONS as readonly string[]).includes(rp.permission.action)) return false;
+          if (isOrgAdmin && orgEnabledResources.length > 0 && !orgEnabledResources.includes(rp.permission.resource)) return false;
+          return true;
+        })
         .map((rp) => rp.permission.id);
       setSelectedPermissionIds(ids);
     } catch (err: any) {
@@ -245,9 +255,20 @@ const PermissionsPage = () => {
       setSaving(true);
       setError(null);
       const organizationId = effectiveOrgId ?? undefined;
+      // Org Admin: only send permission IDs for resources enabled for their org (backend enforces same rule)
+      let idsToSend = selectedPermissionIds;
+      if (isOrgAdmin) {
+        const allowedSet =
+          orgEnabledResources.length > 0
+            ? new Set(orgEnabledResources)
+            : new Set(['transfer_promotions', 'transfer_promotion_entry']); // backend allows these even when org has no modules
+        const idToResource: Record<string, string> = {};
+        for (const p of permissions) idToResource[p.id] = p.resource;
+        idsToSend = selectedPermissionIds.filter((id) => allowedSet.has(idToResource[id] ?? ''));
+      }
       const result = await permissionService.replaceRolePermissions(
         selectedRole,
-        selectedPermissionIds,
+        idsToSend,
         organizationId
       );
       alert(

@@ -1,12 +1,13 @@
 /**
- * ADMS / iClock cdata: parse device payload, validate device by serial, store attendance_logs.
+ * ADMS / iClock cdata: parse device payload, validate device by serial, store attendance_logs and attendance_punches.
  * eSSL/ZKTeco devices POST key=value lines (USERID, TIMESTAMP, STATUS, SERIALNO) or similar.
- * After storing a punch, we sync to attendance_records so the employee's calendar view shows it.
+ * After storing a punch, we write to attendance_punches (so calendar punch list shows it) and sync attendance_record.
  */
 
 import { AttendanceStatus, CheckInMethod, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { logger } from '../utils/logger';
+import { attendanceService } from './attendance.service';
 
 export interface AdmsPunchRecord {
   userId: string;
@@ -342,13 +343,35 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
       `;
       result.processed++;
 
-      // Sync to attendance_records so employee's calendar view shows the punch automatically
-      if (employeeId && punchTime) {
-        const punchDate = new Date(punchTime);
-        punchDate.setHours(0, 0, 0, 0);
-        syncAttendanceRecordFromLogs(employeeId, punchDate).catch((err) => {
-          logger.warn(`[iclock] Sync to attendance_record failed employeeId=${employeeId} - ${err instanceof Error ? err.message : String(err)}`);
-        });
+      // Also insert into attendance_punches so calendar (and universal punch list) shows the device punch
+      if (employeeId && literalTs) {
+        // Interpret device timestamp as IST so DB stores correct UTC regardless of server timezone
+        const punchTimestampForPunch = new Date(literalTs.replace(' ', 'T') + '+05:30');
+        const statusPunch = isPunchIn(rec.status) ? 'IN' : isPunchOut(rec.status) ? 'OUT' : 'IN';
+        try {
+          await prisma.attendancePunch.create({
+            data: {
+              employeeId,
+              punchTime: punchTimestampForPunch,
+              status: statusPunch,
+              punchSource: 'CARD',
+            },
+          });
+          const dayStart = new Date(punchTimestampForPunch);
+          dayStart.setHours(0, 0, 0, 0);
+          await attendanceService.syncAttendanceRecordFromPunches(employeeId, dayStart);
+        } catch (err) {
+          logger.warn(`[iclock] attendance_punch create/sync failed employeeId=${employeeId} - ${err instanceof Error ? err.message : String(err)}`);
+          // Fallback: sync record from logs so at least First In/Last Out show
+          const dayStart = new Date(punchTimestampForPunch);
+          dayStart.setHours(0, 0, 0, 0);
+          syncAttendanceRecordFromLogs(employeeId, dayStart).catch(() => {});
+        }
+      } else if (!employeeId) {
+        logger.warn(
+          `[iclock] Punch NOT shown in calendar: device userId="${rec.userId}" could not be matched to an employee. ` +
+            `Ensure employeeCode in HRMS matches the device user id. Device companyId=${device.companyId}`
+        );
       }
     } catch (err) {
       result.skipped++;

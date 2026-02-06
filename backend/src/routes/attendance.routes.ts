@@ -7,9 +7,13 @@ import { attendanceRegularizationController } from '../controllers/attendance-re
 import {
   checkInSchema,
   checkOutSchema,
+  manualPunchSchema,
+  cardPunchSchema,
   queryAttendanceRecordsSchema,
   queryAttendanceSummarySchema,
   queryAttendanceReportSchema,
+  queryWorkHoursSchema,
+  queryPunchesSchema,
   syncBiometricSchema,
   createRegularizationSchema,
   approveRegularizationSchema,
@@ -45,10 +49,45 @@ router.post(
 
 /**
  * @route   POST /api/v1/attendance/face-punch
- * @desc    Face punch: base64 image → match employee → insert attendance_logs + record (punch_source FACE)
+ * @desc    Face punch: base64 image → match employee → processAttendancePunch(employeeId, 'FACE')
  * @access  Private (any authenticated user; org from user profile or body)
  */
 router.post('/face-punch', attendanceController.facePunch.bind(attendanceController));
+
+/**
+ * @route   POST /api/v1/attendance/manual
+ * @desc    Manual punch: Admin/HR records IN/OUT for employee at date/time (same engine, source MANUAL)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/manual',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validate(manualPunchSchema),
+  attendanceController.manualPunch.bind(attendanceController)
+);
+
+/**
+ * @route   POST /api/v1/attendance/card
+ * @desc    Card/biometric punch: processAttendancePunch(employeeId, 'CARD') at current time
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER) for kiosk/integration
+ */
+router.post(
+  '/card',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validate(cardPunchSchema),
+  attendanceController.cardPunch.bind(attendanceController)
+);
+
+/**
+ * @route   GET /api/v1/attendance/punches
+ * @desc    Get all IN/OUT punches in date range (for calendar – show every punch)
+ * @access  Private (own punches or HR/Manager with employeeId)
+ */
+router.get(
+  '/punches',
+  validateQuery(queryPunchesSchema),
+  attendanceController.getPunches.bind(attendanceController)
+);
 
 // Enforce organization access for routes that need organization filtering
 router.use(enforceOrganizationAccess);
@@ -62,6 +101,17 @@ router.get(
   '/records',
   validateQuery(queryAttendanceRecordsSchema),
   attendanceController.getRecords.bind(attendanceController)
+);
+
+/**
+ * @route   GET /api/v1/attendance/summary/:employeeId/work-hours
+ * @desc    Get total work hours for a day from IN/OUT punches (pairs IN with next OUT; last IN counts until now)
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/summary/:employeeId/work-hours',
+  validateQuery(queryWorkHoursSchema),
+  attendanceController.getWorkHoursForDay.bind(attendanceController)
 );
 
 /**

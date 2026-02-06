@@ -6,6 +6,13 @@ const router = Router();
 router.use(authenticate);
 
 /**
+ * @route   GET /api/v1/face/health
+ * @desc    Check if Python face service is reachable
+ * @access  Private
+ */
+router.get('/health', (req, res, next) => faceController.health(req, res, next));
+
+/**
  * @route   POST /api/v1/face/encode
  * @desc    Encode face from base64 image (calls Python service)
  * @access  Private

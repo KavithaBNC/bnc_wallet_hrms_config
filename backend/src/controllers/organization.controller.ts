@@ -198,6 +198,41 @@ export class OrganizationController {
   }
 
   /**
+   * Get biometric devices for an organization
+   * GET /api/v1/organizations/:id/devices
+   */
+  async getDevices(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const devices = await organizationService.getDevicesForOrganization(id);
+      res.status(200).json({
+        status: 'success',
+        data: { devices },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Add a biometric device to an organization
+   * POST /api/v1/organizations/:id/devices
+   */
+  async addDevice(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const device = await organizationService.addDeviceToOrganization(id, req.body);
+      res.status(201).json({
+        status: 'success',
+        message: 'Device added successfully',
+        data: { device },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Sync shift module for all orgs that already have modules (backfill). Super Admin only.
    * POST /api/v1/organizations/sync-shift-module
    */

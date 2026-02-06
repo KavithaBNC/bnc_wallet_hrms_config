@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { organizationController } from '../controllers/organization.controller';
 import { authenticate, authorize } from '../middlewares/auth';
 import { validate } from '../middlewares/validate';
-import { createOrganizationSchema, updateOrganizationSchema } from '../utils/organization.validation';
+import { createOrganizationSchema, updateOrganizationSchema, addDeviceSchema } from '../utils/organization.validation';
 import { createOrgAdminSchema } from '../utils/validation';
 
 const router = Router();
@@ -120,6 +120,29 @@ router.get(
   '/:id/statistics',
   authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
   organizationController.getStatistics.bind(organizationController)
+);
+
+/**
+ * @route   GET /api/v1/organizations/:id/devices
+ * @desc    Get biometric devices for an organization
+ * @access  Private (SUPER_ADMIN only)
+ */
+router.get(
+  '/:id/devices',
+  authorize('SUPER_ADMIN'),
+  organizationController.getDevices.bind(organizationController)
+);
+
+/**
+ * @route   POST /api/v1/organizations/:id/devices
+ * @desc    Add a biometric device to an organization
+ * @access  Private (SUPER_ADMIN only)
+ */
+router.post(
+  '/:id/devices',
+  authorize('SUPER_ADMIN'),
+  validate(addDeviceSchema),
+  organizationController.addDevice.bind(organizationController)
 );
 
 export default router;

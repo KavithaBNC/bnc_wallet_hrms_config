@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import organizationService, { Organization, CreateOrganizationData } from '../services/organization.service';
+import organizationService, { Organization, CreateOrganizationData, OrganizationDevice } from '../services/organization.service';
 import Modal from '../components/common/Modal';
 import AppHeader from '../components/layout/AppHeader';
 import { APP_MODULES } from '../config/modules';
@@ -26,6 +26,20 @@ export default function OrganizationsPage() {
   const [syncingShiftModule, setSyncingShiftModule] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [searchTerm, setSearchTerm] = useState('');
+  const [orgDevices, setOrgDevices] = useState<Record<string, OrganizationDevice[]>>({});
+  const [showDevicesModal, setShowDevicesModal] = useState(false);
+  const [selectedOrgForDevices, setSelectedOrgForDevices] = useState<Organization | null>(null);
+  const [deviceForm, setDeviceForm] = useState({ serialNumber: '', name: '' });
+  const [addingDevice, setAddingDevice] = useState(false);
+  const [loadingDevicesForModal, setLoadingDevicesForModal] = useState(false);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
+  const [showEditIdModal, setShowEditIdModal] = useState(false);
+  const [selectedOrgForEditId, setSelectedOrgForEditId] = useState<Organization | null>(null);
+  const [editIdForm, setEditIdForm] = useState<{ employeeIdPrefix: string; employeeIdStartingNumber: number | '' }>({
+    employeeIdPrefix: '',
+    employeeIdStartingNumber: '',
+  });
+  const [savingEditId, setSavingEditId] = useState(false);
 
   // Form states
   const [orgFormData, setOrgFormData] = useState<CreateOrganizationData>({
@@ -62,6 +76,19 @@ export default function OrganizationsPage() {
       const response = await organizationService.getAll(pagination.page, pagination.limit, searchTerm || undefined);
       setOrganizations(response.organizations);
       setPagination(response.pagination);
+      // Fetch devices for each org in parallel
+      const devicesMap: Record<string, OrganizationDevice[]> = {};
+      await Promise.all(
+        response.organizations.map(async (org) => {
+          try {
+            const devices = await organizationService.getDevices(org.id);
+            devicesMap[org.id] = devices;
+          } catch {
+            devicesMap[org.id] = [];
+          }
+        })
+      );
+      setOrgDevices(devicesMap);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to fetch organizations');
       console.error('Error fetching organizations:', err);
@@ -283,9 +310,41 @@ export default function OrganizationsPage() {
                   <p className="text-sm text-gray-600">
                     <span className="font-medium">Currency:</span> {org.currency}
                   </p>
+                  <div className="text-sm">
+                    <span className="font-medium text-gray-700">Devices:</span>
+                    {(orgDevices[org.id]?.length ?? 0) === 0 ? (
+                      <p className="text-gray-500 mt-0.5">None</p>
+                    ) : (
+                      <ul className="mt-1 space-y-0.5 list-disc list-inside text-gray-800">
+                        {orgDevices[org.id]?.map((d) => (
+                          <li key={d.id}>{d.name || d.serialNumber}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={async () => {
+                      setSelectedOrgForDevices(org);
+                      setShowDevicesModal(true);
+                      setDeviceForm({ serialNumber: '', name: '' });
+                      setDevicesError(null);
+                      setLoadingDevicesForModal(true);
+                      try {
+                        const devices = await organizationService.getDevices(org.id);
+                        setOrgDevices((prev) => ({ ...prev, [org.id]: devices }));
+                      } catch {
+                        setOrgDevices((prev) => ({ ...prev, [org.id]: prev[org.id] ?? [] }));
+                      } finally {
+                        setLoadingDevicesForModal(false);
+                      }
+                    }}
+                    className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition text-sm"
+                  >
+                    Devices {orgDevices[org.id]?.length ? `(${orgDevices[org.id].length})` : ''}
+                  </button>
                   <button
                     onClick={() => openAssignModules(org)}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm"
@@ -307,6 +366,21 @@ export default function OrganizationsPage() {
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm"
                   >
                     Create Admin
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedOrgForEditId(org);
+                      setEditIdForm({
+                        employeeIdPrefix: org.employeeIdPrefix ?? '',
+                        employeeIdStartingNumber: org.employeeIdNextNumber ?? '',
+                      });
+                      setShowEditIdModal(true);
+                      setError(null);
+                    }}
+                    className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition text-sm"
+                    title="Edit Employee ID Prefix and Next Number"
+                  >
+                    Edit ID settings
                   </button>
                   <button
                     onClick={() => alert(`Organization ID: ${org.id}\nName: ${org.name}`)}
@@ -619,6 +693,112 @@ export default function OrganizationsPage() {
         </form>
       </Modal>
 
+      {/* Edit Employee ID Prefix & Starting Number modal */}
+      <Modal
+        isOpen={showEditIdModal}
+        onClose={() => {
+          setShowEditIdModal(false);
+          setSelectedOrgForEditId(null);
+          setError(null);
+        }}
+        title={selectedOrgForEditId ? `Employee ID settings – ${selectedOrgForEditId.name}` : 'Employee ID settings'}
+      >
+        {selectedOrgForEditId && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!selectedOrgForEditId) return;
+              setSavingEditId(true);
+              setError(null);
+              try {
+                const updated = await organizationService.update(selectedOrgForEditId.id, {
+                  employeeIdPrefix: editIdForm.employeeIdPrefix.trim() || undefined,
+                  ...(editIdForm.employeeIdStartingNumber !== ''
+                    ? { employeeIdStartingNumber: Number(editIdForm.employeeIdStartingNumber) }
+                    : {}),
+                });
+                setOrganizations((prev) =>
+                  prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o))
+                );
+                setShowEditIdModal(false);
+                setSelectedOrgForEditId(null);
+                alert('Employee ID settings saved. New employees will get codes using this prefix and next number.');
+              } catch (err: any) {
+                setError(err.response?.data?.message || 'Failed to update settings');
+              } finally {
+                setSavingEditId(false);
+              }
+            }}
+            className="space-y-4"
+          >
+            <p className="text-sm text-gray-600">
+              These values control how new employee codes are generated for this organization. Prefix + next number → e.g. <strong>BNC</strong> + <strong>5</strong> → BNC5, BNC6, …
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID Prefix</label>
+                <input
+                  type="text"
+                  maxLength={20}
+                  value={editIdForm.employeeIdPrefix}
+                  onChange={(e) =>
+                    setEditIdForm((f) => ({ ...f, employeeIdPrefix: e.target.value }))
+                  }
+                  className="w-full h-10 px-4 py-2 bg-white text-black border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g. BNC or leave empty"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Next Number</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editIdForm.employeeIdStartingNumber === '' ? '' : editIdForm.employeeIdStartingNumber}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEditIdForm((f) => ({
+                      ...f,
+                      employeeIdStartingNumber:
+                        v === '' ? '' : Math.max(0, parseInt(v, 10) || 0),
+                    }));
+                  }}
+                  className="w-full h-10 px-4 py-2 bg-white text-black border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Next code number"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Next employee will get this number (then it increments).
+                </p>
+              </div>
+            </div>
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
+                {error}
+              </div>
+            )}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEditIdModal(false);
+                  setSelectedOrgForEditId(null);
+                  setError(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingEditId}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50 text-sm font-medium"
+              >
+                {savingEditId ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
       {/* Assign modules modal (SAP-style: which modules this org gets; Org Admin will only see these) */}
       <Modal
         isOpen={showAssignModulesForm}
@@ -673,6 +853,104 @@ export default function OrganizationsPage() {
               </button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      {/* Biometric devices modal: list + add */}
+      <Modal
+        isOpen={showDevicesModal}
+        onClose={() => {
+          setShowDevicesModal(false);
+          setSelectedOrgForDevices(null);
+          setDevicesError(null);
+          setDeviceForm({ serialNumber: '', name: '' });
+        }}
+        title={selectedOrgForDevices ? `Devices – ${selectedOrgForDevices.name}` : 'Devices'}
+      >
+        {selectedOrgForDevices && (
+          <div className="space-y-4">
+            {devicesError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm">
+                {devicesError}
+              </div>
+            )}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Registered devices</h4>
+              {loadingDevicesForModal ? (
+                <p className="text-gray-500 text-sm">Loading...</p>
+              ) : (orgDevices[selectedOrgForDevices.id]?.length ?? 0) === 0 ? (
+                <p className="text-gray-500 text-sm">No devices. Add one below.</p>
+              ) : (
+                <ul className="list-disc list-inside text-sm text-gray-800 space-y-1">
+                  {(orgDevices[selectedOrgForDevices.id] ?? []).map((d) => (
+                    <li key={d.id}>
+                      {d.name || d.serialNumber} <span className="text-gray-500">({d.serialNumber})</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="border-t border-gray-200 pt-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Add device</h4>
+              <p className="text-xs text-gray-500 mb-2">
+                Use the serial number the device sends (e.g. in /iclock/cdata). Employee Code in HRMS must match the device user id for punches to show.
+              </p>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!selectedOrgForDevices || !deviceForm.serialNumber.trim()) return;
+                  try {
+                    setAddingDevice(true);
+                    setDevicesError(null);
+                    const device = await organizationService.addDevice(selectedOrgForDevices.id, {
+                      serialNumber: deviceForm.serialNumber.trim(),
+                      name: deviceForm.name.trim() || undefined,
+                    });
+                    setOrgDevices((prev) => ({
+                      ...prev,
+                      [selectedOrgForDevices.id]: [...(prev[selectedOrgForDevices.id] ?? []), device],
+                    }));
+                    setDeviceForm({ serialNumber: '', name: '' });
+                    setDevicesError(null);
+                  } catch (err: any) {
+                    setDevicesError(err.response?.data?.message || 'Failed to add device');
+                  } finally {
+                    setAddingDevice(false);
+                  }
+                }}
+                className="flex flex-wrap items-end gap-3"
+              >
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Serial number *</label>
+                  <input
+                    type="text"
+                    value={deviceForm.serialNumber}
+                    onChange={(e) => setDeviceForm((f) => ({ ...f, serialNumber: e.target.value }))}
+                    placeholder="e.g. CQZ7224460246"
+                    className="w-full h-9 px-3 border border-gray-300 rounded-lg text-sm"
+                    required
+                  />
+                </div>
+                <div className="flex-1 min-w-[140px]">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Name (optional)</label>
+                  <input
+                    type="text"
+                    value={deviceForm.name}
+                    onChange={(e) => setDeviceForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Reception"
+                    className="w-full h-9 px-3 border border-gray-300 rounded-lg text-sm"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingDevice || !deviceForm.serialNumber.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {addingDevice ? 'Adding...' : 'Add device'}
+                </button>
+              </form>
+            </div>
+          </div>
         )}
       </Modal>
     </div>

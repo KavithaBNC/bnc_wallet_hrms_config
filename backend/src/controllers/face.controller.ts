@@ -1,7 +1,23 @@
 import { Request, Response, NextFunction } from 'express';
-import { generateEncoding } from '../services/face.service';
+import { generateEncoding, checkFaceServiceHealth } from '../services/face.service';
 
 export class FaceController {
+  /**
+   * GET /api/v1/face/health
+   * Check if the Python face microservice is reachable.
+   */
+  async health(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await checkFaceServiceHealth();
+      return res.status(200).json({
+        status: result.available ? 'success' : 'fail',
+        data: { available: result.available, message: result.message },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   /**
    * POST /api/v1/face/encode
    * Accept base64 image, return 128-float face encoding (calls Python service).
@@ -17,7 +33,8 @@ export class FaceController {
       }
       const result = await generateEncoding(imageBase64);
       if (result.error) {
-        return res.status(400).json({
+        const isUnavailable = result.error.includes('unreachable');
+        return res.status(isUnavailable ? 503 : 400).json({
           status: 'fail',
           message: result.error,
           data: { encoding: null },

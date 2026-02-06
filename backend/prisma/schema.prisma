@@ -108,6 +108,20 @@ model AttendanceLog {
   @@map("attendance_logs")
 }
 
+// Universal Multi-Punch: one table for FACE, CARD, and MANUAL. status IN/OUT, punchSource FACE|CARD|MANUAL.
+model AttendancePunch {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  employeeId  String   @map("employee_id") @db.Uuid
+  punchTime   DateTime @map("punch_time")
+  status      String   @db.VarChar(10) // 'IN' | 'OUT'
+  punchSource String?  @map("punch_source") @db.VarChar(20) // 'FACE' | 'CARD' | 'MANUAL'
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("attendance_punches")
+}
+
 // Codes that were previously assigned and must not be reused (per organization)
 model RetiredEmployeeCode {
   id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
@@ -404,6 +418,7 @@ model Employee {
   previousEmployee         Employee?               @relation("EmployeeRejoin", fields: [previousEmployeeId], references: [id])
   rejoinedEmployee         Employee[]               @relation("EmployeeRejoin")
   attendanceLogs           AttendanceLog[]
+  attendancePunches        AttendancePunch[]
 
   @@map("employees")
 }

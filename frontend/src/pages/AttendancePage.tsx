@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { attendanceService } from '../services/attendance.service';
+import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, isToday, getDay } from 'date-fns';
@@ -22,14 +23,47 @@ interface AttendanceRecord {
   };
 }
 
+interface AttendancePunch {
+  id: string;
+  employeeId: string;
+  punchTime: string;
+  status: string;
+  punchSource?: string;
+}
+
+/** Convert decimal hours to 'HH:mm' (e.g. 0.2h → '00:12', 2.5h → '02:30'). */
+function formatWorkHoursAsHHMM(decimalHours: number): string {
+  const totalMinutes = Math.round(decimalHours * 60);
+  const h = Math.floor(Math.abs(totalMinutes) / 60);
+  const m = Math.abs(totalMinutes) % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** Build In/Out session pairs from sorted punches; each pair is [inTime, outTime | null]. */
+function buildSessionPairs(punches: AttendancePunch[]): Array<{ in: string; out: string | null }> {
+  const pairs: Array<{ in: string; out: string | null }> = [];
+  for (let i = 0; i < punches.length; i++) {
+    const p = punches[i];
+    if ((p.status?.toUpperCase() || '') === 'IN') {
+      const nextOut = punches.slice(i + 1).find((x) => (x.status?.toUpperCase() || '') === 'OUT');
+      pairs.push({
+        in: p.punchTime,
+        out: nextOut ? nextOut.punchTime : null,
+      });
+    }
+  }
+  return pairs;
+}
+
 // Calendar View Component
 interface AttendanceCalendarViewProps {
   records: AttendanceRecord[];
+  punches: AttendancePunch[];
   currentMonth: Date;
   onMonthChange: (date: Date) => void;
 }
 
-const AttendanceCalendarView = ({ records, currentMonth, onMonthChange }: AttendanceCalendarViewProps) => {
+const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange }: AttendanceCalendarViewProps) => {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -38,15 +72,28 @@ const AttendanceCalendarView = ({ records, currentMonth, onMonthChange }: Attend
   const firstDayOfWeek = getDay(monthStart);
   const daysOffset = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; // Monday = 0
   
-  // Create a map of date strings to records for quick lookup
+  // Create a map of date strings to records for quick lookup.
+  // Use checkIn's local date so punches show on the correct calendar day (fixes timezone "yesterday" bug).
   const recordsByDate = new Map<string, AttendanceRecord[]>();
   records.forEach(record => {
-    const dateStr = format(new Date(record.date), 'yyyy-MM-dd');
+    const d = record.checkIn ? new Date(record.checkIn) : new Date(record.date);
+    const dateStr = format(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 'yyyy-MM-dd');
     if (!recordsByDate.has(dateStr)) {
       recordsByDate.set(dateStr, []);
     }
     recordsByDate.get(dateStr)!.push(record);
   });
+
+  // Group punches by (dateStr, employeeId) so we can show every IN/OUT per day
+  const punchesByDateEmployee = new Map<string, AttendancePunch[]>();
+  punches.forEach(p => {
+    const d = new Date(p.punchTime);
+    const dateStr = format(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 'yyyy-MM-dd');
+    const key = `${dateStr}:${p.employeeId}`;
+    if (!punchesByDateEmployee.has(key)) punchesByDateEmployee.set(key, []);
+    punchesByDateEmployee.get(key)!.push(p);
+  });
+  punchesByDateEmployee.forEach((arr) => arr.sort((a, b) => new Date(a.punchTime).getTime() - new Date(b.punchTime).getTime()));
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     const newDate = new Date(currentMonth);
@@ -142,44 +189,70 @@ const AttendanceCalendarView = ({ records, currentMonth, onMonthChange }: Attend
               
               <div className="space-y-1.5">
                 {dayRecords.length > 0 ? (
-                  dayRecords.map((record) => (
-                    <div
-                      key={record.id}
-                      className="text-xs space-y-0.5"
-                    >
-                      <div className="font-medium text-gray-900 truncate">
-                        {record.employee.firstName} {record.employee.lastName}
+                  dayRecords.map((record) => {
+                    const dateStr = format(day, 'yyyy-MM-dd');
+                    const dayPunches = punchesByDateEmployee.get(`${dateStr}:${record.employee.id}`) || [];
+                    const sessions = buildSessionPairs(dayPunches);
+                    const firstIn = record.checkIn || (dayPunches.find((p) => (p.status?.toUpperCase() || '') === 'IN')?.punchTime);
+                    const lastOut = record.checkOut || (dayPunches.filter((p) => (p.status?.toUpperCase() || '') === 'OUT').pop()?.punchTime);
+                    const lastPunchOfDay = dayPunches.length > 0 ? dayPunches[dayPunches.length - 1] : null;
+                    const isCurrentlyIn = firstIn && !lastOut && lastPunchOfDay && (lastPunchOfDay.status?.toUpperCase() || '') === 'IN';
+                    const lastInTime = dayPunches.filter((p) => (p.status?.toUpperCase() || '') === 'IN').pop()?.punchTime;
+                    const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                    return (
+                      <div
+                        key={record.id}
+                        className="text-xs space-y-1"
+                      >
+                        <div className="font-medium text-gray-900 truncate">
+                          {record.employee.firstName} {record.employee.lastName}
+                        </div>
+                        {/* First In and Last Out (or Currently In if still clocked in) */}
+                        <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-semibold">
+                          {firstIn && (
+                            <span className="text-blue-700">First In: {formatTime(firstIn)}</span>
+                          )}
+                          {lastOut ? (
+                            <span className="text-red-700">Last Out: {formatTime(lastOut)}</span>
+                          ) : isCurrentlyIn && lastInTime ? (
+                            <span className="text-amber-700">Currently In (since {formatTime(lastInTime)})</span>
+                          ) : firstIn && (
+                            <span className="text-amber-700">Still Working</span>
+                          )}
+                        </div>
+                        {/* Every In/Out pair (sessions) so user sees where time was spent */}
+                        {sessions.length > 0 && (
+                          <div className="text-gray-600 space-y-0.5 border-l-2 border-gray-200 pl-1.5">
+                            {sessions.map((pair, idx) => (
+                              <div key={idx} className="leading-tight">
+                                In: {formatTime(pair.in)} | {pair.out ? `Out: ${formatTime(pair.out)}` : 'Out: —'}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {record.status && (
+                          <div className={`text-xs font-medium ${
+                            record.status === 'PRESENT'
+                              ? 'text-green-700'
+                              : record.status === 'ABSENT'
+                              ? 'text-red-700'
+                              : record.status === 'LEAVE'
+                              ? 'text-purple-700'
+                              : 'text-yellow-700'
+                          }`}>
+                            {record.status}
+                          </div>
+                        )}
+                        {/* Total Net Work Time in HH:mm right below PRESENT */}
+                        {record.workHours !== null && record.workHours !== undefined && (
+                          <div className="text-gray-800 font-medium">
+                            Total Net Work Time: {formatWorkHoursAsHHMM(Number(record.workHours))}
+                          </div>
+                        )}
                       </div>
-                      {record.checkIn && (
-                        <div className="text-blue-600">
-                          In: {new Date(record.checkIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                        </div>
-                      )}
-                      {record.checkOut && (
-                        <div className="text-red-600">
-                          Out: {new Date(record.checkOut).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                        </div>
-                      )}
-                      {record.workHours !== null && record.workHours !== undefined && (
-                        <div className="text-gray-700 font-medium">
-                          {Number(record.workHours).toFixed(1)}h
-                        </div>
-                      )}
-                      {record.status && (
-                        <div className={`text-xs font-medium ${
-                          record.status === 'PRESENT'
-                            ? 'text-green-700'
-                            : record.status === 'ABSENT'
-                            ? 'text-red-700'
-                            : record.status === 'LEAVE'
-                            ? 'text-purple-700'
-                            : 'text-yellow-700'
-                        }`}>
-                          {record.status}
-                        </div>
-                      )}
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="text-xs text-gray-400 text-center py-2">No records</div>
                 )}
@@ -219,6 +292,7 @@ const AttendancePage = () => {
   const organizationName = user?.employee?.organization?.name;
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [myRecords, setMyRecords] = useState<AttendanceRecord[]>([]);
+  const [punches, setPunches] = useState<AttendancePunch[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMyRecords, setLoadingMyRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -235,6 +309,14 @@ const AttendancePage = () => {
   const [syncToDate, setSyncToDate] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ synced: number; created: number; updated: number; skipped: number; errors: { employeeCode: string; date: string; message: string }[] } | null>(null);
+
+  // Manual punch (for testing): any date, multiple In/Out per day
+  const [manualPunchDate, setManualPunchDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [manualPunchTime, setManualPunchTime] = useState(() => format(new Date(), 'HH:mm'));
+  const [manualPunchEmployeeId, setManualPunchEmployeeId] = useState<string | null>(null); // null = self
+  const [manualPunchSubmitting, setManualPunchSubmitting] = useState(false);
+  const [manualPunchMessage, setManualPunchMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [manualPunchEmployeeList, setManualPunchEmployeeList] = useState<Employee[]>([]);
   
   // Check if user is a manager
   const isManager = user?.role === 'MANAGER';
@@ -242,6 +324,17 @@ const AttendancePage = () => {
   const isOrgAdmin = user?.role === 'ORG_ADMIN';
   const canViewTeamAttendance = isManager || isHRManager || isOrgAdmin;
   const canSyncBiometric = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
+  const canManualPunch = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
+  // HR-only: calendar view requires selecting one employee (no "all employees" by default)
+  const isHRForCalendar = isHRManager || isOrgAdmin;
+
+  // HR-only: single-employee selection for calendar/table (searchable dropdown)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [employeeList, setEmployeeList] = useState<Employee[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [employeeDropdownOpen, setEmployeeDropdownOpen] = useState(false);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const employeeDropdownRef = useRef<HTMLDivElement>(null);
 
   // Load user data if not available
   useEffect(() => {
@@ -263,6 +356,7 @@ const AttendancePage = () => {
       try {
         fetchRecords();
         fetchMyRecords(); // Always fetch manager's own records
+        fetchPunches();
         checkTodayStatus();
       } catch (err: any) {
         console.error('Error in useEffect:', err);
@@ -271,13 +365,14 @@ const AttendancePage = () => {
     }
   }, [user]);
 
-  // Refetch attendance when calendar month changes so the visible month shows latest punches
+  // Refetch attendance and punches when calendar month or (for HR) selected employee changes
   useEffect(() => {
     if (user) {
       fetchRecords();
       fetchMyRecords();
+      fetchPunches();
     }
-  }, [currentMonth]);
+  }, [currentMonth, selectedEmployeeId]);
 
   // Refetch when tab/window gains focus so device punches (or web check-in/out) are reflected without manual refresh
   useEffect(() => {
@@ -286,6 +381,7 @@ const AttendancePage = () => {
         checkTodayStatus();
         fetchRecords();
         fetchMyRecords();
+        fetchPunches();
       }
     };
     window.addEventListener('focus', onFocus);
@@ -296,26 +392,82 @@ const AttendancePage = () => {
   useEffect(() => {
     const state = location.state as { refreshFromFacePunch?: boolean } | null;
     if (state?.refreshFromFacePunch && user) {
-      fetchRecords();
-      fetchMyRecords();
-      checkTodayStatus();
-      navigate('/attendance', { replace: true, state: {} });
+      // Await refetch so calendar shows the new punch before we clear state
+      const refetch = async () => {
+        await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), checkTodayStatus()]);
+        navigate('/attendance', { replace: true, state: {} });
+      };
+      refetch();
     }
   }, [location.state, user]);
 
+  // HR-only: fetch employees for searchable dropdown when in team view
+  useEffect(() => {
+    if (!isHRForCalendar || viewMode !== 'team') return;
+    let cancelled = false;
+    setLoadingEmployees(true);
+    employeeService.getAll({ limit: 500, employeeStatus: 'ACTIVE' })
+      .then((data) => {
+        if (!cancelled) setEmployeeList(data.employees || []);
+      })
+      .catch(() => {
+        if (!cancelled) setEmployeeList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEmployees(false);
+      });
+    return () => { cancelled = true; };
+  }, [isHRForCalendar, viewMode]);
+
+  // Close HR employee dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (employeeDropdownRef.current && !employeeDropdownRef.current.contains(e.target as Node)) {
+        setEmployeeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // When HR switches to "My Records", clear selected employee
+  useEffect(() => {
+    if (viewMode === 'my') setSelectedEmployeeId(null);
+  }, [viewMode]);
+
+  // Fetch employees for manual punch dropdown (HR/Admin only)
+  useEffect(() => {
+    if (!canManualPunch) return;
+    let cancelled = false;
+    employeeService.getAll({ limit: 500, employeeStatus: 'ACTIVE' })
+      .then((data) => { if (!cancelled) setManualPunchEmployeeList(data.employees || []); })
+      .catch(() => { if (!cancelled) setManualPunchEmployeeList([]); });
+    return () => { cancelled = true; };
+  }, [canManualPunch]);
+
   const fetchRecords = async () => {
     try {
+      // HR-only: when viewing team, don't fetch all employees; require selected employee
+      if (isHRForCalendar && viewMode === 'team' && !selectedEmployeeId) {
+        setRecords([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
       setError(null);
       const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
       const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+      const params: Record<string, unknown> = {
+        page: 1,
+        limit: 50,
+        startDate: monthStart,
+        endDate: monthEnd,
+      };
+      if (isHRForCalendar && viewMode === 'team' && selectedEmployeeId) {
+        params.employeeId = selectedEmployeeId;
+      }
       const response = await api.get('/attendance/records', {
-        params: {
-          page: 1,
-          limit: 50,
-          startDate: monthStart,
-          endDate: monthEnd,
-        },
+        params,
       });
       if (response.data?.data?.records) {
         setRecords(response.data.data.records);
@@ -330,6 +482,29 @@ const AttendancePage = () => {
       setRecords([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch all IN/OUT punches for the month so calendar shows every punch (e.g. 4:31)
+  const fetchPunches = async () => {
+    const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+    const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+    let employeeId: string | undefined;
+    if (!canViewTeamAttendance && user?.employee?.id) employeeId = user.employee.id; // EMPLOYEE: always own
+    else if (viewMode === 'my' && user?.employee?.id) employeeId = user.employee.id;
+    else if (isHRForCalendar && viewMode === 'team' && selectedEmployeeId) employeeId = selectedEmployeeId;
+    else if (canViewTeamAttendance && viewMode === 'team' && !isHRForCalendar) return; // manager team: many employees, skip punches
+    if (!employeeId) {
+      setPunches([]);
+      return;
+    }
+    try {
+      const res = await api.get<{ data: { punches: AttendancePunch[] } }>('/attendance/punches', {
+        params: { startDate: monthStart, endDate: monthEnd, employeeId },
+      });
+      setPunches(res.data?.data?.punches || []);
+    } catch {
+      setPunches([]);
     }
   };
 
@@ -388,7 +563,8 @@ const AttendancePage = () => {
         const todayRecord = response.data.data.records.find(
           (r: AttendanceRecord) => {
             try {
-              const recordDate = new Date(r.date).toISOString().split('T')[0];
+              const d = r.checkIn ? new Date(r.checkIn) : new Date(r.date);
+              const recordDate = format(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 'yyyy-MM-dd');
               return recordDate === todayStr;
             } catch (e) {
               return false;
@@ -446,6 +622,36 @@ const AttendancePage = () => {
       console.error('Check-out error:', err);
     } finally {
       setCheckingOut(false);
+    }
+  };
+
+  const handleManualPunch = async () => {
+    const employeeId = manualPunchEmployeeId || user?.employee?.id;
+    if (!employeeId) {
+      setManualPunchMessage({ type: 'error', text: 'Employee not found.' });
+      return;
+    }
+    setManualPunchMessage(null);
+    setManualPunchSubmitting(true);
+    try {
+      // Build punch timestamp in user's local time so 4:59 PM stays 4:59 PM (not interpreted as UTC)
+      const timePart = manualPunchTime.length === 5 ? `${manualPunchTime}:00` : manualPunchTime;
+      const punchAtLocal = new Date(`${manualPunchDate}T${timePart}`);
+      const punchAtISO = punchAtLocal.toISOString();
+
+      await api.post('/attendance/manual', {
+        employeeId,
+        date: manualPunchDate,
+        time: manualPunchTime,
+        punchAt: punchAtISO,
+      });
+      setManualPunchMessage({ type: 'success', text: 'Punch added (In/Out toggled for this date).' });
+      await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), checkTodayStatus()]);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to add punch';
+      setManualPunchMessage({ type: 'error', text: msg });
+    } finally {
+      setManualPunchSubmitting(false);
     }
   };
 
@@ -569,6 +775,63 @@ const AttendancePage = () => {
           </div>
         </div>
 
+        {/* Manual punch (for testing): select any date, multiple In/Out per day */}
+        {canManualPunch && (
+          <div className="bg-white rounded-lg shadow p-6 mb-8 border border-amber-200">
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Manual punch (for testing)</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Select a date (including previous dates) and time, then add a punch. Multiple In/Out in a single date are allowed — each click toggles In → Out → In for that date.
+            </p>
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={manualPunchDate}
+                  onChange={(e) => setManualPunchDate(e.target.value)}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                <input
+                  type="time"
+                  value={manualPunchTime}
+                  onChange={(e) => setManualPunchTime(e.target.value)}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                />
+              </div>
+              {canManualPunch && manualPunchEmployeeList.length > 0 && (
+                <div className="min-w-[200px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+                  <select
+                    value={manualPunchEmployeeId || user?.employee?.id || ''}
+                    onChange={(e) => setManualPunchEmployeeId(e.target.value === (user?.employee?.id || '') ? null : e.target.value || null)}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
+                  >
+                    <option value={user?.employee?.id || ''}>Myself</option>
+                    {manualPunchEmployeeList.map((emp) => (
+                      <option key={emp.id} value={emp.id}>{emp.firstName} {emp.lastName} ({emp.employeeCode})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button
+                onClick={handleManualPunch}
+                disabled={manualPunchSubmitting}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {manualPunchSubmitting ? 'Adding...' : 'Add punch (In/Out)'}
+              </button>
+            </div>
+            {manualPunchMessage && (
+              <p className={`mt-3 text-sm ${manualPunchMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+                {manualPunchMessage.text}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Attendance Records */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
@@ -576,7 +839,12 @@ const AttendancePage = () => {
               <h2 className="text-xl font-semibold text-gray-900">
                 {canViewTeamAttendance 
                   ? (viewMode === 'team' 
-                      ? (isManager ? 'Team Attendance' : 'All Employees Attendance')
+                      ? (isHRForCalendar && selectedEmployeeId
+                          ? (() => {
+                              const emp = employeeList.find((e) => e.id === selectedEmployeeId);
+                              return emp ? `Attendance: ${emp.firstName} ${emp.lastName}` : 'Attendance';
+                            })()
+                          : isManager ? 'Team Attendance' : 'All Employees Attendance')
                       : 'My Attendance Records')
                   : 'My Attendance Records'}
               </h2>
@@ -636,9 +904,14 @@ const AttendancePage = () => {
                         👤 My Records
                       </button>
                     </div>
-                    {viewMode === 'team' && (
+                    {viewMode === 'team' && !isHRForCalendar && (
                       <span className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-full">
-                        {isManager ? '📊 Viewing your team members' : '📊 All employees'}
+                        📊 Viewing your team members
+                      </span>
+                    )}
+                {viewMode === 'team' && isHRForCalendar && (
+                      <span className="text-sm text-gray-600 bg-amber-50 px-3 py-1 rounded-full">
+                        Select one employee below to view attendance
                       </span>
                     )}
                   </>
@@ -646,7 +919,97 @@ const AttendancePage = () => {
               </div>
             </div>
           </div>
-          {loading || (viewMode === 'my' && loadingMyRecords) ? (
+
+          {/* HR-only: searchable employee dropdown (calendar shows only after selection) */}
+          {isHRForCalendar && viewMode === 'team' && (
+            <div className="px-6 pb-4 border-b border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Employee</label>
+              <div className="relative max-w-md" ref={employeeDropdownRef}>
+                <input
+                  type="text"
+                  placeholder="Search by name or code..."
+                  value={selectedEmployeeId
+                    ? (() => {
+                        const emp = employeeList.find((e) => e.id === selectedEmployeeId);
+                        return emp ? `${emp.firstName} ${emp.lastName} (${emp.employeeCode})` : '';
+                      })()
+                    : employeeSearch}
+                  readOnly={!!selectedEmployeeId}
+                  onChange={(e) => {
+                    if (selectedEmployeeId) return;
+                    setEmployeeSearch(e.target.value);
+                    setEmployeeDropdownOpen(true);
+                  }}
+                  onFocus={() => !selectedEmployeeId && setEmployeeDropdownOpen(true)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pr-10 text-sm text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedEmployeeId) {
+                      setSelectedEmployeeId(null);
+                      setEmployeeSearch('');
+                      setEmployeeDropdownOpen(true);
+                    } else {
+                      setEmployeeDropdownOpen(!employeeDropdownOpen);
+                    }
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                  title={selectedEmployeeId ? 'Clear selection' : 'Open list'}
+                >
+                  {selectedEmployeeId ? '✕' : '▼'}
+                </button>
+                {employeeDropdownOpen && (
+                  <ul className="absolute z-10 mt-1 w-full max-h-60 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg py-1">
+                    {loadingEmployees ? (
+                      <li className="px-3 py-2 text-sm text-gray-500">Loading...</li>
+                    ) : (
+                      (() => {
+                        const q = employeeSearch.trim().toLowerCase();
+                        const filtered = q
+                          ? employeeList.filter(
+                              (e) =>
+                                e.firstName?.toLowerCase().includes(q) ||
+                                e.lastName?.toLowerCase().includes(q) ||
+                                e.employeeCode?.toLowerCase().includes(q)
+                            )
+                          : employeeList;
+                        return filtered.length === 0 ? (
+                          <li className="px-3 py-2 text-sm text-gray-500">No employees found</li>
+                        ) : (
+                          filtered.map((emp) => (
+                            <li
+                              key={emp.id}
+                              onClick={() => {
+                                setSelectedEmployeeId(emp.id);
+                                setEmployeeSearch('');
+                                setEmployeeDropdownOpen(false);
+                              }}
+                              className="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-gray-900"
+                            >
+                              {emp.firstName} {emp.lastName} <span className="text-gray-500">({emp.employeeCode})</span>
+                            </li>
+                          ))
+                        );
+                      })()
+                    )}
+                  </ul>
+                )}
+              </div>
+              {!selectedEmployeeId && (
+                <p className="mt-2 text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+                  Select an employee from the dropdown above to view their attendance calendar.
+                </p>
+              )}
+            </div>
+          )}
+
+          {isHRForCalendar && viewMode === 'team' && !selectedEmployeeId ? (
+            <div className="p-12 text-center text-gray-600">
+              <p className="text-lg font-medium">Select an employee above to view their attendance calendar.</p>
+              <p className="text-sm mt-2">Use the searchable dropdown to find an employee by name or code.</p>
+            </div>
+          ) : loading || (viewMode === 'my' && loadingMyRecords) ? (
             <div className="p-8 text-center text-gray-500">Loading...</div>
           ) : (viewMode === 'my' ? myRecords : records).length === 0 ? (
             <div className="p-8 text-center text-gray-500">
@@ -657,6 +1020,7 @@ const AttendancePage = () => {
           ) : displayMode === 'calendar' ? (
             <AttendanceCalendarView 
               records={viewMode === 'my' ? myRecords : records}
+              punches={punches}
               currentMonth={currentMonth}
               onMonthChange={setCurrentMonth}
             />

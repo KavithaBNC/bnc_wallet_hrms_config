@@ -37,7 +37,8 @@
     "seed:org-and-logins": "ts-node -r tsconfig-paths/register src/scripts/seed-organization-and-logins.ts",
     "ensure:login": "ts-node -r tsconfig-paths/register src/scripts/ensure-login-users.ts",
     "test:iclock": "ts-node -r tsconfig-paths/register src/scripts/test-iclock-local.ts",
-    "check:attendance-log": "ts-node -r tsconfig-paths/register src/scripts/check-latest-attendance-log.ts"
+    "check:attendance-log": "ts-node -r tsconfig-paths/register src/scripts/check-latest-attendance-log.ts",
+    "migrate:face-encoding": "ts-node -r tsconfig-paths/register src/scripts/add-face-encoding-column.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

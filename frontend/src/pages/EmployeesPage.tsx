@@ -9,6 +9,7 @@ import api from '../services/api';
 import Modal from '../components/common/Modal';
 import EmployeeForm from '../components/employees/EmployeeForm';
 import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
+import { FaceCapture } from '../components/employees/FaceCapture';
 import AppHeader from '../components/layout/AppHeader';
 import { canCreateEmployee, canUpdateEmployee, canDeleteEmployee, getEditableTabsFromPermissions, canEditEmployeeByPermission, type EmployeeFormTabKey } from '../utils/rbac';
 import permissionService from '../services/permission.service';
@@ -56,6 +57,10 @@ export default function EmployeesPage() {
   const [showNewPassword, setShowNewPassword] = useState<string | null>(null);
   const [changingRole, setChangingRole] = useState<string | null>(null);
   const [roleChangeModal, setRoleChangeModal] = useState<{ employeeId: string; email: string; name: string; currentRole: string } | null>(null);
+  const [updateFaceModal, setUpdateFaceModal] = useState<Employee | null>(null);
+  const [updateFaceEncoding, setUpdateFaceEncoding] = useState<number[] | null>(null);
+  const [updateFaceError, setUpdateFaceError] = useState('');
+  const [updateFaceSaving, setUpdateFaceSaving] = useState(false);
   const [viewType, setViewType] = useState<'list' | 'grid'>('list');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -300,6 +305,64 @@ export default function EmployeesPage() {
       alert('Failed to load employee details');
     } finally {
       setLoadingEmployee(false);
+    }
+  };
+
+  const handleUpdateFaceOpen = (emp: Employee) => {
+    setUpdateFaceModal(emp);
+    setUpdateFaceEncoding(null);
+    setUpdateFaceError('');
+  };
+
+  const handleUpdateFaceClose = () => {
+    setUpdateFaceModal(null);
+    setUpdateFaceEncoding(null);
+    setUpdateFaceError('');
+  };
+
+  const handleUpdateFaceSave = async () => {
+    if (!updateFaceModal || !updateFaceEncoding || updateFaceEncoding.length !== 128) return;
+    setUpdateFaceSaving(true);
+    setUpdateFaceError('');
+    try {
+      await employeeService.update(updateFaceModal.id, { faceEncoding: updateFaceEncoding });
+      alert(`Face updated for ${updateFaceModal.firstName} ${updateFaceModal.lastName}.`);
+      handleUpdateFaceClose();
+      const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
+      if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+      if (searchTerm) params.search = searchTerm;
+      params.employeeStatus = statusFilter;
+      if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+      if (positionFilter !== 'ALL') params.positionId = positionFilter;
+      fetchEmployees(params);
+    } catch (err: any) {
+      setUpdateFaceError(err.response?.data?.message || err.message || 'Failed to update face');
+    } finally {
+      setUpdateFaceSaving(false);
+    }
+  };
+
+  const handleRemoveFace = async () => {
+    if (!updateFaceModal || !confirm(`Remove saved face for ${updateFaceModal.firstName} ${updateFaceModal.lastName}? You can capture again after this.`)) return;
+    setUpdateFaceSaving(true);
+    setUpdateFaceError('');
+    try {
+      await employeeService.update(updateFaceModal.id, { faceEncoding: null });
+      setUpdateFaceModal((prev) => (prev ? { ...prev, faceEncoding: undefined } : null));
+      setUpdateFaceEncoding(null);
+      setUpdateFaceError('');
+      alert('Face removed. You can capture again now.');
+      const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
+      if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+      if (searchTerm) params.search = searchTerm;
+      params.employeeStatus = statusFilter;
+      if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+      if (positionFilter !== 'ALL') params.positionId = positionFilter;
+      fetchEmployees(params);
+    } catch (err: any) {
+      setUpdateFaceError(err.response?.data?.message || err.message || 'Failed to remove face');
+    } finally {
+      setUpdateFaceSaving(false);
     }
   };
 
@@ -1056,6 +1119,57 @@ export default function EmployeesPage() {
         </div>
       )}
 
+      {/* Update Face Modal */}
+      {updateFaceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Update face</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              {updateFaceModal.firstName} {updateFaceModal.lastName} ({updateFaceModal.employeeCode})
+            </p>
+            <FaceCapture
+              existingEncoding={(updateFaceModal as { faceEncoding?: number[] }).faceEncoding?.length === 128 ? (updateFaceModal as { faceEncoding: number[] }).faceEncoding : null}
+              onEncodingCaptured={(encoding) => {
+                setUpdateFaceEncoding(encoding);
+                setUpdateFaceError('');
+              }}
+              onError={setUpdateFaceError}
+              disabled={false}
+            />
+            {updateFaceError && (
+              <p className="mt-2 text-sm text-red-600">{updateFaceError}</p>
+            )}
+            <div className="flex flex-wrap justify-end gap-3 mt-6">
+              {(updateFaceModal as { faceEncoding?: number[] })?.faceEncoding?.length === 128 && (
+                <button
+                  type="button"
+                  onClick={handleRemoveFace}
+                  disabled={updateFaceSaving}
+                  className="px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                >
+                  {updateFaceSaving ? 'Please wait...' : 'Remove face'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleUpdateFaceClose}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleUpdateFaceSave}
+                disabled={!updateFaceEncoding || updateFaceEncoding.length !== 128 || updateFaceSaving}
+                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {updateFaceSaving ? 'Saving...' : 'Save face'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filters Bar - equal-width boxes, labels above, match reference */}
       {!showCredentials && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -1296,9 +1410,14 @@ export default function EmployeesPage() {
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           </button>
                           {canEditRow(emp) && (
-                            <button type="button" onClick={() => handleEdit(emp)} disabled={loadingEmployee} title="Edit" className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                            </button>
+                            <>
+                              <button type="button" onClick={() => handleEdit(emp)} disabled={loadingEmployee} title="Edit" className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              </button>
+                              <button type="button" onClick={() => handleUpdateFaceOpen(emp)} title="Update face" className="p-1.5 rounded text-teal-600 hover:bg-teal-50 disabled:opacity-50">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                              </button>
+                            </>
                           )}
                           {canDelete && (
                             <button type="button" onClick={() => handleDelete(emp.id)} title="Delete" className="p-1.5 rounded text-red-600 hover:bg-red-50">
@@ -1442,15 +1561,25 @@ export default function EmployeesPage() {
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                         </button>
                         {canEditRow(emp) && (
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(emp)}
-                            disabled={loadingEmployee}
-                            title="Edit"
-                            className="p-2 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(emp)}
+                              disabled={loadingEmployee}
+                              title="Edit"
+                              className="p-2 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateFaceOpen(emp)}
+                              title="Update face"
+                              className="p-2 rounded text-teal-600 hover:bg-teal-50 disabled:opacity-50"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                            </button>
+                          </>
                         )}
                         {canDelete && (
                           <button

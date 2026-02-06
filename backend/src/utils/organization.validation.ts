@@ -64,5 +64,14 @@ export const updateOrganizationSchema = z.object({
   employeeIdStartingNumber: z.number().int().min(0).optional(),
 });
 
+/**
+ * Validation schema for adding a biometric device to an organization
+ */
+export const addDeviceSchema = z.object({
+  serialNumber: z.string().min(1, 'Serial number is required').max(100).trim(),
+  name: z.string().max(255).optional(),
+});
+
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+export type AddDeviceInput = z.infer<typeof addDeviceSchema>;

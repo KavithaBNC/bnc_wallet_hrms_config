@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { CheckInMethod, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { attendanceService } from '../services/attendance.service';
 import { biometricSyncService } from '../services/biometric-sync.service';
 import { matchFace } from '../services/face.service';
@@ -97,6 +97,115 @@ export class AttendanceController {
       return res.status(200).json({
         status: 'success',
         data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Get all punches in a date range (for calendar – show every IN/OUT).
+   * GET /api/v1/attendance/punches?startDate=yyyy-MM-dd&endDate=yyyy-MM-dd&employeeId= (optional)
+   * RBAC: EMPLOYEE gets own; HR/Manager can pass employeeId for selected employee.
+   */
+  async getPunches(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      const userRole = req.user?.role;
+      const { startDate, endDate, employeeId: queryEmployeeId } = req.query as {
+        startDate: string;
+        endDate: string;
+        employeeId?: string;
+      };
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'startDate and endDate are required',
+        });
+      }
+
+      const employee = userId
+        ? await prisma.employee.findUnique({
+            where: { userId },
+            select: { id: true, organizationId: true, reportingManagerId: true },
+          })
+        : null;
+
+      let employeeId: string | undefined;
+      if (queryEmployeeId) {
+        if (userRole === 'EMPLOYEE') employeeId = employee?.id; // EMPLOYEE can only see own
+        else if (userRole === 'MANAGER' && employee) {
+          const sub = await prisma.employee.findFirst({
+            where: { id: queryEmployeeId, reportingManagerId: employee.id },
+            select: { id: true },
+          });
+          if (sub) employeeId = queryEmployeeId;
+        } else if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+          employeeId = queryEmployeeId;
+        }
+      }
+      if (!employeeId && employee) employeeId = employee.id;
+      if (!employeeId) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'Could not resolve employee for punches',
+        });
+      }
+
+      const punches = await attendanceService.getPunchesInRange(employeeId, startDate, endDate);
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          punches: punches.map((p) => ({
+            id: p.id,
+            employeeId: p.employeeId,
+            punchTime: p.punchTime.toISOString(),
+            status: p.status,
+            punchSource: p.punchSource,
+          })),
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Get total work hours for an employee for a specific day (from IN/OUT punches).
+   * GET /api/v1/attendance/summary/:employeeId/work-hours?date=YYYY-MM-DD
+   * Pairs each IN with the next OUT; if last punch is IN, counts time until now.
+   */
+  async getWorkHoursForDay(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = req.params;
+      const dateStr = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      const date = new Date(dateStr);
+      date.setHours(0, 0, 0, 0);
+
+      const punches = await attendanceService.getPunchesForDay(employeeId, date);
+      const asOf = new Date();
+      const result = await attendanceService.calculateWorkHoursFromPunches(employeeId, date, asOf);
+
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          employeeId,
+          date: dateStr,
+          totalWorkHours: Math.round(result.totalWorkHours * 100) / 100,
+          pairs: result.pairs.map((p) => ({
+            in: p.in.toISOString(),
+            out: p.out.toISOString(),
+            hours: Math.round(p.hours * 100) / 100,
+          })),
+          lastPunchStatus: result.lastPunchStatus,
+          punches: punches.map((p) => ({
+            id: p.id,
+            punchTime: p.punchTime.toISOString(),
+            status: p.status,
+            punchSource: p.punchSource,
+          })),
+        },
       });
     } catch (error) {
       return next(error);
@@ -261,7 +370,7 @@ export class AttendanceController {
       if (!matchResult.match || !matchResult.matched_employee_id) {
         return res.status(404).json({
           status: 'fail',
-          message: 'No matching face found',
+          message: 'Employee not registered',
           data: { distance: matchResult.distance },
         });
       }
@@ -272,28 +381,65 @@ export class AttendanceController {
       if (!employee) {
         return res.status(500).json({ status: 'fail', message: 'Employee not found' });
       }
-      const now = new Date();
-      await prisma.attendanceLog.create({
-        data: {
-          deviceId: null,
-          userId: employee.employeeCode,
-          punchTimestamp: now,
-          status: '0',
-          employeeId: employee.id,
-          punchSource: 'FACE',
-        },
-      });
-      await attendanceService.checkIn(employee.id, {
-        notes: 'Face punch',
-        checkInMethod: CheckInMethod.FACE,
-      });
+
+      const result = await attendanceService.processAttendancePunch(employee.id, 'FACE');
+
       return res.status(200).json({
         status: 'success',
         message: 'Face punch recorded',
         data: {
           employeeId: employee.id,
           employeeCode: employee.employeeCode,
+          status: result.punch.status,
+          punchTime: result.punch.punchTime.toISOString(),
           distance: matchResult.distance,
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Manual punch: Admin/HR records IN/OUT for an employee at a given date/time.
+   * Uses same processAttendancePunch engine; IN/OUT toggle applies for that date.
+   * POST /api/v1/attendance/manual
+   */
+  async manualPunch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId, date, time, punchAt } = req.body as { employeeId: string; date: string; time: string; punchAt?: string };
+      const result = await attendanceService.processAttendancePunch(employeeId, 'MANUAL', date, time, punchAt);
+      return res.status(201).json({
+        status: 'success',
+        message: 'Manual punch recorded',
+        data: {
+          employeeId,
+          status: result.punch.status,
+          punchTime: result.punch.punchTime.toISOString(),
+          punchSource: 'MANUAL',
+        },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Card punch: Biometric/kiosk records IN/OUT for an employee (current time).
+   * Same processAttendancePunch engine, source CARD. POST /api/v1/attendance/card
+   */
+  async cardPunch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { employeeId } = req.body as { employeeId: string };
+      const result = await attendanceService.processAttendancePunch(employeeId, 'CARD');
+      return res.status(201).json({
+        status: 'success',
+        message: 'Card punch recorded',
+        data: {
+          employeeId,
+          status: result.punch.status,
+          punchTime: result.punch.punchTime.toISOString(),
+          punchSource: 'CARD',
         },
       });
     } catch (error) {

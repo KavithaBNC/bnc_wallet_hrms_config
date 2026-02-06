@@ -62,6 +62,15 @@ export interface OrganizationsListResponse {
   };
 }
 
+export interface OrganizationDevice {
+  id: string;
+  companyId: string;
+  serialNumber: string;
+  name: string | null;
+  isActive: boolean;
+  company?: { id: string; name: string };
+}
+
 const organizationService = {
   /**
    * Create new organization
@@ -94,9 +103,13 @@ const organizationService = {
   },
 
   /**
-   * Update organization
+   * Update organization.
+   * Use employeeIdStartingNumber in data to set the next employee code number (backend maps to employeeIdNextNumber).
    */
-  async update(id: string, data: Partial<Organization>): Promise<Organization> {
+  async update(
+    id: string,
+    data: Partial<Organization> & { employeeIdStartingNumber?: number }
+  ): Promise<Organization> {
     const response = await api.put(`/organizations/${id}`, data);
     return response.data.data.organization;
   },
@@ -139,6 +152,22 @@ const organizationService = {
   async syncShiftModule(): Promise<{ updated: number; orgIds: string[] }> {
     const response = await api.post('/organizations/sync-shift-module');
     return response.data.data;
+  },
+
+  /**
+   * Get biometric devices for an organization
+   */
+  async getDevices(organizationId: string): Promise<OrganizationDevice[]> {
+    const response = await api.get(`/organizations/${organizationId}/devices`);
+    return response.data.data.devices;
+  },
+
+  /**
+   * Add a biometric device to an organization
+   */
+  async addDevice(organizationId: string, data: { serialNumber: string; name?: string }): Promise<OrganizationDevice> {
+    const response = await api.post(`/organizations/${organizationId}/devices`, data);
+    return response.data.data.device;
   },
 
   /**
