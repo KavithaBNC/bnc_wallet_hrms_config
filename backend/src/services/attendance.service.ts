@@ -576,7 +576,8 @@ export class AttendanceService {
     if (policyRules?.considerExcessBreakAsShortfall && excessBreakHours > 0) shortfallHours += excessBreakHours;
     const minShortfallHours = policyRules?.minShortfallHoursAsDeviation
       ? this.parseTimeToHours(policyRules.minShortfallHoursAsDeviation) : 0;
-    // Only treat as shortfall deviation when there is actual shortfall and it meets the threshold (avoid 0 shortfall marking deviation when min is 0)
+    // Shortfall deviation (D badge) only when total shortfall >= "Minimum Shortfall Hours consider as Deviation"
+    // (e.g. 00:10 = 10 min). Under 10 min no D is shown; this is why shortfall "appears after 10 min".
     const shortfallDeviation = shortfallHours > 0 && shortfallHours >= minShortfallHours;
 
     const isDeviation = breakDeviation || shortfallDeviation;
@@ -597,10 +598,9 @@ export class AttendanceService {
         const otStartTime = this.getShiftTimeWithGrace(shiftEndTime, otStartGrace, true);
         if (checkOut > otStartTime) {
           const otHours = this.calculateWorkHours(otStartTime, checkOut);
-          const minOTHours = policyRules.minOTHoursPerDay ? this.parseTimeToHours(policyRules.minOTHoursPerDay) : 0;
           const maxOTHours = policyRules.maxOTHoursPerDay ? this.parseTimeToHours(policyRules.maxOTHoursPerDay) : Infinity;
           overtimeHours = Math.max(0, Math.min(otHours, maxOTHours));
-          if (overtimeHours < minOTHours) overtimeHours = 0;
+          // Show actual OT on calendar; "Minimum OT Hours allowed per day" is for payroll/approval only (do not zero out display).
         }
       }
       if (policyRules.earlyComingConsideredAsOT && shift?.startTime) {
@@ -1079,14 +1079,14 @@ export class AttendanceService {
       resultLimit = merged.length;
     }
 
-    // Apply current "Consider Late / Consider Early Going" policy at read time so calendar shows correct Late/Early
-    // when policy was changed after last sync (e.g. 27th set to NO should not show Late/Early; 28th set to YES should show).
-    if (query.organizationId && resultRecords.length > 0) {
-      resultRecords = await this.applyCurrentLateEarlyPolicyToRecords(resultRecords as any[], query.organizationId);
+    // Backfill missing policy fields (early/shortfall/deviation) for PRESENT records that were saved before policy existed
+    // or when sync didn't run for that day (e.g. 13th shows no shortfall while 10–12 do). Only for calendar single-employee.
+    if (isCalendarSingleEmployee && query.organizationId && resultRecords.length > 0) {
+      resultRecords = await this.backfillPolicyFieldsForCalendarRecords(
+        resultRecords as any[],
+        query.organizationId
+      );
     }
-
-    // Late backfill removed from getRecords to avoid slow load (N policy fetches + N updates per request).
-    // L is set when sync runs (punch in/out) or via a separate recalc endpoint if needed.
 
     return {
       records: resultRecords,
@@ -1100,44 +1100,104 @@ export class AttendanceService {
   }
 
   /**
-   * Apply current "Consider Late from Grace Time" / "Consider Early Going from Grace Time" policy at read time.
-   * When policy is NO, mask isLate/lateMinutes and isEarly/earlyMinutes so calendar does not show them.
+   * Backfill policy-derived fields (late, early, shortfall/deviation) for PRESENT records that have checkIn+checkOut
+   * but missing earlyMinutes or isDeviation. Fixes cases where a day (e.g. 13th) was punched before policy existed
+   * or sync didn't run, so calendar shows shortfall consistently with other days (10th, 11th, 12th).
    */
-  private async applyCurrentLateEarlyPolicyToRecords(
+  private async backfillPolicyFieldsForCalendarRecords(
     records: any[],
     organizationId: string
   ): Promise<any[]> {
-    const POLICY_MARKER = '__POLICY_RULES__';
-    const rule = await prisma.shiftAssignmentRule.findFirst({
-      where: {
-        organizationId,
-        remarks: { contains: POLICY_MARKER },
-      },
-      orderBy: { effectiveDate: 'desc' },
-    });
-    if (!rule?.remarks) return records;
-    const idx = rule.remarks.indexOf(POLICY_MARKER);
-    if (idx === -1) return records;
-    let policy: Record<string, any>;
-    try {
-      policy = JSON.parse(rule.remarks.slice(idx + POLICY_MARKER.length));
-    } catch {
-      return records;
+    const out: any[] = [];
+    for (const record of records) {
+      const isSynthetic = typeof record.id === 'string' && record.id.startsWith('synthetic-');
+      // Recalc when early/deviation missing OR when otMinutes missing/zero (e.g. 26th saved with old minOTHours logic so OT not shown).
+      const needsBackfill =
+        record.status === 'PRESENT' &&
+        record.checkIn &&
+        record.checkOut &&
+        (record.earlyMinutes == null || record.isDeviation == null || record.otMinutes == null || record.otMinutes === 0) &&
+        record.shift?.endTime &&
+        !isSynthetic;
+
+      if (!needsBackfill) {
+        out.push(record);
+        continue;
+      }
+
+      const employeeId = record.employeeId;
+      const date = new Date(record.date);
+      const orgId = record.employee?.organizationId ?? organizationId;
+      const shiftId = record.shiftId ?? record.shift?.id;
+      if (!shiftId || !employeeId) {
+        out.push(record);
+        continue;
+      }
+
+      let policyRules: Record<string, any> | null = null;
+      try {
+        policyRules = await shiftAssignmentRuleService.getApplicablePolicyRules(
+          shiftId,
+          employeeId,
+          date,
+          orgId
+        );
+      } catch {
+        out.push(record);
+        continue;
+      }
+
+      const shiftForCompute = record.shift
+        ? {
+            startTime: record.shift.startTime ?? null,
+            endTime: record.shift.endTime ?? null,
+            breakDuration: record.shift.breakDuration ?? null,
+          }
+        : null;
+      const breakHours = record.breakHours != null ? parseFloat(record.breakHours.toString()) : 0;
+      const checkIn = new Date(record.checkIn);
+      const checkOut = new Date(record.checkOut);
+
+      const computed = await this.computePolicyFieldsForDay(
+        checkIn,
+        checkOut,
+        breakHours,
+        shiftForCompute,
+        policyRules,
+        date
+      );
+
+      try {
+        await prisma.attendanceRecord.update({
+          where: {
+            employeeId_date: { employeeId, date },
+          },
+          data: {
+            isLate: computed.isLate,
+            lateMinutes: computed.lateMinutes ?? null,
+            isEarly: computed.isEarly,
+            earlyMinutes: computed.earlyMinutes ?? null,
+            isDeviation: computed.isDeviation,
+            deviationReason: computed.deviationReason ?? null,
+            otMinutes: computed.otMinutes > 0 ? computed.otMinutes : null,
+          },
+        });
+      } catch {
+        // ignore update failure (e.g. record deleted)
+      }
+
+      out.push({
+        ...record,
+        isLate: computed.isLate,
+        lateMinutes: computed.lateMinutes ?? null,
+        isEarly: computed.isEarly,
+        earlyMinutes: computed.earlyMinutes ?? null,
+        isDeviation: computed.isDeviation,
+        deviationReason: computed.deviationReason ?? null,
+        otMinutes: computed.otMinutes > 0 ? computed.otMinutes : null,
+      });
     }
-    const considerLate = policy.considerLateFromGraceTime === true;
-    const considerEarly = policy.considerEarlyGoingFromGraceTime === true;
-    return records.map((r: any) => {
-      const out = { ...r };
-      if (!considerLate) {
-        out.isLate = false;
-        out.lateMinutes = null;
-      }
-      if (!considerEarly) {
-        out.isEarly = false;
-        out.earlyMinutes = null;
-      }
-      return out;
-    });
+    return out;
   }
 
   /** Normalize to YYYY-MM-DD (UTC) so key matching works across timezones and Date vs string. */
@@ -1475,17 +1535,10 @@ export class AttendanceService {
         
         if (checkOut > otStartTime) {
           const otHours = this.calculateWorkHours(otStartTime, checkOut);
-          const minOTHours = policyRules.minOTHoursPerDay 
-            ? this.parseTimeToHours(policyRules.minOTHoursPerDay) 
-            : 0;
           const maxOTHours = policyRules.maxOTHoursPerDay 
             ? this.parseTimeToHours(policyRules.maxOTHoursPerDay) 
             : Infinity;
-          
           overtimeHours = Math.max(0, Math.min(otHours, maxOTHours));
-          if (overtimeHours < minOTHours) {
-            overtimeHours = 0;
-          }
         }
       }
 
