@@ -90,6 +90,27 @@ export const queryPunchesSchema = z.object({
   employeeId: z.string().uuid().optional(),
 });
 
+export const createCompOffRequestSchema = z.object({
+  requestType: z.enum(['FULL_DAY', 'HALF_DAY']),
+  reason: z.string().max(500).optional(),
+  organizationId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+});
+
+export const queryCompOffSummarySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+});
+
+export const approveCompOffRequestSchema = z.object({
+  reviewComments: z.string().max(500).optional(),
+});
+
+export const rejectCompOffRequestSchema = z.object({
+  reviewComments: z.string().min(1, 'Review comments are required').max(500),
+});
+
 // Attendance Report Query
 export const queryAttendanceReportSchema = z.object({
   organizationId: z.string().uuid('Invalid organization ID'),
@@ -129,3 +150,4 @@ export type QueryAttendanceSummaryInput = z.infer<typeof queryAttendanceSummaryS
 export type QueryAttendanceReportInput = z.infer<typeof queryAttendanceReportSchema>;
 export type SyncBiometricInput = z.infer<typeof syncBiometricSchema>;
 export type BulkShiftAssignmentsInput = z.infer<typeof bulkShiftAssignmentsSchema>;
+export type CreateCompOffRequestInput = z.infer<typeof createCompOffRequestSchema>;

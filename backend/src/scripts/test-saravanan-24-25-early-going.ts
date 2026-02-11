@@ -172,7 +172,7 @@ async function run() {
     const rules = await prisma.shiftAssignmentRule.findMany({
       where: {
         organizationId: emp.organizationId,
-        ...(shiftId ? { OR: [{ shiftId }, { shiftId: null }] } : { shiftId: null }),
+        ...(shiftId ? { shiftId } : {}),
         effectiveDate: { lte: testDates[0] },
         remarks: { contains: POLICY_MARKER },
       },

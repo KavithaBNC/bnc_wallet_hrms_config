@@ -13,6 +13,97 @@ import {
 } from '../utils/attendance.validation';
 
 export class AttendanceService {
+  private static readonly DEFAULT_TIMEZONE = 'Asia/Kolkata';
+
+  private getDateKeyInTimeZone(date: Date, timeZone: string): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((p) => p.type === 'year')?.value || '1970';
+    const month = parts.find((p) => p.type === 'month')?.value || '01';
+    const day = parts.find((p) => p.type === 'day')?.value || '01';
+    return `${year}-${month}-${day}`;
+  }
+
+  private getDateAtUtcMidnight(dateKey: string): Date {
+    return new Date(`${dateKey}T00:00:00.000Z`);
+  }
+
+  private addUtcDays(date: Date, days: number): Date {
+    const d = new Date(date);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d;
+  }
+
+  private parseHHMMToMinutes(hhmm: string | null | undefined): number | null {
+    if (!hhmm) return null;
+    const [h, m] = String(hhmm).split(':').map((x) => parseInt(x, 10));
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+  }
+
+  private getMinutesInTimeZone(date: Date, timeZone: string): number {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+    const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+    return (Number.isNaN(h) ? 0 : h) * 60 + (Number.isNaN(m) ? 0 : m);
+  }
+
+  /**
+   * Resolve canonical attendance date (working date / shift start date) for a punch.
+   * - Never derived from server date.
+   * - For normal shifts: same local day as punch (in organization timezone).
+   * - For overnight shifts: punches after midnight and before shift end belong to previous shift start date.
+   */
+  async resolveAttendanceDateForPunch(employeeId: string, punchTimestamp: Date): Promise<Date> {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: {
+        id: true,
+        organizationId: true,
+        shiftId: true,
+        shift: { select: { id: true, startTime: true, endTime: true } },
+        organization: { select: { timezone: true } },
+      },
+    });
+    if (!employee) throw new AppError('Employee not found', 404);
+
+    const timeZone = employee.organization?.timezone || AttendanceService.DEFAULT_TIMEZONE;
+    const punchDateKey = this.getDateKeyInTimeZone(punchTimestamp, timeZone);
+    const punchWorkDate = this.getDateAtUtcMidnight(punchDateKey);
+    const previousWorkDate = this.addUtcDays(punchWorkDate, -1);
+
+    // Check previous day's effective shift first; if it is overnight, early-hours punches belong to that shift start date.
+    const prevShiftFromRules = await shiftAssignmentRuleService.getApplicableShiftForEmployee(
+      employeeId,
+      previousWorkDate,
+      employee.organizationId
+    );
+    const prevShift = prevShiftFromRules || employee.shift || null;
+    const prevStartMin = this.parseHHMMToMinutes(prevShift?.startTime);
+    const prevEndMin = this.parseHHMMToMinutes(prevShift?.endTime);
+    const prevIsOvernight =
+      prevStartMin != null &&
+      prevEndMin != null &&
+      prevEndMin <= prevStartMin;
+    if (prevIsOvernight) {
+      const punchMins = this.getMinutesInTimeZone(punchTimestamp, timeZone);
+      if (punchMins <= (prevEndMin as number)) {
+        return previousWorkDate;
+      }
+    }
+
+    return punchWorkDate;
+  }
+
   /**
    * Check if date is a weekend
    */
@@ -56,10 +147,9 @@ export class AttendanceService {
    * Get all punches for an employee on a given day (sorted by punch time).
    */
   async getPunchesForDay(employeeId: string, date: Date) {
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
+    const dayStart = this.getDateAtUtcMidnight(date.toISOString().slice(0, 10));
     const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
 
     return prisma.attendancePunch.findMany({
       where: {
@@ -99,8 +189,13 @@ export class AttendanceService {
       punchTimestamp = new Date();
     }
 
-    const dayStr = punchTimestamp.toISOString().slice(0, 10);
-    const dayStart = new Date(dayStr + 'T00:00:00.000Z');
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, employeeCode: true },
+    });
+    if (!employee) throw new AppError('Employee not found', 404);
+
+    const dayStart = await this.resolveAttendanceDateForPunch(employeeId, punchTimestamp);
     const dayEnd = new Date(dayStart);
     dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
 
@@ -129,12 +224,6 @@ export class AttendanceService {
       const last = lastPunch.status?.toUpperCase() || '';
       newStatus = last === 'IN' ? 'OUT' : 'IN';
     }
-
-    const employee = await prisma.employee.findUnique({
-      where: { id: employeeId },
-      select: { id: true, employeeCode: true },
-    });
-    if (!employee) throw new AppError('Employee not found', 404);
 
     const punch = await prisma.attendancePunch.create({
       data: {
@@ -241,8 +330,7 @@ export class AttendanceService {
     });
     if (!employee) return null;
 
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
+    const dayStart = this.getDateAtUtcMidnight(date.toISOString().slice(0, 10));
     const { totalWorkHours, pairs } = await this.calculateWorkHoursFromPunches(employeeId, date, new Date());
 
     const firstIn = punches.find((p) => (p.status?.toUpperCase() || '') === 'IN');
@@ -373,7 +461,8 @@ export class AttendanceService {
           breakHours,
           shiftForCompute,
           policyRules,
-          dayStart
+          dayStart,
+          status
         );
         await prisma.attendanceRecord.update({
           where: { id: record.id },
@@ -515,7 +604,8 @@ export class AttendanceService {
     breakHours: number,
     shift: { startTime: string | null; endTime: string | null; breakDuration?: number | null } | null,
     policyRules: Record<string, any> | null,
-    _attendanceDate: Date
+    _attendanceDate: Date,
+    attendanceStatus?: AttendanceStatus
   ): Promise<{
     workHours: number;
     overtimeHours: number;
@@ -589,7 +679,17 @@ export class AttendanceService {
     const deviationReason = isDeviation ? deviationReasons.join('; ') : null;
 
     // OT
-    if (policyRules) {
+    // If the attendance day is LEAVE, honor policy toggle:
+    // - workingHoursInLeaveAsOT = YES  -> worked hours count as OT
+    // - workingHoursInLeaveAsOT = NO   -> no OT on leave
+    if (attendanceStatus === AttendanceStatus.LEAVE) {
+      if (policyRules?.workingHoursInLeaveAsOT) {
+        const maxOTHours = policyRules.maxOTHoursPerDay ? this.parseTimeToHours(policyRules.maxOTHoursPerDay) : Infinity;
+        overtimeHours = Math.max(0, Math.min(workHours, maxOTHours));
+      } else {
+        overtimeHours = 0;
+      }
+    } else if (policyRules) {
       if (policyRules.excessStayConsideredAsOT && shift?.endTime) {
         const shiftEndTime = new Date(dayStart.getTime());
         const [endHours, endMinutes] = (shift.endTime as any).split(':').map(Number);
@@ -615,6 +715,15 @@ export class AttendanceService {
     } else if (shift) {
       const standardHours = 8;
       overtimeHours = Math.max(0, workHours - standardHours);
+    }
+
+    if (policyRules) {
+      const maxOTHours = policyRules.maxOTHoursPerDay ? this.parseTimeToHours(policyRules.maxOTHoursPerDay) : Infinity;
+      const minOTHours = policyRules.minOTHoursPerDay ? this.parseTimeToHours(policyRules.minOTHoursPerDay) : 0;
+      overtimeHours = Math.max(0, Math.min(overtimeHours, maxOTHours));
+      if (overtimeHours > 0 && overtimeHours < minOTHours) {
+        overtimeHours = 0;
+      }
     }
 
     if (policyRules?.roundOffOption && overtimeHours > 0) {
@@ -651,8 +760,8 @@ export class AttendanceService {
       throw new AppError('Employee not found', 404);
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = await this.resolveAttendanceDateForPunch(employeeId, now);
 
     // Check if already checked in today
     const existing = await prisma.attendanceRecord.findUnique({
@@ -686,8 +795,6 @@ export class AttendanceService {
       }
       // If geofence is enabled but not configured, skip validation (allow check-in)
     }
-
-    const now = new Date();
 
     // Get policy rules for this shift if available
     let policyRules: Record<string, any> | null = null;
@@ -783,8 +890,8 @@ export class AttendanceService {
    * Check-out with shift support
    */
   async checkOut(employeeId: string, data: CheckOutInput) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const today = await this.resolveAttendanceDateForPunch(employeeId, now);
 
     // Get employee with shift info
     const employee = await prisma.employee.findUnique({
@@ -798,8 +905,8 @@ export class AttendanceService {
       throw new AppError('Employee not found', 404);
     }
 
-    // Find today's attendance record
-    const attendance = await prisma.attendanceRecord.findUnique({
+    // Find today's (working-date) attendance record; fallback to previous working date for overnight cases.
+    let attendance = await prisma.attendanceRecord.findUnique({
       where: {
         employeeId_date: {
           employeeId,
@@ -807,6 +914,22 @@ export class AttendanceService {
         },
       },
     });
+    let attendanceDateForUpdate = today;
+    if (!attendance) {
+      const previousDate = this.addUtcDays(today, -1);
+      const previous = await prisma.attendanceRecord.findUnique({
+        where: {
+          employeeId_date: {
+            employeeId,
+            date: previousDate,
+          },
+        },
+      });
+      if (previous && previous.checkIn && !previous.checkOut) {
+        attendance = previous;
+        attendanceDateForUpdate = previousDate;
+      }
+    }
 
     if (!attendance) {
       throw new AppError('You have not checked in today', 400);
@@ -839,7 +962,6 @@ export class AttendanceService {
       // If geofence is enabled but not configured, skip validation (allow check-out)
     }
 
-    const now = new Date();
     const checkIn = attendance.checkIn;
     const totalHours = this.calculateWorkHours(checkIn, now);
 
@@ -853,7 +975,7 @@ export class AttendanceService {
         policyRules = await shiftAssignmentRuleService.getApplicablePolicyRules(
           attendance.shiftId,
           employeeId,
-          today,
+          attendanceDateForUpdate,
           employee.organizationId
         );
       } catch (error) {
@@ -875,7 +997,8 @@ export class AttendanceService {
       breakHours,
       shiftForCompute,
       policyRules,
-      today
+      attendanceDateForUpdate,
+      attendance.status as AttendanceStatus
     );
 
     // If no policy, apply shift-based OT fallback
@@ -909,7 +1032,7 @@ export class AttendanceService {
       where: {
         employeeId_date: {
           employeeId,
-          date: today,
+          date: attendanceDateForUpdate,
         },
       },
       data: {
@@ -1164,13 +1287,14 @@ export class AttendanceService {
         breakHours,
         shiftForCompute,
         policyRules,
-        date
+        date,
+        record.status as AttendanceStatus
       );
 
       try {
         await prisma.attendanceRecord.update({
           where: {
-            employeeId_date: { employeeId, date },
+            id: record.id,
           },
           data: {
             isLate: computed.isLate,
@@ -1215,6 +1339,7 @@ export class AttendanceService {
       id: string;
       employeeId: string;
       date: Date | string;
+      checkIn?: Date | string | null;
       shiftId: string | null;
       employee: { id: string; firstName: string; lastName: string; email: string; employeeCode: string };
       shift: { id: string; name: string; startTime: string; endTime: string } | null;
@@ -1232,7 +1357,11 @@ export class AttendanceService {
     }
     const recordsByDate = new Map<string, typeof records[0]>();
     records.forEach((r) => {
-      const key = `${r.employeeId}-${this.toDateKey(r.date)}`;
+      // Use check-in date (when available) so records are mapped to the actual punch day.
+      // This avoids timezone-shifted date-only records (e.g. stored previous UTC date)
+      // being replaced by synthetic shift rows on the intended calendar day.
+      const recordDateKeySource = r.checkIn ?? r.date;
+      const key = `${r.employeeId}-${this.toDateKey(recordDateKeySource)}`;
       recordsByDate.set(key, r);
     });
     const employeeInfo = records[0]?.employee
@@ -1285,15 +1414,18 @@ export class AttendanceService {
         continue;
       }
       if (existing) {
+        // Normalize output date to the working date bucket we are building, so API consumers
+        // always get attendance mapped by shift start date even if DB date was stored differently.
+        const existingOnWorkingDate = { ...existing, date: dateForRule };
         if (existing.shift) {
-          merged.push(existing);
+          merged.push(existingOnWorkingDate);
         } else {
           const shiftFromRule = await shiftAssignmentRuleService.getApplicableShiftForEmployee(
             employeeId,
             dateForRule,
             organizationId
           );
-          merged.push({ ...existing, shift: shiftFromRule });
+          merged.push({ ...existingOnWorkingDate, shift: shiftFromRule });
         }
       } else {
         const shiftFromRule = await shiftAssignmentRuleService.getApplicableShiftForEmployee(
@@ -1518,7 +1650,16 @@ export class AttendanceService {
 
     // Recalculate overtime based on new shift and policy rules
     let overtimeHours = 0;
-    if (policyRules) {
+    if (record.status === AttendanceStatus.LEAVE) {
+      if (policyRules?.workingHoursInLeaveAsOT) {
+        const maxOTHours = policyRules.maxOTHoursPerDay
+          ? this.parseTimeToHours(policyRules.maxOTHoursPerDay)
+          : Infinity;
+        overtimeHours = Math.max(0, Math.min(workHours, maxOTHours));
+      } else {
+        overtimeHours = 0;
+      }
+    } else if (policyRules) {
       // Policy-based overtime calculation
       const shiftEndTime = newShift.endTime 
         ? (() => {
@@ -1564,6 +1705,20 @@ export class AttendanceService {
       
       if (workHours > threshold) {
         overtimeHours = workHours - threshold;
+      }
+    }
+
+    // Apply min/max OT thresholds from policy, then optional round-off
+    if (policyRules) {
+      const maxOTHours = policyRules.maxOTHoursPerDay
+        ? this.parseTimeToHours(policyRules.maxOTHoursPerDay)
+        : Infinity;
+      const minOTHours = policyRules.minOTHoursPerDay
+        ? this.parseTimeToHours(policyRules.minOTHoursPerDay)
+        : 0;
+      overtimeHours = Math.max(0, Math.min(overtimeHours, maxOTHours));
+      if (overtimeHours > 0 && overtimeHours < minOTHours) {
+        overtimeHours = 0;
       }
     }
 

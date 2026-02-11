@@ -357,14 +357,12 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
               punchSource: 'CARD',
             },
           });
-          const dayStart = new Date(punchTimestampForPunch);
-          dayStart.setHours(0, 0, 0, 0);
+          const dayStart = await attendanceService.resolveAttendanceDateForPunch(employeeId, punchTimestampForPunch);
           await attendanceService.syncAttendanceRecordFromPunches(employeeId, dayStart);
         } catch (err) {
           logger.warn(`[iclock] attendance_punch create/sync failed employeeId=${employeeId} - ${err instanceof Error ? err.message : String(err)}`);
           // Fallback: sync record from logs so at least First In/Last Out show
-          const dayStart = new Date(punchTimestampForPunch);
-          dayStart.setHours(0, 0, 0, 0);
+          const dayStart = await attendanceService.resolveAttendanceDateForPunch(employeeId, punchTimestampForPunch);
           syncAttendanceRecordFromLogs(employeeId, dayStart).catch(() => {});
         }
       } else if (!employeeId) {

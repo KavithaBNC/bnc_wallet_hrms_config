@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
 import { attendanceService } from '../services/attendance.service';
 import { biometricSyncService } from '../services/biometric-sync.service';
+import { compOffRequestService } from '../services/comp-off-request.service';
 import { matchFace } from '../services/face.service';
 import { prisma } from '../utils/prisma';
 import { BulkShiftAssignmentsInput } from '../utils/attendance.validation';
@@ -238,6 +239,184 @@ export class AttendanceController {
       return res.status(200).json({
         status: 'success',
         data: result,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Get comp off excess-time summary for logged-in employee.
+   * GET /api/v1/attendance/comp-off/summary
+   */
+  async getCompOffSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      const userRole = req.user?.role;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+
+      const employee = await prisma.employee.findUnique({
+        where: { userId },
+        select: { id: true, organizationId: true, reportingManagerId: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ status: 'fail', message: 'Employee profile not found' });
+      }
+
+      const queryOrgId = (req.query.organizationId as string | undefined) || employee.organizationId;
+      if (queryOrgId !== employee.organizationId) {
+        return res.status(403).json({ status: 'fail', message: 'Organization mismatch' });
+      }
+      const queryCompanyId = req.query.companyId as string | undefined;
+      if (queryCompanyId) {
+        const company = await prisma.company.findUnique({
+          where: { id: queryCompanyId },
+          select: { id: true, organizationId: true },
+        });
+        if (!company || company.organizationId !== employee.organizationId) {
+          return res.status(403).json({ status: 'fail', message: 'Company mismatch' });
+        }
+      }
+
+      const queryEmployeeId = req.query.employeeId as string | undefined;
+      let targetEmployeeId = employee.id;
+
+      if (queryEmployeeId && queryEmployeeId !== employee.id) {
+        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+          const targetEmployee = await prisma.employee.findUnique({
+            where: { id: queryEmployeeId },
+            select: { id: true, organizationId: true },
+          });
+          if (!targetEmployee || targetEmployee.organizationId !== employee.organizationId) {
+            return res.status(403).json({ status: 'fail', message: 'Employee organization mismatch' });
+          }
+          targetEmployeeId = queryEmployeeId;
+        } else if (userRole === 'MANAGER') {
+          const subordinate = await prisma.employee.findFirst({
+            where: { id: queryEmployeeId, reportingManagerId: employee.id },
+            select: { id: true },
+          });
+          if (!subordinate) {
+            return res.status(403).json({ status: 'fail', message: 'Access denied for selected employee' });
+          }
+          targetEmployeeId = queryEmployeeId;
+        } else {
+          // EMPLOYEE (or unknown role) can only view own summary
+          targetEmployeeId = employee.id;
+        }
+      }
+
+      const summary = await compOffRequestService.getSummary(targetEmployeeId, queryOrgId);
+      return res.status(200).json({
+        status: 'success',
+        data: { summary },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Create comp off request for logged-in employee.
+   * POST /api/v1/attendance/comp-off/requests
+   */
+  async createCompOffRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+
+      const employee = await prisma.employee.findUnique({
+        where: { userId },
+        select: { id: true, organizationId: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ status: 'fail', message: 'Employee profile not found' });
+      }
+
+      const bodyOrgId = (req.body.organizationId as string | undefined) || employee.organizationId;
+      if (bodyOrgId !== employee.organizationId) {
+        return res.status(403).json({ status: 'fail', message: 'Organization mismatch' });
+      }
+      const bodyCompanyId = req.body.companyId as string | undefined;
+      if (bodyCompanyId) {
+        const company = await prisma.company.findUnique({
+          where: { id: bodyCompanyId },
+          select: { id: true, organizationId: true },
+        });
+        if (!company || company.organizationId !== employee.organizationId) {
+          return res.status(403).json({ status: 'fail', message: 'Company mismatch' });
+        }
+      }
+
+      const request = await compOffRequestService.createRequest(employee.id, bodyOrgId, {
+        requestType: req.body.requestType,
+        reason: req.body.reason,
+      });
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'Comp Off request submitted successfully',
+        data: { request },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Approve comp off request.
+   * PUT /api/v1/attendance/comp-off/requests/:id/approve
+   */
+  async approveCompOffRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+
+      const request = await compOffRequestService.approveRequest(
+        req.params.id,
+        userId,
+        req.body.reviewComments,
+        req.user?.role
+      );
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Comp Off request approved successfully',
+        data: { request },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Reject comp off request.
+   * PUT /api/v1/attendance/comp-off/requests/:id/reject
+   */
+  async rejectCompOffRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+
+      const request = await compOffRequestService.rejectRequest(
+        req.params.id,
+        userId,
+        req.body.reviewComments,
+        req.user?.role
+      );
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Comp Off request rejected',
+        data: { request },
       });
     } catch (error) {
       return next(error);

@@ -19,6 +19,10 @@ import {
   approveRegularizationSchema,
   rejectRegularizationSchema,
   bulkShiftAssignmentsSchema,
+  createCompOffRequestSchema,
+  queryCompOffSummarySchema,
+  approveCompOffRequestSchema,
+  rejectCompOffRequestSchema,
 } from '../utils/attendance.validation';
 
 const router = Router();
@@ -124,6 +128,52 @@ router.get(
   '/summary/:employeeId',
   validateQuery(queryAttendanceSummarySchema),
   attendanceController.getSummary.bind(attendanceController)
+);
+
+/**
+ * @route   GET /api/v1/attendance/comp-off/summary
+ * @desc    Get comp off excess-time summary for logged-in employee
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/comp-off/summary',
+  validateQuery(queryCompOffSummarySchema),
+  attendanceController.getCompOffSummary.bind(attendanceController)
+);
+
+/**
+ * @route   POST /api/v1/attendance/comp-off/requests
+ * @desc    Create comp off request (manual request by employee)
+ * @access  Private (All authenticated users)
+ */
+router.post(
+  '/comp-off/requests',
+  validate(createCompOffRequestSchema),
+  attendanceController.createCompOffRequest.bind(attendanceController)
+);
+
+/**
+ * @route   PUT /api/v1/attendance/comp-off/requests/:id/approve
+ * @desc    Approve comp off request
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER, MANAGER)
+ */
+router.put(
+  '/comp-off/requests/:id/approve',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  validate(approveCompOffRequestSchema),
+  attendanceController.approveCompOffRequest.bind(attendanceController)
+);
+
+/**
+ * @route   PUT /api/v1/attendance/comp-off/requests/:id/reject
+ * @desc    Reject comp off request
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER, MANAGER)
+ */
+router.put(
+  '/comp-off/requests/:id/reject',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  validate(rejectCompOffRequestSchema),
+  attendanceController.rejectCompOffRequest.bind(attendanceController)
 );
 
 /**

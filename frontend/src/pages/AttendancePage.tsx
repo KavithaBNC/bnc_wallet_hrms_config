@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { attendanceService } from '../services/attendance.service';
+import { attendanceService, type CompOffSummary } from '../services/attendance.service';
 import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
@@ -15,6 +15,7 @@ interface AttendanceRecord {
   checkIn: string | null;
   checkOut: string | null;
   status: string;
+  breakHours?: number | null;
   workHours: number | null;
   overtimeHours: number | null;
   employee: {
@@ -54,7 +55,7 @@ function formatWorkHoursAsHHMM(decimalHours: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-type ShiftLike = { startTime?: string | null; endTime?: string | null } | null;
+type ShiftLike = { startTime?: string | null; endTime?: string | null; breakDuration?: number | null } | null;
 
 /** Policy from Late & Others rule (__POLICY_RULES__) for applying grace and shortfall. */
 type LateEarlyPolicy = {
@@ -66,7 +67,13 @@ type LateEarlyPolicy = {
   considerEarlyGoingFromGraceTime?: boolean;
   considerLateAsShortfall?: boolean;
   considerEarlyGoingAsShortfall?: boolean;
+  considerExcessBreakAsShortfall?: boolean;
+  excessStayConsideredAsOT?: boolean;
+  includingShiftBreak?: boolean;
+  minBreakHoursAsDeviation?: string | null;
   minShortfallHoursAsDeviation?: string | null; // e.g. "00:10"
+  minOTHoursPerDay?: string | null;
+  otStartsAfterShiftEnd?: string | null;
 } | null;
 
 /** Parse "HH:MM" or "H:MM" to total minutes (e.g. "00:04" -> 4, "01:30" -> 90). */
@@ -151,23 +158,79 @@ function getMinShortfallMinutes(policy: LateEarlyPolicy): number {
   return parseHHMMToMinutes(policy.minShortfallHoursAsDeviation);
 }
 
+function getMinOTMinutes(policy: LateEarlyPolicy): number {
+  if (!policy?.minOTHoursPerDay) return 0;
+  return parseHHMMToMinutes(policy.minOTHoursPerDay);
+}
+
+function getExcessStayMinutes(record: AttendanceRecord, shiftOverride: ShiftLike, policy: LateEarlyPolicy): number {
+  const shift = effectiveShift(record, shiftOverride ?? null);
+  if (!record.checkIn || !record.checkOut || !shift?.startTime || !shift?.endTime) return 0;
+  const inTime = new Date(record.checkIn);
+  const outTime = new Date(record.checkOut);
+  const [startH, startM] = String(shift.startTime).trim().split(':').map((x) => parseInt(x || '0', 10));
+  const [endH, endM] = String(shift.endTime).trim().split(':').map((x) => parseInt(x || '0', 10));
+  if (Number.isNaN(startH) || Number.isNaN(startM) || Number.isNaN(endH) || Number.isNaN(endM)) return 0;
+
+  // Excess stay is informational: total time outside scheduled shift window
+  // = early coming + late leaving.
+  const shiftStart = new Date(inTime.getFullYear(), inTime.getMonth(), inTime.getDate(), startH, startM, 0, 0);
+  const shiftEnd = new Date(inTime.getFullYear(), inTime.getMonth(), inTime.getDate(), endH, endM, 0, 0);
+  if (shiftEnd <= shiftStart) shiftEnd.setDate(shiftEnd.getDate() + 1); // overnight shift
+
+  const earlyComingMins = inTime < shiftStart ? Math.round((shiftStart.getTime() - inTime.getTime()) / (1000 * 60)) : 0;
+  const lateLeavingMins = outTime > shiftEnd ? Math.round((outTime.getTime() - shiftEnd.getTime()) / (1000 * 60)) : 0;
+  return Math.max(0, earlyComingMins + lateLeavingMins);
+}
+
+function getEarlyComingMinutes(record: AttendanceRecord, shiftOverride: ShiftLike): number {
+  const shift = effectiveShift(record, shiftOverride ?? null);
+  if (!record.checkIn || !shift?.startTime) return 0;
+  const inTime = new Date(record.checkIn);
+  const [startH, startM] = String(shift.startTime).trim().split(':').map((x) => parseInt(x || '0', 10));
+  if (Number.isNaN(startH) || Number.isNaN(startM)) return 0;
+  const shiftStart = new Date(inTime.getFullYear(), inTime.getMonth(), inTime.getDate(), startH, startM, 0, 0);
+  if (inTime >= shiftStart) return 0;
+  return Math.round((shiftStart.getTime() - inTime.getTime()) / (1000 * 60));
+}
+
 /**
  * Compute shortfall for display when policy says Consider Late/Early as Shortfall = YES.
  * Uses backend values or frontend fallback for late/early minutes; returns total shortfall minutes
  * and whether it meets the minimum so we can show Shortfall badge and D at read time.
  */
+function getBreakExcessMinutes(record: AttendanceRecord, shiftOverride: ShiftLike, policy: LateEarlyPolicy): number {
+  if (!record || record.breakHours == null) return 0;
+  const breakHours = Number(record.breakHours);
+  if (!Number.isFinite(breakHours) || breakHours <= 0) return 0;
+
+  let allowedBreakHours = 24; // fallback matches backend behavior when no break policy is set
+  if (policy?.includingShiftBreak) {
+    const shift = effectiveShift(record, shiftOverride ?? null) as (ShiftLike & { breakDuration?: number | null }) | null;
+    const breakDurationMinutes = shift?.breakDuration != null ? Number(shift.breakDuration) : 0;
+    allowedBreakHours = Number.isFinite(breakDurationMinutes) && breakDurationMinutes > 0 ? breakDurationMinutes / 60 : 0;
+  } else if (policy?.minBreakHoursAsDeviation) {
+    allowedBreakHours = parseHHMMToMinutes(policy.minBreakHoursAsDeviation) / 60;
+  }
+
+  const excessBreakHours = Math.max(0, breakHours - allowedBreakHours);
+  return Math.round(excessBreakHours * 60);
+}
+
 function getDisplayShortfall(
   record: AttendanceRecord,
   shiftOverride: ShiftLike,
   policy: LateEarlyPolicy,
   lateMin: number | null,
-  earlyMin: number | null
+  earlyMin: number | null,
+  breakExcessMinutes: number = 0
 ): { shortfallMinutes: number; showShortfall: boolean } {
   const late = lateMin ?? (record.lateMinutes ?? getLateMinutesFallback(record, shiftOverride, policy) ?? 0);
   const early = earlyMin ?? (record.earlyMinutes ?? getEarlyMinutes(record, shiftOverride, policy) ?? 0);
   let shortfallMinutes = 0;
   if (policy?.considerLateAsShortfall && late > 0) shortfallMinutes += late;
   if (policy?.considerEarlyGoingAsShortfall && early > 0) shortfallMinutes += early;
+  if (policy?.considerExcessBreakAsShortfall && breakExcessMinutes > 0) shortfallMinutes += breakExcessMinutes;
   const minMins = getMinShortfallMinutes(policy);
   const showShortfall = shortfallMinutes > 0 && shortfallMinutes >= minMins;
   return { shortfallMinutes, showShortfall };
@@ -282,7 +345,8 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
     
     setLoadingShifts(true);
     
-    // Create shift assignments map - default to "General Shift" for all dates
+    // Create shift assignments map - default to "General Shift" for all dates.
+    // Sunday is default Week Off; Saturday and other days follow configured policy/records.
     // Override with explicitly assigned shifts from attendance records
     const assignments = new Map<string, string>();
     const defaultShift = 'General Shift';
@@ -297,8 +361,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
     
     daysInMonth.forEach((date) => {
       const dateStr = format(date, 'yyyy-MM-dd');
-      const dayOfWeek = date.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const dayOfWeek = date.getDay(); // 0=Sunday
       
       // Check if there's an attendance record with shift for this date (from saved shift assignments)
       // IMPORTANT: Check all records, not just ones with check-in/check-out
@@ -318,16 +381,17 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
         });
       }
       
-      if (dayRecord?.shift?.name) {
+      // Business rule: all Sundays should display as Week Off by default.
+      // Keep this higher priority than generic shift fallback.
+      if (dayOfWeek === 0) {
+        assignments.set(dateStr, 'Weekoff');
+      } else if (dayRecord?.shift?.name) {
         // Use shift from attendance record (this reflects saved shift assignments from Associate Shift Grid)
         // This overrides the default "General Shift" for this specific date
         console.log(`✅ Calendar: Using saved shift "${dayRecord.shift.name}" for ${dateStr}`);
         assignments.set(dateStr, dayRecord.shift.name);
-      } else if (isWeekend) {
-        // Weekend - show as Weekoff
-        assignments.set(dateStr, 'Weekoff');
       } else {
-        // Default to "General Shift" for all weekdays without explicit assignment
+        // No explicit assignment for this date - keep default General Shift (including Saturdays).
         assignments.set(dateStr, defaultShift);
       }
     });
@@ -390,11 +454,6 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
     onMonthChange(new Date());
   };
 
-  const isWeekend = (date: Date) => {
-    const day = getDay(date);
-    return day === 0 || day === 6; // Sunday or Saturday
-  };
-
   return (
     <div className="p-6">
       {/* Calendar Header */}
@@ -452,7 +511,6 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
           });
           const dayRecords = Array.from(byEmployee.values());
           const isCurrentDay = isToday(day);
-          const isWeekendDay = isWeekend(day);
           const dayNumber = format(day, 'd');
           const shiftName = shiftAssignments.get(dateStr) || 'General Shift'; // Default to "General Shift"
 
@@ -471,11 +529,6 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                 }`}>
                   {dayNumber}
                 </span>
-                {isWeekendDay && (
-                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
-                    Weekend
-                  </span>
-                )}
               </div>
               
               <div className="space-y-1.5">
@@ -559,7 +612,8 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                             {(record.status || 'PRESENT') === 'PRESENT' && (record.isDeviation || (() => {
                               const lateM = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
                               const earlyM = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
-                              return getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateM, earlyM).showShortfall;
+                              const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                              return getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateM, earlyM, breakExcessM).showShortfall;
                             })()) ? 'Present (with deviation)' : (record.status || 'PRESENT')}
                           </div>
                         )}
@@ -569,23 +623,31 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                         {(() => {
                           const lateMin = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
                           const earlyMin = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
-                          const { showShortfall } = getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateMin, earlyMin);
-                          const hasAny = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0 ||
-                            ((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyMin ?? 0) > 0 ||
-                            record.isDeviation || showShortfall || (record.otMinutes != null && record.otMinutes > 0);
-                          return (record.status === 'PRESENT' || record.status === 'WEEKEND' || (firstIn && lastOut && effectiveShiftForRecord)) && hasAny ? (
+                          const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                          const { showShortfall } = getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateMin, earlyMin, breakExcessM);
+                          const excessStayMins = getExcessStayMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                          const earlyComingMins = getEarlyComingMinutes(record, effectiveShiftForRecord);
+                          const showLate = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0;
+                          const showEarly = ((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyMin ?? 0) > 0;
+                          const showDeviation = !!record.isDeviation || showShortfall;
+                          const minOtMins = getMinOTMinutes(lateEarlyPolicy);
+                          const showOt = record.otMinutes != null && record.otMinutes > 0 && record.otMinutes >= minOtMins;
+                          const showExcessStay = excessStayMins > 0 && lateEarlyPolicy?.excessStayConsideredAsOT !== false;
+                          const showEarlyComing = earlyComingMins > 0;
+                          const showIndicators = showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing;
+                          return showIndicators ? (
                           <div className="flex flex-wrap gap-1 mt-0.5">
-                            {(((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0) && (
+                            {showLate && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">
                                 Late: {(record.lateMinutes ?? lateMin ?? 0)} min
                               </span>
                             )}
-                            {((record.earlyMinutes ?? 0) > 0 || record.isEarly || (earlyMin ?? 0) > 0) && (
+                            {showEarly && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-800">
                                 Early going: {(record.earlyMinutes ?? earlyMin ?? 0)} min
                               </span>
                             )}
-                            {(record.isDeviation || showShortfall) && (
+                            {showDeviation && (
                               <span
                                 className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800"
                                 title={record.deviationReason ?? (showShortfall ? 'Shortfall' : 'Deviation')}
@@ -596,7 +658,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                             {/* Shortfall: from backend deviationReason or from read-time when policy Consider Early/Late as Shortfall = YES */}
                             {(record.isDeviation && (record.deviationReason ?? '').includes('Shortfall')) || showShortfall ? (() => {
                               const backendShortfall = (record.lateMinutes ?? 0) + (record.earlyMinutes ?? 0);
-                              const { shortfallMinutes } = getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateMin, earlyMin);
+                              const { shortfallMinutes } = getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateMin, earlyMin, breakExcessM);
                               const mins = record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && backendShortfall > 0 ? backendShortfall : shortfallMinutes;
                               return (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800">
@@ -604,8 +666,18 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                                 </span>
                               );
                             })() : null}
-                            {record.otMinutes != null && record.otMinutes > 0 && (
+                            {showOt && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title={`OT: ${formatWorkHoursAsHHMM(record.otMinutes / 60)}`}>OT {formatWorkHoursAsHHMM(record.otMinutes / 60)}</span>
+                            )}
+                            {showExcessStay && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800" title="Time stayed after OT start threshold">
+                                Excess Stay {formatWorkHoursAsHHMM(excessStayMins / 60)}
+                              </span>
+                            )}
+                            {showEarlyComing && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-cyan-100 text-cyan-800" title="Time arrived before shift start">
+                                Early Coming {formatWorkHoursAsHHMM(earlyComingMins / 60)}
+                              </span>
                             )}
                           </div>
                           ) : null;
@@ -711,6 +783,13 @@ const AttendancePage = () => {
   const [syncToDate, setSyncToDate] = useState(() => format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ synced: number; created: number; updated: number; skipped: number; errors: { employeeCode: string; date: string; message: string }[] } | null>(null);
+  const [compOffSummary, setCompOffSummary] = useState<CompOffSummary | null>(null);
+  const [loadingCompOffSummary, setLoadingCompOffSummary] = useState(false);
+  const [showCompOffModal, setShowCompOffModal] = useState(false);
+  const [compOffRequestType, setCompOffRequestType] = useState<'FULL_DAY' | 'HALF_DAY'>('FULL_DAY');
+  const [compOffReason, setCompOffReason] = useState('');
+  const [submittingCompOff, setSubmittingCompOff] = useState(false);
+  const [compOffMessage, setCompOffMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Manual punch (for testing): any date, multiple In/Out per day
   const [manualPunchDate, setManualPunchDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -730,6 +809,7 @@ const AttendancePage = () => {
   const canManualPunch = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
   // HR-only: calendar view requires selecting one employee (no "all employees" by default)
   const isHRForCalendar = isHRManager || isOrgAdmin;
+  const canChooseEmployeeCompOffSummary = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN' || isManager;
 
   // HR-only: single-employee selection for calendar/table (searchable dropdown); restore from URL on refresh
   const employeeIdFromUrl = searchParams.get('employeeId') || null;
@@ -813,6 +893,7 @@ const AttendancePage = () => {
             fetchMyRecords(),
             fetchPunches(),
             checkTodayStatus(),
+            fetchCompOffSummary(),
           ]);
         } catch (err: any) {
           console.error('Error in useEffect:', err);
@@ -820,7 +901,7 @@ const AttendancePage = () => {
         }
       })();
     }
-  }, [user, currentMonth, viewMode]);
+  }, [user, currentMonth, viewMode, selectedEmployeeId]);
 
   // Also check status when records are fetched
   useEffect(() => {
@@ -845,28 +926,21 @@ const AttendancePage = () => {
     }
   }, [records, myRecords, user, canViewTeamAttendance]);
 
-  // Refetch attendance and punches when calendar month or (for HR) selected employee changes
-  useEffect(() => {
-    if (user) {
-      fetchRecords();
-      fetchMyRecords();
-      fetchPunches();
-    }
-  }, [currentMonth, selectedEmployeeId]);
-
   // Refetch when tab/window gains focus so device punches (or web check-in/out) are reflected without manual refresh
   useEffect(() => {
     const onFocus = () => {
       if (user) {
         checkTodayStatus();
-        fetchRecords();
-        fetchMyRecords();
+        // Keep existing values visible and refresh in background.
+        fetchRecords({ silent: true });
+        fetchMyRecords({ silent: true });
         fetchPunches();
+        fetchCompOffSummary({ silent: true });
       }
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [user]);
+  }, [user, currentMonth, viewMode, selectedEmployeeId]);
 
   // Refetch when returning from Face Attendance punch or Associate Shift Grid so calendar shows new data
   useEffect(() => {
@@ -974,20 +1048,22 @@ const AttendancePage = () => {
     return () => { cancelled = true; };
   }, [canManualPunch]);
 
-  const fetchRecords = async () => {
+  const fetchRecords = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
     try {
       const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
       if (!organizationId) {
         console.warn('Organization ID not available, skipping fetchRecords');
         setRecords([]);
+        if (!silent) setLoading(false);
         return;
       }
       if (isHRForCalendar && viewMode === 'team' && !selectedEmployeeId) {
         setRecords([]);
-        setLoading(false);
+        if (!silent) setLoading(false);
         return;
       }
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
       const monthStart = startOfMonth(currentMonth);
       const monthEnd = endOfMonth(currentMonth);
@@ -1027,7 +1103,7 @@ const AttendancePage = () => {
       }
       setRecords([]);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1055,7 +1131,8 @@ const AttendancePage = () => {
   };
 
   // Fetch manager's own attendance records (for calendar/table when "My Records" is selected)
-  const fetchMyRecords = async () => {
+  const fetchMyRecords = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
     if (!canViewTeamAttendance || !user?.employee?.id) return;
     
     const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
@@ -1066,7 +1143,7 @@ const AttendancePage = () => {
     }
     
     try {
-      setLoadingMyRecords(true);
+      if (!silent) setLoadingMyRecords(true);
       const monthStart = startOfMonth(currentMonth);
       const monthEnd = endOfMonth(currentMonth);
       const response = await api.get('/attendance/records', {
@@ -1094,7 +1171,7 @@ const AttendancePage = () => {
       }
       setMyRecords([]);
     } finally {
-      setLoadingMyRecords(false);
+      if (!silent) setLoadingMyRecords(false);
     }
   };
 
@@ -1287,6 +1364,69 @@ const AttendancePage = () => {
     }
   };
 
+  const fetchCompOffSummary = async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const currentUserEmployeeId = user?.employee?.id;
+    const targetEmployeeId =
+      canChooseEmployeeCompOffSummary && viewMode === 'team' && selectedEmployeeId
+        ? selectedEmployeeId
+        : currentUserEmployeeId;
+    if (!organizationId) {
+      setCompOffSummary(null);
+      return;
+    }
+    try {
+      if (!silent) setLoadingCompOffSummary(true);
+      const summary = await attendanceService.getCompOffSummary(organizationId, targetEmployeeId || undefined);
+      setCompOffSummary(summary);
+    } catch (err: any) {
+      if (!silent) {
+        const msg = err.response?.data?.message || err.message || 'Failed to load excess time summary';
+        setCompOffMessage({ type: 'error', text: msg });
+      }
+      setCompOffSummary(null);
+    } finally {
+      if (!silent) setLoadingCompOffSummary(false);
+    }
+  };
+
+  const showingSelectedEmployeeSummary =
+    canChooseEmployeeCompOffSummary && viewMode === 'team' && !!selectedEmployeeId;
+  const isOwnCompOffSummary = !showingSelectedEmployeeSummary || selectedEmployeeId === user?.employee?.id;
+
+  const handleOpenCompOffModal = () => {
+    setCompOffMessage(null);
+    setCompOffReason('');
+    setCompOffRequestType('FULL_DAY');
+    setShowCompOffModal(true);
+  };
+
+  const handleCreateCompOffRequest = async () => {
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    if (!organizationId) {
+      setCompOffMessage({ type: 'error', text: 'Organization not found.' });
+      return;
+    }
+    try {
+      setSubmittingCompOff(true);
+      setCompOffMessage(null);
+      await attendanceService.createCompOffRequest(
+        organizationId,
+        compOffRequestType,
+        compOffReason.trim() || undefined
+      );
+      setShowCompOffModal(false);
+      setCompOffMessage({ type: 'success', text: 'Comp Off request submitted and sent for approval.' });
+      await fetchCompOffSummary();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to submit Comp Off request';
+      setCompOffMessage({ type: 'error', text: msg });
+    } finally {
+      setSubmittingCompOff(false);
+    }
+  };
+
   const openSyncModal = () => {
     setSyncFromDate(format(startOfMonth(currentMonth), 'yyyy-MM-dd'));
     setSyncToDate(format(endOfMonth(currentMonth), 'yyyy-MM-dd'));
@@ -1357,6 +1497,60 @@ const AttendancePage = () => {
               Face Punch
             </button>
           </div>
+        </div>
+
+        {/* Excess Time Summary (manual comp off request, no separate menu) */}
+        <div className="bg-white rounded-lg shadow p-6 mb-8 border border-indigo-100">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Excess Time Summary</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                Rule: {compOffSummary?.fullDayMinutes ?? 480} min = 1 day, {compOffSummary?.halfDayMinutes ?? 240} min = 0.5 day
+              </p>
+            </div>
+            {compOffSummary && compOffSummary.eligibleCompOffDays > 0 && compOffSummary.conversionEnabled && isOwnCompOffSummary && (
+              <button
+                onClick={handleOpenCompOffModal}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition"
+              >
+                Request Comp Off
+              </button>
+            )}
+          </div>
+
+          {loadingCompOffSummary ? (
+            <div className="mt-4 text-sm text-gray-500">Loading excess summary...</div>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+                <div className="text-xs uppercase text-gray-500">Total Excess Minutes</div>
+                <div className="text-lg font-semibold text-gray-900 mt-1">
+                  {compOffSummary?.availableExcessMinutesForRequest ?? 0}
+                </div>
+              </div>
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
+                <div className="text-xs uppercase text-gray-500">Eligible Comp Off Days</div>
+                <div className="text-lg font-semibold text-gray-900 mt-1">
+                  {compOffSummary?.eligibleCompOffDays ?? 0}
+                </div>
+              </div>
+            </div>
+          )}
+          {compOffSummary && !compOffSummary.conversionEnabled && (
+            <p className="mt-3 text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
+              Comp Off conversion is disabled in Excess Time Conversion Rule.
+            </p>
+          )}
+          {showingSelectedEmployeeSummary && !isOwnCompOffSummary && (
+            <p className="mt-3 text-sm text-blue-700 bg-blue-50 px-3 py-2 rounded-lg">
+              Showing excess summary for selected employee.
+            </p>
+          )}
+          {compOffMessage && (
+            <p className={`mt-3 text-sm ${compOffMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+              {compOffMessage.text}
+            </p>
+          )}
         </div>
 
         {/* Manual punch (for testing): select any date, multiple In/Out per day */}
@@ -1693,21 +1887,29 @@ const AttendancePage = () => {
                           const shiftT = record.shift ?? null;
                           const lateM = getLateMinutesFallback(record, shiftT, lateEarlyPolicy);
                           const earlyM = getEarlyMinutes(record, shiftT, lateEarlyPolicy);
-                          const { showShortfall, shortfallMinutes } = getDisplayShortfall(record, shiftT, lateEarlyPolicy, lateM, earlyM);
-                          const hasAny = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateM ?? 0) > 0 ||
-                            ((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyM ?? 0) > 0 ||
-                            record.isDeviation || showShortfall || (record.otMinutes != null && record.otMinutes > 0);
-                          return (record.status === 'PRESENT' || record.status === 'WEEKEND') && hasAny ? (
+                          const breakExcessM = getBreakExcessMinutes(record, shiftT, lateEarlyPolicy);
+                          const { showShortfall, shortfallMinutes } = getDisplayShortfall(record, shiftT, lateEarlyPolicy, lateM, earlyM, breakExcessM);
+                          const excessStayMins = getExcessStayMinutes(record, shiftT, lateEarlyPolicy);
+                          const earlyComingMins = getEarlyComingMinutes(record, shiftT);
+                          const showLate = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateM ?? 0) > 0;
+                          const showEarly = ((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyM ?? 0) > 0;
+                          const showDeviation = !!record.isDeviation || showShortfall;
+                          const minOtMins = getMinOTMinutes(lateEarlyPolicy);
+                          const showOt = record.otMinutes != null && record.otMinutes > 0 && record.otMinutes >= minOtMins;
+                          const showExcessStay = excessStayMins > 0 && lateEarlyPolicy?.excessStayConsideredAsOT !== false;
+                          const showEarlyComing = earlyComingMins > 0;
+                          const showIndicators = showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing;
+                          return showIndicators ? (
                           <div className="flex flex-wrap gap-1">
-                            {(((record.lateMinutes ?? 0) > 0) || record.isLate || (lateM ?? 0) > 0) && (
+                            {showLate && (
                               <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">
                                 Late: {(record.lateMinutes ?? lateM ?? 0)} min
                               </span>
                             )}
-                            {((record.earlyMinutes ?? 0) > 0 || record.isEarly || (earlyM ?? 0) > 0) && (
+                            {showEarly && (
                               <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-800">Early going: {(record.earlyMinutes ?? earlyM ?? 0)} min</span>
                             )}
-                            {(record.isDeviation || showShortfall) && (
+                            {showDeviation && (
                               <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800" title={record.deviationReason ?? (showShortfall ? 'Shortfall' : 'Deviation')}>D</span>
                             )}
                             {((record.isDeviation && (record.deviationReason ?? '').includes('Shortfall')) || showShortfall) && (
@@ -1717,7 +1919,9 @@ const AttendancePage = () => {
                                   : `Shortfall: ${shortfallMinutes} min`}
                               </span>
                             )}
-                            {record.otMinutes != null && record.otMinutes > 0 && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title="Overtime">OT {formatWorkHoursAsHHMM(record.otMinutes / 60)}</span>}
+                            {showOt && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title="Overtime">OT {formatWorkHoursAsHHMM(record.otMinutes / 60)}</span>}
+                            {showExcessStay && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800" title="Time stayed after OT start threshold">Excess Stay {formatWorkHoursAsHHMM(excessStayMins / 60)}</span>}
+                            {showEarlyComing && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-cyan-100 text-cyan-800" title="Time arrived before shift start">Early Coming {formatWorkHoursAsHHMM(earlyComingMins / 60)}</span>}
                           </div>
                           ) : '-';
                         })()}
@@ -1737,6 +1941,69 @@ const AttendancePage = () => {
         </div>
 
         {/* Sync eSSL Biometric Modal */}
+        {showCompOffModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowCompOffModal(false)}>
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Request Comp Off</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Request Type</label>
+                  <div className="flex gap-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-800">
+                      <input
+                        type="radio"
+                        name="compOffType"
+                        value="FULL_DAY"
+                        checked={compOffRequestType === 'FULL_DAY'}
+                        onChange={() => setCompOffRequestType('FULL_DAY')}
+                      />
+                      Full Day ({compOffSummary?.fullDayMinutes ?? 480} min)
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-800">
+                      <input
+                        type="radio"
+                        name="compOffType"
+                        value="HALF_DAY"
+                        checked={compOffRequestType === 'HALF_DAY'}
+                        onChange={() => setCompOffRequestType('HALF_DAY')}
+                      />
+                      Half Day ({compOffSummary?.halfDayMinutes ?? 240} min)
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Remarks (optional)</label>
+                  <textarea
+                    value={compOffReason}
+                    onChange={(e) => setCompOffReason(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-black"
+                    placeholder="Add reason/notes"
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCompOffModal(false)}
+                  className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateCompOffRequest}
+                  disabled={submittingCompOff}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {submittingCompOff ? 'Submitting...' : 'Submit Request'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showSyncModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowSyncModal(false)}>
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>

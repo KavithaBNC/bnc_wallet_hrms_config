@@ -37,6 +37,21 @@ export interface AttendanceRecordForGrid {
   shift?: { id: string; name: string; startTime: string; endTime: string } | null;
 }
 
+export interface CompOffSummary {
+  employeeId: string;
+  organizationId: string;
+  totalExcessMinutes: number;
+  usedExcessMinutes: number;
+  pendingExcessMinutes: number;
+  availableExcessMinutes: number;
+  availableExcessMinutesForRequest: number;
+  eligibleCompOffDays: number;
+  fullDayMinutes: number;
+  halfDayMinutes: number;
+  conversionEnabled: boolean;
+  combineMultipleDays: boolean;
+}
+
 export const attendanceService = {
   /**
    * Get attendance records for an employee in a date range (merged with shift rules).
@@ -84,5 +99,25 @@ export const attendanceService = {
       { organizationId, assignments }
     );
     return data.data;
+  },
+
+  getCompOffSummary: async (organizationId: string, employeeId?: string): Promise<CompOffSummary> => {
+    const { data } = await api.get<{ data: { summary: CompOffSummary } }>('/attendance/comp-off/summary', {
+      params: { organizationId, employeeId },
+    });
+    return data.data.summary;
+  },
+
+  createCompOffRequest: async (
+    organizationId: string,
+    requestType: 'FULL_DAY' | 'HALF_DAY',
+    reason?: string
+  ) => {
+    const { data } = await api.post<{ data: { request: unknown } }>('/attendance/comp-off/requests', {
+      organizationId,
+      requestType,
+      reason,
+    });
+    return data.data.request;
   },
 };

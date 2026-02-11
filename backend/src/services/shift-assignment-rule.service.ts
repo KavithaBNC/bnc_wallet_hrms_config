@@ -19,6 +19,10 @@ export class ShiftAssignmentRuleService {
     });
     if (!organization) throw new AppError('Organization not found', 404);
 
+    if (!data.shiftId) {
+      throw new AppError('Shift is required', 400);
+    }
+
     if (data.shiftId) {
       const shift = await prisma.shift.findUnique({
         where: { id: data.shiftId },
@@ -49,12 +53,12 @@ export class ShiftAssignmentRuleService {
       data: {
         organizationId: data.organizationId,
         displayName: data.displayName,
-        shiftId: data.shiftId ?? null,
-        paygroupId: data.paygroupId || null,
-        departmentId: data.departmentId || null,
+        shiftId: data.shiftId,
+        paygroupId: data.paygroupId || undefined,
+        departmentId: data.departmentId || undefined,
         effectiveDate: new Date(data.effectiveDate),
-        priority: data.priority ?? null,
-        remarks: data.remarks || null,
+        priority: data.priority ?? undefined,
+        remarks: data.remarks || undefined,
         employeeIds: (data.employeeIds ?? []) as unknown as Prisma.JsonArray,
       },
       include: {
@@ -144,7 +148,7 @@ export class ShiftAssignmentRuleService {
     id: string,
     data: Partial<{
       displayName: string;
-      shiftId: string | null;
+      shiftId: string;
       paygroupId: string | null;
       departmentId: string | null;
       effectiveDate: string;
@@ -171,9 +175,9 @@ export class ShiftAssignmentRuleService {
       where: { id },
       data: {
         ...(data.displayName !== undefined && { displayName: data.displayName }),
-        ...(data.shiftId !== undefined && { shiftId: data.shiftId ?? null }),
-        ...(data.paygroupId !== undefined && { paygroupId: data.paygroupId || null }),
-        ...(data.departmentId !== undefined && { departmentId: data.departmentId || null }),
+        ...(data.shiftId !== undefined && { shiftId: data.shiftId }),
+        ...(data.paygroupId !== undefined && { paygroupId: data.paygroupId || undefined }),
+        ...(data.departmentId !== undefined && { departmentId: data.departmentId || undefined }),
         ...(data.effectiveDate !== undefined && { effectiveDate: new Date(data.effectiveDate) }),
         ...(data.priority !== undefined && { priority: data.priority }),
         ...(data.remarks !== undefined && { remarks: data.remarks }),
@@ -220,9 +224,7 @@ export class ShiftAssignmentRuleService {
     const rules = await prisma.shiftAssignmentRule.findMany({
       where: {
         organizationId,
-        ...(shiftId
-          ? { OR: [{ shiftId }, { shiftId: null }] }
-          : { shiftId: null }),
+        ...(shiftId ? { shiftId } : {}),
         effectiveDate: { lte: dateStart },
         remarks: { contains: '__POLICY_RULES__' },
       },
