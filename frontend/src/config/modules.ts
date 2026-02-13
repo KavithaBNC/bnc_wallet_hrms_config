@@ -36,6 +36,8 @@ export const APP_MODULES: AppModule[] = [
   { path: '/event-configuration/auto-credit-setting', label: 'Auto Credit Setting', resource: 'auto_credit_setting', visibility: 'all', parentPath: '/event-configuration' },
   { path: '/event-configuration/approval-workflow', label: 'Approval Workflow', resource: 'approval_workflow', visibility: 'all', parentPath: '/event-configuration' },
   { path: '/attendance', label: 'Attendance', resource: 'attendance', visibility: 'all' },
+  { path: '/attendance/my-requests/excess-time-request', label: 'My Requests → Excess Time Request', resource: 'attendance', visibility: 'all', parentPath: '/attendance' },
+  { path: '/attendance/excess-time-approval', label: 'Excess Time Approval', resource: 'attendance', visibility: 'all', parentPath: '/attendance' },
   { path: '/attendance-policy', label: 'Attendance Policy', resource: 'attendance_policy', visibility: 'all' },
   { path: '/attendance-policy/late-and-others', label: 'Late & Others', resource: 'attendance_policy', visibility: 'all', parentPath: '/attendance-policy' },
   { path: '/attendance-policy/week-of-assign', label: 'Week of Assign', resource: 'attendance_policy', visibility: 'all', parentPath: '/attendance-policy' },

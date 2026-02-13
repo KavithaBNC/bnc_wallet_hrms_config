@@ -21,7 +21,10 @@ import {
   rejectRegularizationSchema,
   bulkShiftAssignmentsSchema,
   createCompOffRequestSchema,
+  createCompOffConvertRequestSchema,
   queryCompOffSummarySchema,
+  queryCompOffRequestsSchema,
+  queryCompOffRequestDetailsSchema,
   approveCompOffRequestSchema,
   rejectCompOffRequestSchema,
 } from '../utils/attendance.validation';
@@ -153,6 +156,19 @@ router.get(
   attendanceController.getCompOffSummary.bind(attendanceController)
 );
 
+router.get(
+  '/comp-off/requests',
+  validateQuery(queryCompOffRequestsSchema),
+  attendanceController.getCompOffRequests.bind(attendanceController)
+);
+
+router.get(
+  '/comp-off/requests/:id',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  validateQuery(queryCompOffRequestDetailsSchema),
+  attendanceController.getCompOffRequestDetails.bind(attendanceController)
+);
+
 /**
  * @route   POST /api/v1/attendance/comp-off/requests
  * @desc    Create comp off request (manual request by employee)
@@ -162,6 +178,12 @@ router.post(
   '/comp-off/requests',
   validate(createCompOffRequestSchema),
   attendanceController.createCompOffRequest.bind(attendanceController)
+);
+
+router.post(
+  '/comp-off/requests/convert',
+  validate(createCompOffConvertRequestSchema),
+  attendanceController.convertCompOffRequest.bind(attendanceController)
 );
 
 /**

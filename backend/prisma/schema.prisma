@@ -514,6 +514,7 @@ model AttendanceRecord {
   isLate          Boolean?                   @map("is_late")
   lateMinutes     Int?                       @map("late_minutes")
   otMinutes       Int?                       @map("ot_minutes")
+  excessStayMinutes Int?                     @map("excess_stay_minutes")
   employee        Employee                   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   shift           Shift?                     @relation(fields: [shiftId], references: [id])
   regularizations AttendanceRegularization[]

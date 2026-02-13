@@ -11,9 +11,19 @@ import {
   QueryAttendanceSummaryInput,
   QueryAttendanceReportInput,
 } from '../utils/attendance.validation';
+import {
+  computeExcessStayMinutesByShift,
+  EventRuleData,
+  getApplicableExcessTimeRule,
+  isExcessTimeConversionEnabled,
+} from '../utils/excess-time-rule';
 
 export class AttendanceService {
   private static readonly DEFAULT_TIMEZONE = 'Asia/Kolkata';
+  private isMissingExcessStayColumnError(error: unknown): boolean {
+    const prismaErr = error as { code?: string; message?: string };
+    return prismaErr?.code === 'P2022' || String(prismaErr?.message || '').includes('excess_stay_minutes');
+  }
 
   private getDateKeyInTimeZone(date: Date, timeZone: string): string {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -447,7 +457,14 @@ export class AttendanceService {
         // ignore
       }
 
+      let excessRuleData: EventRuleData | null = null;
       if (checkOut) {
+        try {
+          const rule = await getApplicableExcessTimeRule(employeeId, employee.organizationId, dayStart);
+          excessRuleData = rule.ruleData;
+        } catch {
+          excessRuleData = null;
+        }
         // Full policy when we have both check-in and check-out
         const breakHours =
           record.breakHours != null
@@ -462,7 +479,8 @@ export class AttendanceService {
           shiftForCompute,
           policyRules,
           dayStart,
-          status
+          status,
+          excessRuleData
         );
         await prisma.attendanceRecord.update({
           where: { id: record.id },
@@ -471,6 +489,7 @@ export class AttendanceService {
             workHours: new Prisma.Decimal(computed.workHours),
             overtimeHours: new Prisma.Decimal(computed.overtimeHours),
             otMinutes: computed.otMinutes > 0 ? computed.otMinutes : null,
+            excessStayMinutes: computed.excessStayMinutes > 0 ? computed.excessStayMinutes : null,
             isLate: computed.isLate,
             lateMinutes: computed.lateMinutes ?? null,
             isEarly: computed.isEarly,
@@ -501,6 +520,7 @@ export class AttendanceService {
             lateMinutes: lateMinutes ?? null,
             isEarly: false,
             earlyMinutes: null,
+            excessStayMinutes: null,
           },
         });
       }
@@ -605,11 +625,13 @@ export class AttendanceService {
     shift: { startTime: string | null; endTime: string | null; breakDuration?: number | null } | null,
     policyRules: Record<string, any> | null,
     _attendanceDate: Date,
-    attendanceStatus?: AttendanceStatus
+    attendanceStatus?: AttendanceStatus,
+    excessRuleData?: EventRuleData | null
   ): Promise<{
     workHours: number;
     overtimeHours: number;
     otMinutes: number;
+    excessStayMinutes: number;
     isLate: boolean;
     lateMinutes: number | null;
     isEarly: boolean;
@@ -621,7 +643,7 @@ export class AttendanceService {
     const checkInLocal = new Date(checkIn);
     const dayStart = new Date(checkInLocal.getFullYear(), checkInLocal.getMonth(), checkInLocal.getDate(), 0, 0, 0, 0);
 
-    let workHours = this.calculateWorkHours(checkIn, checkOut, breakHours);
+    const workHours = this.calculateWorkHours(checkIn, checkOut, breakHours);
     let overtimeHours = 0;
 
     // Late coming (supports shiftStartGraceMinutes or shiftStartGraceTime HH:MM)
@@ -677,6 +699,14 @@ export class AttendanceService {
     if (breakDeviation) deviationReasons.push('Excess break');
     if (shortfallDeviation && !breakDeviation) deviationReasons.push('Shortfall');
     const deviationReason = isDeviation ? deviationReasons.join('; ') : null;
+
+    let excessStayMinutes = 0;
+    if (shift?.startTime && shift?.endTime) {
+      excessStayMinutes = computeExcessStayMinutesByShift(checkIn, checkOut, shift);
+      if (!isExcessTimeConversionEnabled(excessRuleData)) {
+        excessStayMinutes = 0;
+      }
+    }
 
     // OT
     // If the attendance day is LEAVE, honor policy toggle:
@@ -735,6 +765,7 @@ export class AttendanceService {
       workHours,
       overtimeHours,
       otMinutes: otMinutes > 0 ? otMinutes : 0,
+      excessStayMinutes: excessStayMinutes > 0 ? excessStayMinutes : 0,
       isLate,
       lateMinutes,
       isEarly: isEarlyGoing,
@@ -991,6 +1022,13 @@ export class AttendanceService {
           breakDuration: employee.shift.breakDuration,
         }
       : null;
+    let excessRuleData: EventRuleData | null = null;
+    try {
+      const rule = await getApplicableExcessTimeRule(employeeId, employee.organizationId, attendanceDateForUpdate);
+      excessRuleData = rule.ruleData;
+    } catch {
+      excessRuleData = null;
+    }
     const computed = await this.computePolicyFieldsForDay(
       checkIn,
       now,
@@ -998,7 +1036,8 @@ export class AttendanceService {
       shiftForCompute,
       policyRules,
       attendanceDateForUpdate,
-      attendance.status as AttendanceStatus
+      attendance.status as AttendanceStatus,
+      excessRuleData
     );
 
     // If no policy, apply shift-based OT fallback
@@ -1041,6 +1080,7 @@ export class AttendanceService {
         workHours: new Prisma.Decimal(computed.workHours),
         overtimeHours: new Prisma.Decimal(overtimeHours),
         otMinutes: computed.otMinutes > 0 ? computed.otMinutes : null,
+        excessStayMinutes: computed.excessStayMinutes > 0 ? computed.excessStayMinutes : null,
         isLate: computed.isLate,
         lateMinutes: computed.lateMinutes ?? null,
         isEarly: computed.isEarly,
@@ -1152,34 +1192,93 @@ export class AttendanceService {
     const calendarSkip = isCalendarSingleEmployee ? 0 : skip;
 
     const [records, total] = await Promise.all([
-      prisma.attendanceRecord.findMany({
-        where,
-        skip: calendarSkip,
-        take,
-        orderBy: {
-          [query.sortBy || 'date']: query.sortOrder || 'desc',
-        },
-        include: {
-          employee: {
+      (async () => {
+        try {
+          return await prisma.attendanceRecord.findMany({
+            where,
+            skip: calendarSkip,
+            take,
+            orderBy: {
+              [query.sortBy || 'date']: query.sortOrder || 'desc',
+            },
+            include: {
+              employee: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  employeeCode: true,
+                  organizationId: true,
+                },
+              },
+              shift: {
+                select: {
+                  id: true,
+                  name: true,
+                  startTime: true,
+                  endTime: true,
+                },
+              },
+            },
+          });
+        } catch (error) {
+          if (!this.isMissingExcessStayColumnError(error)) throw error;
+          return await prisma.attendanceRecord.findMany({
+            where,
+            skip: calendarSkip,
+            take,
+            orderBy: {
+              [query.sortBy || 'date']: query.sortOrder || 'desc',
+            },
             select: {
               id: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-              employeeCode: true,
-              organizationId: true,
+              employeeId: true,
+              shiftId: true,
+              date: true,
+              checkIn: true,
+              checkOut: true,
+              totalHours: true,
+              breakHours: true,
+              workHours: true,
+              overtimeHours: true,
+              status: true,
+              location: true,
+              checkInMethod: true,
+              notes: true,
+              approvedBy: true,
+              approvedAt: true,
+              createdAt: true,
+              updatedAt: true,
+              deviationReason: true,
+              earlyMinutes: true,
+              isDeviation: true,
+              isEarly: true,
+              isLate: true,
+              lateMinutes: true,
+              otMinutes: true,
+              employee: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  employeeCode: true,
+                  organizationId: true,
+                },
+              },
+              shift: {
+                select: {
+                  id: true,
+                  name: true,
+                  startTime: true,
+                  endTime: true,
+                },
+              },
             },
-          },
-          shift: {
-            select: {
-              id: true,
-              name: true,
-              startTime: true,
-              endTime: true,
-            },
-          },
-        },
-      }),
+          });
+        }
+      })(),
       prisma.attendanceRecord.count({ where }),
     ]);
 
@@ -1239,7 +1338,13 @@ export class AttendanceService {
         record.status === 'PRESENT' &&
         record.checkIn &&
         record.checkOut &&
-        (record.earlyMinutes == null || record.isDeviation == null || record.otMinutes == null || record.otMinutes === 0) &&
+        (
+          record.earlyMinutes == null ||
+          record.isDeviation == null ||
+          record.otMinutes == null ||
+          record.otMinutes === 0 ||
+          record.excessStayMinutes == null
+        ) &&
         record.shift?.endTime &&
         !isSynthetic;
 
@@ -1280,6 +1385,13 @@ export class AttendanceService {
       const breakHours = record.breakHours != null ? parseFloat(record.breakHours.toString()) : 0;
       const checkIn = new Date(record.checkIn);
       const checkOut = new Date(record.checkOut);
+      let excessRuleData: EventRuleData | null = null;
+      try {
+        const rule = await getApplicableExcessTimeRule(employeeId, orgId, date);
+        excessRuleData = rule.ruleData;
+      } catch {
+        excessRuleData = null;
+      }
 
       const computed = await this.computePolicyFieldsForDay(
         checkIn,
@@ -1288,7 +1400,8 @@ export class AttendanceService {
         shiftForCompute,
         policyRules,
         date,
-        record.status as AttendanceStatus
+        record.status as AttendanceStatus,
+        excessRuleData
       );
 
       try {
@@ -1304,6 +1417,7 @@ export class AttendanceService {
             isDeviation: computed.isDeviation,
             deviationReason: computed.deviationReason ?? null,
             otMinutes: computed.otMinutes > 0 ? computed.otMinutes : null,
+            excessStayMinutes: computed.excessStayMinutes > 0 ? computed.excessStayMinutes : null,
           },
         });
       } catch {
@@ -1319,6 +1433,7 @@ export class AttendanceService {
         isDeviation: computed.isDeviation,
         deviationReason: computed.deviationReason ?? null,
         otMinutes: computed.otMinutes > 0 ? computed.otMinutes : null,
+        excessStayMinutes: computed.excessStayMinutes > 0 ? computed.excessStayMinutes : null,
       });
     }
     return out;
@@ -1942,13 +2057,37 @@ export class AttendanceService {
           },
         },
       }),
-      prisma.attendanceRecord.findMany({
-        where: {
-          employeeId,
-          date: { gte: monthStart, lte: monthEnd },
-        },
-        include: { shift: { select: { startTime: true, endTime: true } } },
-      }),
+      (async () => {
+        try {
+          return await prisma.attendanceRecord.findMany({
+            where: {
+              employeeId,
+              date: { gte: monthStart, lte: monthEnd },
+            },
+            include: { shift: { select: { name: true, startTime: true, endTime: true } } },
+          });
+        } catch (error) {
+          if (!this.isMissingExcessStayColumnError(error)) throw error;
+          return await prisma.attendanceRecord.findMany({
+            where: {
+              employeeId,
+              date: { gte: monthStart, lte: monthEnd },
+            },
+            select: {
+              id: true,
+              employeeId: true,
+              shiftId: true,
+              date: true,
+              status: true,
+              checkIn: true,
+              checkOut: true,
+              workHours: true,
+              overtimeHours: true,
+              shift: { select: { name: true, startTime: true, endTime: true } },
+            },
+          });
+        }
+      })(),
       prisma.leaveRequest.findMany({
         where: {
           employeeId,
@@ -2024,15 +2163,43 @@ export class AttendanceService {
     }
 
     let excessStayMinutes = 0;
-    let shortfallMinutes = 0;
+    const shortfallMinutes = 0;
     let lateCount = 0;
     let lateMinutes = 0;
     let earlyGoingCount = 0;
     let earlyGoingMinutes = 0;
 
     for (const r of records) {
-      const ot = r.overtimeHours ? Number(r.overtimeHours) : 0;
-      if (ot > 0) excessStayMinutes += Math.round(ot * 60);
+      const rExcessStayMinutes = (r as { excessStayMinutes?: number | null }).excessStayMinutes;
+      const shiftName = String((r.shift as { name?: string | null } | null)?.name ?? '').trim().toLowerCase();
+      const isWeekOffLike =
+        r.status === AttendanceStatus.WEEKEND ||
+        r.status === AttendanceStatus.HOLIDAY ||
+        shiftName === 'weekoff' ||
+        shiftName === 'week off' ||
+        shiftName === 'w';
+      if (rExcessStayMinutes != null) {
+        excessStayMinutes += Math.max(0, Number(rExcessStayMinutes));
+      } else if (isWeekOffLike && r.checkIn && r.checkOut) {
+        const workHours = Number(r.workHours ?? 0);
+        if (Number.isFinite(workHours) && workHours > 0) {
+          excessStayMinutes += Math.max(0, Math.round(workHours * 60));
+        } else {
+          excessStayMinutes += Math.max(
+            0,
+            Math.round((new Date(r.checkOut).getTime() - new Date(r.checkIn).getTime()) / 60000)
+          );
+        }
+      } else if (r.checkIn && r.checkOut && r.shift?.startTime && r.shift?.endTime) {
+        excessStayMinutes += computeExcessStayMinutesByShift(
+          new Date(r.checkIn),
+          new Date(r.checkOut),
+          { startTime: r.shift.startTime, endTime: r.shift.endTime }
+        );
+      } else {
+        const ot = r.overtimeHours ? Number(r.overtimeHours) : 0;
+        if (ot > 0) excessStayMinutes += Math.round(ot * 60);
+      }
       if (r.shift?.startTime && r.checkIn) {
         const [sh, sm] = (r.shift.startTime as string).split(':').map(Number);
         const shiftStart = new Date(r.date);
@@ -2228,30 +2395,41 @@ export class AttendanceService {
     const permissionRows = (byCategory.get('Permission') || []).map(balanceRow);
     const presentRows = (byCategory.get('Present') || []).map(balanceRow);
 
+    // Build final leave rows: start with component-based rows, then append any
+    // EmployeeLeaveBalance entries that aren't already matched (e.g. "Comp Off")
+    let finalLeaveRows: typeof leaveRows;
+    if (leaveRows.length > 0) {
+      // Collect names already present (lowered) to avoid duplicates
+      const coveredNames = new Set(leaveRows.map((r) => r.name?.toLowerCase().trim()));
+      const extraRows = leaveBalances
+        .filter((b) => !coveredNames.has(b.leaveType.name.toLowerCase().trim()))
+        .map((b) => computeMonthlyLeaveRow(b));
+      finalLeaveRows = [...leaveRows, ...extraRows];
+    } else if (leaveBalances.length > 0) {
+      finalLeaveRows = leaveBalances.map((b) => computeMonthlyLeaveRow(b));
+    } else {
+      finalLeaveRows = leaveTypes.map((lt) => {
+        const yearEntitlement =
+          (lt.defaultDaysPerYear ? Number(lt.defaultDaysPerYear) : null) ??
+          entitlementFromAutoCreditByLeaveTypeId.get(lt.id) ??
+          0;
+        const usedBefore = usageBeforeMonth.get(lt.id) ?? 0;
+        const usedThis = usageThisMonth.get(lt.id) ?? 0;
+        const opening = Math.max(0, yearEntitlement - usedBefore);
+        const closing = Math.max(0, opening - usedThis);
+        return {
+          name: lt.name,
+          opening,
+          credit: 0,
+          used: usedThis,
+          balance: closing,
+        };
+      });
+    }
+
     return {
       shortFall,
-      leave:
-        leaveRows.length > 0
-          ? leaveRows
-          : leaveBalances.length > 0
-            ? leaveBalances.map((b) => computeMonthlyLeaveRow(b))
-            : leaveTypes.map((lt) => {
-                const yearEntitlement =
-                  (lt.defaultDaysPerYear ? Number(lt.defaultDaysPerYear) : null) ??
-                  entitlementFromAutoCreditByLeaveTypeId.get(lt.id) ??
-                  0;
-                const usedBefore = usageBeforeMonth.get(lt.id) ?? 0;
-                const usedThis = usageThisMonth.get(lt.id) ?? 0;
-                const opening = Math.max(0, yearEntitlement - usedBefore);
-                const closing = Math.max(0, opening - usedThis);
-                return {
-                  name: lt.name,
-                  opening,
-                  credit: 0,
-                  used: usedThis,
-                  balance: closing,
-                };
-              }),
+      leave: finalLeaveRows,
       onduty: ondutyRows,
       permission: permissionRows,
       present: presentRows,

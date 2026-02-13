@@ -10,6 +10,7 @@
     "plugin:@typescript-eslint/recommended"
   ],
   "plugins": ["@typescript-eslint"],
+  "ignorePatterns": ["dist/**", "node_modules/**", "prisma/**", "scripts/**"],
   "env": {
     "node": true,
     "es6": true

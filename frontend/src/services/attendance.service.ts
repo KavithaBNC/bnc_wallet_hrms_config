@@ -50,6 +50,55 @@ export interface CompOffSummary {
   halfDayMinutes: number;
   conversionEnabled: boolean;
   combineMultipleDays: boolean;
+  eligibleConversionMinutes?: number;
+  remainingAfterEligibleConversionMinutes?: number;
+  expiryDaysForWorkDay?: number;
+}
+
+export interface CompOffRequestItem {
+  id: string;
+  employeeId: string;
+  organizationId: string;
+  requestType: 'FULL_DAY' | 'HALF_DAY';
+  requestDays: number | string;
+  convertedDays: number;
+  usedExcessMinutes: number;
+  convertedMinutes: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  reason?: string | null;
+  reviewComments?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  employee?: {
+    id: string;
+    employeeCode: string;
+    firstName: string;
+    lastName: string;
+    department?: { id: string; name: string };
+  };
+  departmentName?: string | null;
+  requestedOn?: string;
+  totalExcessMinutes?: number;
+  eligibleConversionDays?: number;
+  remainingMinutes?: number;
+}
+
+export interface CompOffRequestDetails {
+  request: CompOffRequestItem & {
+    employeeName: string;
+    departmentName?: string | null;
+  };
+  summary: CompOffSummary;
+  conversionRules: {
+    halfDayMinutes: number;
+    fullDayMinutes: number;
+    combineMultipleDays: boolean;
+  };
+  dailyBreakdown: Array<{
+    date: string;
+    excessMinutes: number;
+    expiryDate: string | null;
+  }>;
 }
 
 export const attendanceService = {
@@ -106,6 +155,67 @@ export const attendanceService = {
       params: { organizationId, employeeId },
     });
     return data.data.summary;
+  },
+
+  getCompOffRequests: async (params: {
+    organizationId: string;
+    employeeId?: string;
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const { data } = await api.get<{
+      data: {
+        requests: CompOffRequestItem[];
+        summary: CompOffSummary;
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+      };
+    }>('/attendance/comp-off/requests', { params });
+    return data.data;
+  },
+
+  getCompOffRequestDetails: async (requestId: string, organizationId: string): Promise<CompOffRequestDetails> => {
+    const { data } = await api.get<{ data: CompOffRequestDetails }>(`/attendance/comp-off/requests/${requestId}`, {
+      params: { organizationId },
+    });
+    return data.data;
+  },
+
+  approveCompOffRequest: async (requestId: string, reviewComments?: string) => {
+    const { data } = await api.put<{ data: { request: CompOffRequestItem } }>(
+      `/attendance/comp-off/requests/${requestId}/approve`,
+      { reviewComments }
+    );
+    return data.data.request;
+  },
+
+  rejectCompOffRequest: async (requestId: string, reviewComments: string) => {
+    const { data } = await api.put<{ data: { request: CompOffRequestItem } }>(
+      `/attendance/comp-off/requests/${requestId}/reject`,
+      { reviewComments }
+    );
+    return data.data.request;
+  },
+
+  convertExcessTimeToCompOff: async (organizationId: string, reason?: string, employeeId?: string) => {
+    const { data } = await api.post<{
+      data: {
+        request: CompOffRequestItem;
+        conversion: {
+          availableExcessMinutesForRequest: number;
+          eligibleCompOffDays: number;
+          convertedMinutes: number;
+          remainingMinutes: number;
+        };
+      };
+    }>('/attendance/comp-off/requests/convert', {
+      organizationId,
+      reason,
+      employeeId,
+    });
+    return data.data;
   },
 
   createCompOffRequest: async (

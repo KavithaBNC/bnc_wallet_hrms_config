@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { config } from './config/config';
 import { logger } from './utils/logger';
+import { prisma } from './utils/prisma';
 import { errorHandler } from './middlewares/errorHandler';
 import { notFound } from './middlewares/notFound';
 
@@ -222,20 +223,28 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
+const shutdown = async (signal: string) => {
+  logger.info(`${signal} signal received: closing HTTP server`);
+
+  server.close(async () => {
     logger.info('HTTP server closed');
-    process.exit(0);
+    try {
+      await prisma.$disconnect();
+      logger.info('Prisma client disconnected');
+    } catch (error) {
+      logger.error('Error while disconnecting Prisma client', error);
+    } finally {
+      process.exit(0);
+    }
   });
+};
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
 });
 
 process.on('SIGINT', () => {
-  logger.info('SIGINT signal received: closing HTTP server');
-  server.close(() => {
-    logger.info('HTTP server closed');
-    process.exit(0);
-  });
+  void shutdown('SIGINT');
 });
 
 export default app;

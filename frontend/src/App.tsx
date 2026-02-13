@@ -28,6 +28,8 @@ import AutoCreditSettingFormPage from './pages/AutoCreditSettingFormPage';
 import ApprovalWorkflowPage from './pages/ApprovalWorkflowPage';
 import ApprovalWorkflowFormPage from './pages/ApprovalWorkflowFormPage';
 import AttendancePage from './pages/AttendancePage';
+import ExcessTimeRequestPage from './pages/ExcessTimeRequestPage';
+import ExcessTimeApprovalPage from './pages/ExcessTimeApprovalPage';
 import ApplyEventPage from './pages/ApplyEventPage';
 import FaceAttendancePage from './pages/FaceAttendancePage';
 import AttendancePolicyPage from './pages/AttendancePolicyPage';
@@ -403,6 +405,26 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <FaceAttendancePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance/my-requests/excess-time-request"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeRequestPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance/excess-time-approval"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeApprovalPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

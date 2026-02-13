@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { Prisma } from '@prisma/client';
+import { CompOffRequestStatus, Prisma } from '@prisma/client';
 import { attendanceService } from '../services/attendance.service';
 import { biometricSyncService } from '../services/biometric-sync.service';
 import { compOffRequestService } from '../services/comp-off-request.service';
@@ -318,6 +318,101 @@ export class AttendanceController {
     }
   }
 
+  async getCompOffRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      const userRole = req.user?.role;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+      const employee = await prisma.employee.findUnique({
+        where: { userId },
+        select: { id: true, organizationId: true, reportingManagerId: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ status: 'fail', message: 'Employee profile not found' });
+      }
+
+      const organizationId = (req.query.organizationId as string | undefined) || employee.organizationId;
+      if (organizationId !== employee.organizationId) {
+        return res.status(403).json({ status: 'fail', message: 'Organization mismatch' });
+      }
+
+      const queryEmployeeId = req.query.employeeId as string | undefined;
+      let targetEmployeeId: string | undefined = undefined;
+      if (queryEmployeeId && queryEmployeeId !== employee.id) {
+        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+          const target = await prisma.employee.findUnique({
+            where: { id: queryEmployeeId },
+            select: { id: true, organizationId: true },
+          });
+          if (!target || target.organizationId !== employee.organizationId) {
+            return res.status(403).json({ status: 'fail', message: 'Employee organization mismatch' });
+          }
+          targetEmployeeId = queryEmployeeId;
+        } else if (userRole === 'MANAGER') {
+          const subordinate = await prisma.employee.findFirst({
+            where: { id: queryEmployeeId, reportingManagerId: employee.id },
+            select: { id: true },
+          });
+          if (!subordinate) {
+            return res.status(403).json({ status: 'fail', message: 'Access denied for selected employee' });
+          }
+          targetEmployeeId = queryEmployeeId;
+        }
+      } else if (queryEmployeeId === employee.id) {
+        targetEmployeeId = employee.id;
+      } else if (userRole !== 'HR_MANAGER' && userRole !== 'ORG_ADMIN' && userRole !== 'SUPER_ADMIN' && userRole !== 'MANAGER') {
+        // Employee/default roles can only view own requests.
+        targetEmployeeId = employee.id;
+      }
+
+      const status = req.query.status as CompOffRequestStatus | undefined;
+      const result = await compOffRequestService.listRequests(employee.id, organizationId, {
+        status,
+        page: req.query.page as string | undefined,
+        limit: req.query.limit as string | undefined,
+        targetEmployeeId,
+        startDate: req.query.startDate as string | undefined,
+        endDate: req.query.endDate as string | undefined,
+        userRole,
+      });
+      return res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getCompOffRequestDetails(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      const userRole = req.user?.role;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+      const requester = await prisma.employee.findUnique({
+        where: { userId },
+        select: { id: true, organizationId: true },
+      });
+      if (!requester) {
+        return res.status(404).json({ status: 'fail', message: 'Employee profile not found' });
+      }
+      const organizationId = (req.query.organizationId as string | undefined) || requester.organizationId;
+      if (organizationId !== requester.organizationId) {
+        return res.status(403).json({ status: 'fail', message: 'Organization mismatch' });
+      }
+      const data = await compOffRequestService.getRequestDetails(
+        req.params.id,
+        organizationId,
+        requester.id,
+        userRole
+      );
+      return res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   /**
    * Create comp off request for logged-in employee.
    * POST /api/v1/attendance/comp-off/requests
@@ -361,6 +456,62 @@ export class AttendanceController {
         status: 'success',
         message: 'Comp Off request submitted successfully',
         data: { request },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async convertCompOffRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({ status: 'fail', message: 'Authentication required' });
+      }
+      const employee = await prisma.employee.findUnique({
+        where: { userId },
+        select: { id: true, organizationId: true },
+      });
+      if (!employee) {
+        return res.status(404).json({ status: 'fail', message: 'Employee profile not found' });
+      }
+      const organizationId = (req.body.organizationId as string | undefined) || employee.organizationId;
+      if (organizationId !== employee.organizationId) {
+        return res.status(403).json({ status: 'fail', message: 'Organization mismatch' });
+      }
+
+      const queryEmployeeId = req.body.employeeId as string | undefined;
+      let targetEmployeeId = employee.id;
+      if (queryEmployeeId && queryEmployeeId !== employee.id) {
+        const userRole = req.user?.role;
+        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+          const targetEmployee = await prisma.employee.findUnique({
+            where: { id: queryEmployeeId },
+            select: { id: true, organizationId: true },
+          });
+          if (!targetEmployee || targetEmployee.organizationId !== employee.organizationId) {
+            return res.status(403).json({ status: 'fail', message: 'Employee organization mismatch' });
+          }
+          targetEmployeeId = queryEmployeeId;
+        } else if (userRole === 'MANAGER') {
+          const subordinate = await prisma.employee.findFirst({
+            where: { id: queryEmployeeId, reportingManagerId: employee.id },
+            select: { id: true },
+          });
+          if (!subordinate) {
+            return res.status(403).json({ status: 'fail', message: 'Access denied for selected employee' });
+          }
+          targetEmployeeId = queryEmployeeId;
+        }
+      }
+
+      const result = await compOffRequestService.createAutoConversionRequest(targetEmployeeId, organizationId, {
+        reason: req.body.reason,
+      });
+      return res.status(201).json({
+        status: 'success',
+        message: 'Excess Time request submitted for conversion approval',
+        data: result,
       });
     } catch (error) {
       return next(error);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { attendanceService, type CompOffSummary } from '../services/attendance.service';
+import { attendanceService, type CompOffSummary, type CompOffRequestItem } from '../services/attendance.service';
 import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
@@ -38,6 +38,7 @@ interface AttendanceRecord {
   isDeviation?: boolean | null;
   deviationReason?: string | null;
   otMinutes?: number | null;
+  excessStayMinutes?: number | null;
 }
 
 interface AttendancePunch {
@@ -166,6 +167,26 @@ function getMinOTMinutes(policy: LateEarlyPolicy): number {
 
 function getExcessStayMinutes(record: AttendanceRecord, shiftOverride: ShiftLike, _policy: LateEarlyPolicy): number {
   const shift = effectiveShift(record, shiftOverride ?? null);
+  const shiftName = String((shift as { name?: string | null } | null)?.name ?? '').trim().toLowerCase();
+  const isWeekOffLike =
+    record.status === 'WEEKEND' ||
+    record.status === 'HOLIDAY' ||
+    shiftName === 'weekoff' ||
+    shiftName === 'week off' ||
+    shiftName === 'w';
+
+  if (record.excessStayMinutes != null) {
+    return Math.max(0, Number(record.excessStayMinutes));
+  }
+  if (isWeekOffLike) {
+    if (!record.checkIn || !record.checkOut) return 0;
+    const workHours = Number(record.workHours ?? 0);
+    if (Number.isFinite(workHours) && workHours > 0) {
+      return Math.max(0, Math.round(workHours * 60));
+    }
+    const mins = Math.round((new Date(record.checkOut).getTime() - new Date(record.checkIn).getTime()) / (1000 * 60));
+    return Math.max(0, mins);
+  }
   if (!record.checkIn || !record.checkOut || !shift?.startTime || !shift?.endTime) return 0;
   const inTime = new Date(record.checkIn);
   const outTime = new Date(record.checkOut);
@@ -310,9 +331,10 @@ interface AttendanceCalendarViewProps {
   employeeId?: string;
   organizationId?: string;
   lateEarlyPolicy?: LateEarlyPolicy;
+  approvedCompOffs?: CompOffRequestItem[];
 }
 
-const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, lateEarlyPolicy = null }: AttendanceCalendarViewProps) => {
+const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, lateEarlyPolicy = null, approvedCompOffs = [] }: AttendanceCalendarViewProps) => {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -424,6 +446,18 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
     punchesByDateEmployee.get(key)!.push(p);
   });
   punchesByDateEmployee.forEach((arr) => arr.sort((a, b) => new Date(a.punchTime).getTime() - new Date(b.punchTime).getTime()));
+
+  // Map approved comp-off requests by approval date for calendar badges (only current month)
+  const compOffByDate = new Map<string, CompOffRequestItem[]>();
+  const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+  const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
+  (approvedCompOffs || []).forEach((co) => {
+    const approvedDate = co.reviewedAt ? format(new Date(co.reviewedAt), 'yyyy-MM-dd') : null;
+    if (approvedDate && approvedDate >= monthStartStr && approvedDate <= monthEndStr) {
+      if (!compOffByDate.has(approvedDate)) compOffByDate.set(approvedDate, []);
+      compOffByDate.get(approvedDate)!.push(co);
+    }
+  });
 
   const navigateMonth = (direction: 'prev' | 'next') => {
     try {
@@ -633,7 +667,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                           const showDeviation = !!record.isDeviation || showShortfall;
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const showOt = record.otMinutes != null && record.otMinutes > 0 && record.otMinutes >= minOtMins;
-                          const showExcessStay = excessStayMins > 0 && lateEarlyPolicy?.excessStayConsideredAsOT !== false;
+                          const showExcessStay = excessStayMins > 0;
                           const showEarlyComing = earlyComingMins > 0;
                           const showIndicators = showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing;
                           return showIndicators ? (
@@ -702,6 +736,18 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                       : 'No records'}
                   </div>
                 )}
+
+                {/* Comp Off credited badge */}
+                {(compOffByDate.get(dateStr) || []).map((co) => (
+                  <div
+                    key={co.id}
+                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800 border border-green-300"
+                    title={`Comp Off approved on ${co.reviewedAt ? new Date(co.reviewedAt).toLocaleString() : dateStr}`}
+                  >
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    Comp Off – {Number(co.requestDays) === 1 ? '1 Day' : `${co.requestDays} Day`}
+                  </div>
+                ))}
               </div>
             </div>
           );
@@ -725,6 +771,10 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
         <div className="flex items-center space-x-2">
           <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
           <span className="text-gray-600">Leave</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className="w-3 h-3 bg-green-600 rounded-full"></div>
+          <span className="text-gray-600">Comp Off Credited</span>
         </div>
       </div>
     </div>
@@ -787,10 +837,12 @@ const AttendancePage = () => {
   const [compOffSummary, setCompOffSummary] = useState<CompOffSummary | null>(null);
   const [loadingCompOffSummary, setLoadingCompOffSummary] = useState(false);
   const [showCompOffModal, setShowCompOffModal] = useState(false);
-  const [compOffRequestType, setCompOffRequestType] = useState<'FULL_DAY' | 'HALF_DAY'>('FULL_DAY');
   const [compOffReason, setCompOffReason] = useState('');
   const [submittingCompOff, setSubmittingCompOff] = useState(false);
   const [compOffMessage, setCompOffMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Approved comp-off entries for calendar display
+  const [approvedCompOffs, setApprovedCompOffs] = useState<CompOffRequestItem[]>([]);
 
   // Manual punch (for testing): any date, multiple In/Out per day
   const [manualPunchDate, setManualPunchDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -896,6 +948,7 @@ const AttendancePage = () => {
             fetchPunches(),
             checkTodayStatus(),
             fetchCompOffSummary(),
+            fetchApprovedCompOffs(),
           ]);
         } catch (err: any) {
           console.error('Error in useEffect:', err);
@@ -938,6 +991,7 @@ const AttendancePage = () => {
         fetchMyRecords({ silent: true });
         fetchPunches();
         fetchCompOffSummary({ silent: true });
+        fetchApprovedCompOffs();
       }
     };
     window.addEventListener('focus', onFocus);
@@ -1402,6 +1456,31 @@ const AttendancePage = () => {
     }
   };
 
+  // Fetch approved comp-off requests for calendar overlay
+  const fetchApprovedCompOffs = async () => {
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    if (!organizationId) {
+      setApprovedCompOffs([]);
+      return;
+    }
+    const targetEmpId =
+      viewMode === 'my' || !canViewTeamAttendance
+        ? user?.employee?.id
+        : selectedEmployeeId || user?.employee?.id;
+    try {
+      const res = await attendanceService.getCompOffRequests({
+        organizationId,
+        employeeId: targetEmpId,
+        status: 'APPROVED',
+        page: 1,
+        limit: 500,
+      });
+      setApprovedCompOffs(res.requests || []);
+    } catch {
+      setApprovedCompOffs([]);
+    }
+  };
+
   const showingSelectedEmployeeSummary =
     canChooseEmployeeCompOffSummary && viewMode === 'team' && !!selectedEmployeeId;
   const isOwnCompOffSummary = !showingSelectedEmployeeSummary || selectedEmployeeId === user?.employee?.id;
@@ -1409,7 +1488,6 @@ const AttendancePage = () => {
   const handleOpenCompOffModal = () => {
     setCompOffMessage(null);
     setCompOffReason('');
-    setCompOffRequestType('FULL_DAY');
     setShowCompOffModal(true);
   };
 
@@ -1419,19 +1497,20 @@ const AttendancePage = () => {
       setCompOffMessage({ type: 'error', text: 'Organization not found.' });
       return;
     }
+    if ((compOffSummary?.eligibleCompOffDays ?? 0) <= 0) {
+      const minMinutes = compOffSummary?.halfDayMinutes ?? 240;
+      setCompOffMessage({ type: 'error', text: `No eligible conversion. Minimum ${minMinutes} minutes must be available in a valid bucket.` });
+      return;
+    }
     try {
       setSubmittingCompOff(true);
       setCompOffMessage(null);
-      await attendanceService.createCompOffRequest(
-        organizationId,
-        compOffRequestType,
-        compOffReason.trim() || undefined
-      );
+      await attendanceService.convertExcessTimeToCompOff(organizationId, compOffReason.trim() || undefined);
       setShowCompOffModal(false);
-      setCompOffMessage({ type: 'success', text: 'Comp Off request submitted and sent for approval.' });
+      setCompOffMessage({ type: 'success', text: 'Excess Time conversion request submitted and sent for approval.' });
       await fetchCompOffSummary();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Failed to submit Comp Off request';
+      const msg = err.response?.data?.message || err.message || 'Failed to submit Excess Time conversion request';
       setCompOffMessage({ type: 'error', text: msg });
     } finally {
       setSubmittingCompOff(false);
@@ -1828,6 +1907,7 @@ const AttendancePage = () => {
                   employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : (selectedEmployeeId || user?.employee?.id)}
                   organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
                   lateEarlyPolicy={lateEarlyPolicy}
+                  approvedCompOffs={approvedCompOffs}
                 />
               </div>
               <MonthlyDetailsSidebar
@@ -1927,7 +2007,7 @@ const AttendancePage = () => {
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const otMinutes = record.otMinutes ?? 0;
                           const showOt = otMinutes > 0 && otMinutes >= minOtMins;
-                          const showExcessStay = excessStayMins > 0 && lateEarlyPolicy?.excessStayConsideredAsOT !== false;
+                          const showExcessStay = excessStayMins > 0;
                           const showEarlyComing = earlyComingMins > 0;
                           const showIndicators = showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing;
                           return showIndicators ? (
@@ -1975,32 +2055,12 @@ const AttendancePage = () => {
         {showCompOffModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowCompOffModal(false)}>
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Request Comp Off</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Convert to Comp Off</h3>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Request Type</label>
-                  <div className="flex gap-4">
-                    <label className="inline-flex items-center gap-2 text-sm text-gray-800">
-                      <input
-                        type="radio"
-                        name="compOffType"
-                        value="FULL_DAY"
-                        checked={compOffRequestType === 'FULL_DAY'}
-                        onChange={() => setCompOffRequestType('FULL_DAY')}
-                      />
-                      Full Day ({compOffSummary?.fullDayMinutes ?? 480} min)
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-sm text-gray-800">
-                      <input
-                        type="radio"
-                        name="compOffType"
-                        value="HALF_DAY"
-                        checked={compOffRequestType === 'HALF_DAY'}
-                        onChange={() => setCompOffRequestType('HALF_DAY')}
-                      />
-                      Half Day ({compOffSummary?.halfDayMinutes ?? 240} min)
-                    </label>
-                  </div>
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+                  <p>You have {compOffSummary?.availableExcessMinutesForRequest ?? 0} minutes.</p>
+                  <p>Eligible: {compOffSummary?.eligibleCompOffDays ?? 0} day(s).</p>
+                  <p>Remaining: {compOffSummary?.remainingAfterEligibleConversionMinutes ?? 0} minutes.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Remarks (optional)</label>
@@ -2028,7 +2088,7 @@ const AttendancePage = () => {
                   disabled={submittingCompOff}
                   className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {submittingCompOff ? 'Submitting...' : 'Submit Request'}
+                  {submittingCompOff ? 'Submitting...' : 'Proceed'}
                 </button>
               </div>
             </div>

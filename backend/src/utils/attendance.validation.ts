@@ -103,12 +103,33 @@ export const queryCompOffSummarySchema = z.object({
   employeeId: z.string().uuid().optional(),
 });
 
+export const queryCompOffRequestsSchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format').optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format').optional(),
+  page: z.string().regex(/^\d+$/).optional().default('1'),
+  limit: z.string().regex(/^\d+$/).optional().default('20'),
+});
+
+export const createCompOffConvertRequestSchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  companyId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+  reason: z.string().max(500).optional(),
+});
+
 export const approveCompOffRequestSchema = z.object({
   reviewComments: z.string().max(500).optional(),
 });
 
 export const rejectCompOffRequestSchema = z.object({
   reviewComments: z.string().min(1, 'Review comments are required').max(500),
+});
+
+export const queryCompOffRequestDetailsSchema = z.object({
+  organizationId: z.string().uuid().optional(),
 });
 
 // Attendance Report Query
@@ -159,3 +180,6 @@ export type QueryAttendanceReportInput = z.infer<typeof queryAttendanceReportSch
 export type SyncBiometricInput = z.infer<typeof syncBiometricSchema>;
 export type BulkShiftAssignmentsInput = z.infer<typeof bulkShiftAssignmentsSchema>;
 export type CreateCompOffRequestInput = z.infer<typeof createCompOffRequestSchema>;
+export type QueryCompOffRequestsInput = z.infer<typeof queryCompOffRequestsSchema>;
+export type CreateCompOffConvertRequestInput = z.infer<typeof createCompOffConvertRequestSchema>;
+export type QueryCompOffRequestDetailsInput = z.infer<typeof queryCompOffRequestDetailsSchema>;
