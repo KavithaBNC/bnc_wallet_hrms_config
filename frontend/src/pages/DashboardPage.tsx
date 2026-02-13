@@ -10,6 +10,7 @@ import MonthlyAttendanceChart from '../components/dashboard/MonthlyAttendanceCha
 import DepartmentEmployeesChart from '../components/dashboard/DepartmentEmployeesChart';
 import LeaveRequestsChart from '../components/dashboard/LeaveRequestsChart';
 import PayrollDistributionChart from '../components/dashboard/PayrollDistributionChart';
+import { usePermissions } from '../hooks/usePermissions';
 
 interface DashboardStats {
   totalEmployees: number;
@@ -26,8 +27,13 @@ const DashboardPage = () => {
   const userRole = user?.role?.toUpperCase();
   const canManagePermissions = userRole === 'ORG_ADMIN' || userRole === 'HR_MANAGER';
   const isEmployee = userRole === 'EMPLOYEE';
+  const isManager = userRole === 'MANAGER';
+  const isHRManager = userRole === 'HR_MANAGER';
+  const isOrgAdmin = userRole === 'ORG_ADMIN';
   const organizationName = user?.employee?.organization?.name;
-  
+  const { canView } = usePermissions();
+  const canViewLeaveApprovals = canView('leaves');
+
   const userOrganizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const [organizationId, setOrganizationId] = useState<string | undefined>(userOrganizationId);
 
@@ -282,7 +288,17 @@ const DashboardPage = () => {
 
             {/* Leave Requests */}
             <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Leave Requests</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-800">Leave Requests</h3>
+                {(isManager || isHRManager || isOrgAdmin || isSuperAdmin) && canViewLeaveApprovals && (
+                  <Link
+                    to="/leave/approvals"
+                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    View & Approve →
+                  </Link>
+                )}
+              </div>
               <div className="h-64 flex items-center justify-center">
                 <LeaveRequestsChart organizationId={organizationId || ''} />
               </div>

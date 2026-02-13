@@ -100,9 +100,13 @@ export const cancelLeaveRequestSchema = z.object({
 export const queryLeaveRequestsSchema = z.object({
   employeeId: z.string().uuid().optional(),
   leaveTypeId: z.string().uuid().optional(),
+  workflowMappingId: z.string().uuid().optional(),
   status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  search: z.string().max(200).optional(),
   organizationId: z.string().uuid().optional(),
   page: z.string().regex(/^\d+$/).optional().default('1'),
   limit: z.string().regex(/^\d+$/).optional().default('20'),

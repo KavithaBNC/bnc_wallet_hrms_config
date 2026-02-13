@@ -70,7 +70,7 @@ const VALIDATION_GROUP_EVENTS: Omit<ValidationGroupRow, 'toApprove' | 'cancelApp
 
 const REMINDER_OPTIONS = ['ActionName', 'Email', 'SMS', 'Push'];
 
-const WORKFLOW_TYPES = ['Employee', 'Manager', 'HR'];
+const WORKFLOW_TYPES = ['Employee', 'Manager', 'HR', 'Org Admin', 'Super Admin'];
 
 export default function ApprovalWorkflowFormPage() {
   const navigate = useNavigate();

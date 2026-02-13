@@ -5,6 +5,7 @@ import api from '../../services/api';
 interface MonthlyDetailsData {
   shortFall: { excessStay: string; shortfall: string; difference: string };
   leave: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
+  entitlementWarnings?: string[];
   onduty: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
   permission: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
   present: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
@@ -156,7 +157,10 @@ export default function MonthlyDetailsSidebar({
               key={tab}
               type="button"
               onClick={() => {
-                if (tab === 'Leave') navigate('/attendance/apply-event');
+                if (tab === 'Leave')
+                  navigate('/attendance/apply-event', {
+                    state: { employeeId, year, month },
+                  });
                 else setApplyTab(tab);
               }}
               className={`px-3 py-1.5 rounded text-sm font-medium ${
@@ -197,6 +201,15 @@ export default function MonthlyDetailsSidebar({
           </table>
         </div>
 
+        {data.entitlementWarnings && data.entitlementWarnings.length > 0 && (
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <p className="font-medium">Entitlement not configured</p>
+            <p className="mt-1">
+              Configure entitlement for: {data.entitlementWarnings.join(', ')} in Leave Management (Default Days Per Year)
+              or Event Configuration → Auto Credit Setting.
+            </p>
+          </div>
+        )}
         {renderTable('Leave', data.leave, 'Leave')}
         {renderTable('Onduty', data.onduty, 'Onduty')}
         {renderTable('Permission', data.permission, 'Permission')}

@@ -69,6 +69,7 @@ import HRAuditSettingsPage from './pages/HRAuditSettingsPage';
 import EmployeeMasterApprovalPage from './pages/EmployeeMasterApprovalPage';
 import EsopListPage from './pages/EsopListPage';
 import EsopPage from './pages/EsopPage';
+import LeaveApprovalPage from './pages/LeaveApprovalPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 function App() {
@@ -567,8 +568,18 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="/leave" element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/leave/approvals"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LeaveApprovalPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
           <Route path="/leave/apply" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/leave" element={<Navigate to="/dashboard" replace />} />
           <Route
             path="/time-attendance"
             element={

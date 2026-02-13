@@ -6,7 +6,7 @@ import paygroupService from '../services/paygroup.service';
 import departmentService from '../services/department.service';
 import employeeService, { Employee } from '../services/employee.service';
 import rightsAllocationService from '../services/rightsAllocation.service';
-import configService from '../services/config.service';
+import configService, { type ApprovalLevelOption } from '../services/config.service';
 import workflowMappingService, { ApprovalLevel } from '../services/workflowMapping.service';
 
 function fullName(e: Employee): string {
@@ -62,9 +62,9 @@ export default function WorkflowMappingFormPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [entryRightsTemplates, setEntryRightsTemplates] = useState<Option[]>([]);
   
-  // Approval Level dropdown options (dynamic from backend)
+  // Approval Level dropdown options (dynamic from backend, with workflowType for Leave)
   const [hierarchies, setHierarchies] = useState<Option[]>([]);
-  const [approvalLevelOptions, setApprovalLevelOptions] = useState<Option[]>([]);
+  const [approvalLevelOptions, setApprovalLevelOptions] = useState<ApprovalLevelOption[]>([]);
 
   // Dropdown states
   const [showPaygroupDropdown, setShowPaygroupDropdown] = useState(false);
@@ -112,7 +112,7 @@ export default function WorkflowMappingFormPage() {
       departmentService.getAll({ organizationId, limit: 500 }),
       employeeService.getAll({ organizationId, page: 1, limit: 500, employeeStatus: 'ACTIVE' }),
       rightsAllocationService.getAll({ organizationId, page: 1, limit: 500 }),
-      configService.getWorkflowApprovalOptions({ organizationId }),
+      configService.getWorkflowApprovalOptions({ organizationId, forLeave: true }),
     ]).then(([pgList, deptRes, empRes, rightsRes, configOptions]) => {
       setPaygroups((pgList || []).map((p) => ({ id: p.id, name: p.name })));
       setDepartments((deptRes?.departments || []).map((d) => ({ id: d.id, name: d.name })));
@@ -269,9 +269,23 @@ export default function WorkflowMappingFormPage() {
   };
 
   const handleUpdateApprovalLevel = (id: string, field: keyof ApprovalLevel, value: string) => {
-    setApprovalLevels((prev) =>
-      prev.map((level) => (level.id === id ? { ...level, [field]: value } : level))
-    );
+    setApprovalLevels((prev) => {
+      const next = prev.map((level) => {
+        if (level.id !== id) return level;
+        const updated = { ...level, [field]: value };
+        if (field === 'hierarchy' && value) {
+          const match =
+            value === 'reporting_manager'
+              ? approvalLevelOptions.find((o) => o.workflowType === 'Manager')
+              : value === 'hr_manager'
+                ? approvalLevelOptions.find((o) => o.workflowType === 'HR')
+                : undefined;
+          if (match) updated.approvalLevel = match.id;
+        }
+        return updated;
+      });
+      return next;
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -305,6 +319,15 @@ export default function WorkflowMappingFormPage() {
         hasAllDept || selectedDepartments.length === 0
           ? null
           : selectedDepartments.map((d) => d.id).filter((id) => id !== '__ALL__');
+      const invalidLevel = approvalLevels.find(
+        (l) => l.approvalLevel && !approvalLevelOptions.some((o) => o.id === l.approvalLevel || o.name === l.approvalLevel)
+      );
+      if (invalidLevel) {
+        setError('Employee Approval is not allowed for Leave workflows. Please select Manager, HR, Org Admin, or Super Admin Approval for all levels.');
+        setSaving(false);
+        return;
+      }
+
       const payload = {
         organizationId,
         displayName: displayName.trim(),
@@ -686,6 +709,15 @@ export default function WorkflowMappingFormPage() {
 
               {/* Approval Levels Section */}
               <div className="px-6 py-4 border-t border-gray-200">
+                {approvalLevelOptions.length === 0 && (
+                  <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    No approval workflows found for Leave. Create Manager, HR, Org Admin, or Super Admin workflows in{' '}
+                    <Link to="/event-configuration/approval-workflow" className="font-medium underline hover:text-amber-900">
+                      Event Configuration → Approval Workflow
+                    </Link>{' '}
+                    first. (Employee Approval is not allowed for Leave.)
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">
                     Approval Levels

@@ -44,6 +44,10 @@
     "test:iclock": "ts-node -r tsconfig-paths/register src/scripts/test-iclock-local.ts",
     "check:attendance-log": "ts-node -r tsconfig-paths/register src/scripts/check-latest-attendance-log.ts",
     "fix:shift-constraint": "ts-node -r tsconfig-paths/register src/scripts/fix-shift-code-constraint.ts",
+    "find:unmapped-leave-components": "ts-node -r tsconfig-paths/register src/scripts/find-unmapped-leave-components.ts",
+    "map:unmapped-leave-components": "ts-node -r tsconfig-paths/register src/scripts/map-unmapped-leave-components.ts",
+    "clear:hardcoded-leave-entitlements": "ts-node -r tsconfig-paths/register src/scripts/clear-hardcoded-leave-entitlements.ts",
+    "fix:employee-approval-in-workflows": "ts-node -r tsconfig-paths/register src/scripts/fix-employee-approval-in-workflow-mappings.ts",
     "migrate:face-encoding": "ts-node -r tsconfig-paths/register src/scripts/add-face-encoding-column.ts"
   },
   "prisma": {

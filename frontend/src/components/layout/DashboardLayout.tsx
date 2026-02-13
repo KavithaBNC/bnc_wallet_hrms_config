@@ -111,6 +111,11 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
+  '/leave/approvals': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
   '/time-attendance': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -287,7 +292,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const visibleNavItems = useMemo(() => {
     const items: AppModule[] = [];
     for (const mod of APP_MODULES) {
-      if (mod.path === '/leave') continue; // Leave Management module hidden from sidebar
       const isDashboard = mod.path === '/dashboard';
       if (isDashboard) {
         items.push(mod); // Always show Dashboard for authenticated users
@@ -352,6 +356,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     if (attendancePolicyDropdownOpen) setAttendancePolicyExpanded(true);
   }, [attendancePolicyDropdownOpen]);
 
+  // Leave dropdown: open when current path is under /leave
+  const leaveDropdownOpen = location.pathname.startsWith('/leave');
+  const [leaveExpanded, setLeaveExpanded] = useState(leaveDropdownOpen);
+  useEffect(() => {
+    if (leaveDropdownOpen) setLeaveExpanded(true);
+  }, [leaveDropdownOpen]);
+
   const topLevelNavItems = useMemo(() => visibleNavItems.filter((m) => !m.parentPath), [visibleNavItems]);
 
   const handleLogout = async () => {
@@ -404,12 +415,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const isPayrollMaster = mod.path === '/payroll-master';
             const isTransaction = mod.path === '/transaction';
             const isTimeAttendance = mod.path === '/time-attendance';
+            const isLeave = mod.path === '/leave';
             const isEsop = mod.path === '/esop';
             const isAttendancePolicy = mod.path === '/attendance-policy';
             const isEventConfiguration = mod.path === '/event-configuration';
-            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isEventConfiguration ? eventConfigurationExpanded : false;
-            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isEventConfiguration ? setEventConfigurationExpanded : () => {};
-            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : false;
+            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isLeave ? leaveExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isEventConfiguration ? eventConfigurationExpanded : false;
+            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isLeave ? setLeaveExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isEventConfiguration ? setEventConfigurationExpanded : () => {};
+            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isLeave ? leaveDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : false;
 
             if (isParentWithChildren) {
               return (

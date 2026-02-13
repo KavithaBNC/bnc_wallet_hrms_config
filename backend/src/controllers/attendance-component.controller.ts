@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
+import { PrismaClient } from '@prisma/client';
 import { attendanceComponentService } from '../services/attendance-component.service';
 import { getLeaveComponentToLeaveTypeMapping } from '../utils/event-config';
+
+const prisma = new PrismaClient();
 
 export class AttendanceComponentController {
   /**
@@ -59,6 +62,47 @@ export class AttendanceComponentController {
       return res.status(200).json({
         status: 'success',
         data: { mapping },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Get Leave-category components that are not linked to any Leave Type.
+   * GET /api/v1/attendance-components/unmapped-leave-components?organizationId=...
+   */
+  async getUnmappedLeaveComponents(req: Request, res: Response, next: NextFunction) {
+    try {
+      const organizationId = req.query.organizationId as string;
+      if (!organizationId) {
+        return res.status(400).json({ status: 'error', message: 'organizationId is required' });
+      }
+      const [components, leaveTypes] = await Promise.all([
+        prisma.attendanceComponent.findMany({
+          where: { organizationId, eventCategory: 'Leave' },
+          select: { id: true, shortName: true, eventName: true },
+          orderBy: [{ shortName: 'asc' }],
+        }),
+        prisma.leaveType.findMany({
+          where: { organizationId, isActive: true },
+          select: { id: true, name: true, code: true },
+        }),
+      ]);
+      const nameKey = (s: string | null) => (s ?? '').toLowerCase().trim();
+      const unmapped = components.filter((c) => {
+        const en = nameKey(c.eventName);
+        const sn = nameKey(c.shortName);
+        const matched = leaveTypes.find(
+          (lt) =>
+            (en && (nameKey(lt.name) === en || nameKey(lt.code) === en)) ||
+            (sn && (nameKey(lt.code) === sn || nameKey(lt.name) === sn))
+        );
+        return !matched;
+      });
+      return res.status(200).json({
+        status: 'success',
+        data: { unmapped },
       });
     } catch (error) {
       return next(error);

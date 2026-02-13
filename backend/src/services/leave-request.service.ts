@@ -565,12 +565,26 @@ export class LeaveRequestService {
       where.status = query.status;
     }
 
-    if (query.startDate) {
-      where.startDate = { gte: new Date(query.startDate) };
+    if (query.dateFrom && query.dateTo) {
+      where.AND = [
+        { startDate: { lte: new Date(query.dateTo) } },
+        { endDate: { gte: new Date(query.dateFrom) } },
+      ];
+    } else {
+      if (query.startDate) {
+        where.startDate = { gte: new Date(query.startDate) };
+      }
+      if (query.endDate) {
+        where.endDate = { lte: new Date(query.endDate) };
+      }
     }
 
-    if (query.endDate) {
-      where.endDate = { lte: new Date(query.endDate) };
+    if (query.workflowMappingId) {
+      where.workflowMappingId = query.workflowMappingId;
+    }
+
+    if (query.search && query.search.trim()) {
+      where.reason = { contains: query.search.trim(), mode: 'insensitive' as const };
     }
 
     if (query.organizationId && !where.employee) {
@@ -603,6 +617,12 @@ export class LeaveRequestService {
               name: true,
               code: true,
               isPaid: true,
+            },
+          },
+          workflowMapping: {
+            select: {
+              id: true,
+              displayName: true,
             },
           },
         },

@@ -3,6 +3,38 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { parsePagination, parseString } from '../utils/queryParser';
 
+const EMPLOYEE_APPROVAL_ERROR = 'Employee Approval is not allowed for Leave workflows. Employees must not approve their own leave.';
+
+/** Legacy static id - reject if used */
+const LEGACY_EMPLOYEE_APPROVAL_IDS = ['employee_approval'];
+
+async function validateNoEmployeeApproval(
+  approvalLevels: unknown,
+  organizationId: string
+): Promise<void> {
+  if (!Array.isArray(approvalLevels) || approvalLevels.length === 0) return;
+
+  for (const level of approvalLevels) {
+    const approvalLevel = (level as { approvalLevel?: string })?.approvalLevel;
+    if (!approvalLevel || typeof approvalLevel !== 'string') continue;
+
+    const val = approvalLevel.trim().toLowerCase();
+    if (LEGACY_EMPLOYEE_APPROVAL_IDS.includes(val)) {
+      throw new AppError(EMPLOYEE_APPROVAL_ERROR, 400);
+    }
+
+    if (/^[0-9a-f-]{36}$/i.test(approvalLevel)) {
+      const workflow = await prisma.approvalWorkflow.findFirst({
+        where: { id: approvalLevel, organizationId },
+        select: { workflowType: true, shortName: true },
+      });
+      if (workflow?.workflowType === 'Employee') {
+        throw new AppError(EMPLOYEE_APPROVAL_ERROR, 400);
+      }
+    }
+  }
+}
+
 export class WorkflowMappingService {
   /**
    * Create new workflow mapping
@@ -78,6 +110,8 @@ export class WorkflowMappingService {
         throw new AppError('One or more departments not found or do not belong to this organization', 400);
       }
     }
+
+    await validateNoEmployeeApproval(data.approvalLevels, data.organizationId);
 
     const workflowMapping = await prisma.workflowMapping.create({
       data: {
@@ -336,6 +370,7 @@ export class WorkflowMappingService {
       updateData.entryRightsTemplate = data.entryRightsTemplate?.trim() || null;
     }
     if (data.approvalLevels !== undefined) {
+      await validateNoEmployeeApproval(data.approvalLevels, existing.organizationId);
       updateData.approvalLevels = data.approvalLevels
         ? (data.approvalLevels as unknown as Prisma.JsonArray)
         : Prisma.JsonNull;

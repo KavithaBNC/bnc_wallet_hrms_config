@@ -11,7 +11,8 @@ export class ConfigController {
   async getWorkflowApprovalOptions(req: Request, res: Response) {
     try {
       const organizationId = req.query.organizationId as string | undefined;
-      const result = await configService.getWorkflowApprovalOptions(organizationId);
+      const forLeave = req.query.forLeave === 'true' || req.query.excludeEmployeeApproval === 'true';
+      const result = await configService.getWorkflowApprovalOptions(organizationId, { forLeave });
 
       return res.status(200).json({
         message: 'Workflow approval options retrieved successfully',

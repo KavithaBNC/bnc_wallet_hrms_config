@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import approvalWorkflowService, { ApprovalWorkflow } from '../services/approvalWorkflow.service';
 
-const WORKFLOW_TYPES = ['Employee', 'Manager', 'HR'];
+const WORKFLOW_TYPES = ['Employee', 'Manager', 'HR', 'Org Admin', 'Super Admin'];
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 

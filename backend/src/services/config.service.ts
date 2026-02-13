@@ -7,41 +7,41 @@ const DEFAULT_HIERARCHY_TYPES = [
   { id: 'hr_manager', name: 'HR Manager' },
 ];
 
-/** Default approval level types (for backward compatibility when no workflows exist) */
-const DEFAULT_APPROVAL_LEVEL_TYPES = [
-  { id: 'employee_approval', name: 'Employee Approval' },
-  { id: 'manager_approval', name: 'Manager Approval' },
-  { id: 'hr_approval', name: 'HR Approval' },
-];
+/** For Leave workflows: only these approval types are allowed (no Employee Approval) */
+const LEAVE_ALLOWED_WORKFLOW_TYPES = ['Manager', 'HR', 'Org Admin', 'Super Admin'];
 
 export class ConfigService {
   /**
    * Get workflow approval options for Approval Levels table:
-   * - hierarchyTypes: dynamic (defaults; can be extended from org settings later)
-   * - approvalLevelTypes: defaults + organization's ApprovalWorkflows (shortName)
+   * - hierarchyTypes: static defaults for hierarchy dropdown
+   * - approvalLevelTypes: dynamic from organization's Approval Workflows
+   * - forLeave: when true, only return Manager/HR/Org Admin/Super Admin (used in Leave Workflow Mapping)
+   * - excludeEmployeeApproval: deprecated in favor of forLeave; when true, same as forLeave for backward compat
    */
-  async getWorkflowApprovalOptions(organizationId?: string) {
+  async getWorkflowApprovalOptions(
+    organizationId?: string,
+    options?: { excludeEmployeeApproval?: boolean; forLeave?: boolean }
+  ) {
     const hierarchyTypes = [...DEFAULT_HIERARCHY_TYPES];
 
-    let approvalLevelTypes = [...DEFAULT_APPROVAL_LEVEL_TYPES];
+    let approvalLevelTypes: { id: string; name: string; workflowType: string }[] = [];
 
     if (organizationId) {
+      const forLeave = options?.forLeave ?? options?.excludeEmployeeApproval ?? false;
+      const where: { organizationId: string; workflowType?: { in: string[] } } = { organizationId };
+      if (forLeave) {
+        where.workflowType = { in: LEAVE_ALLOWED_WORKFLOW_TYPES };
+      }
       const workflows = await prisma.approvalWorkflow.findMany({
-        where: { organizationId },
-        select: { id: true, shortName: true, longName: true },
+        where,
+        select: { id: true, shortName: true, longName: true, workflowType: true },
+        orderBy: [{ workflowType: 'asc' }, { shortName: 'asc' }],
       });
-      const fromWorkflows = workflows.map((w) => ({
+      approvalLevelTypes = workflows.map((w) => ({
         id: w.id,
         name: w.shortName || w.longName || w.id,
+        workflowType: w.workflowType,
       }));
-      // Merge: avoid duplicates by id; prepend org workflows
-      const seen = new Set(approvalLevelTypes.map((a) => a.id));
-      for (const w of fromWorkflows) {
-        if (!seen.has(w.id)) {
-          seen.add(w.id);
-          approvalLevelTypes = [w, ...approvalLevelTypes];
-        }
-      }
     }
 
     return {

@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import attendanceComponentService from '../services/attendanceComponent.service';
@@ -32,6 +32,20 @@ function getLeaveComponents(components: AttendanceComponent[]): AttendanceCompon
   return components.filter((c) => c.eventCategory === 'Leave');
 }
 
+/** Filter to only components that appear in monthly details leave rows (by name match) */
+function filterByMonthlyDetailsLeaves(
+  components: AttendanceComponent[],
+  monthlyLeaveNames: string[]
+): AttendanceComponent[] {
+  if (monthlyLeaveNames.length === 0) return components;
+  const namesLower = new Set(monthlyLeaveNames.map((n) => n.toLowerCase().trim()));
+  return components.filter((c) => {
+    const en = (c.eventName || '').toLowerCase().trim();
+    const sn = (c.shortName || '').toLowerCase().trim();
+    return (en && namesLower.has(en)) || (sn && namesLower.has(sn));
+  });
+}
+
 /** Fallback: resolve leave type by matching eventName/shortName to leave type name/code */
 function resolveLeaveTypeIdFromComponent(
   leaveTypes: LeaveType[],
@@ -53,15 +67,30 @@ function resolveLeaveTypeIdFromComponent(
   return match?.id ?? null;
 }
 
+interface MonthlyDetailsState {
+  employeeId?: string;
+  year?: number;
+  month?: number;
+}
+
 export default function ApplyEventPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+
+  const state = (location.state as MonthlyDetailsState | null) || {};
+  const now = new Date();
+  const contextEmployeeId = state.employeeId || user?.employee?.id;
+  const contextYear = state.year ?? now.getFullYear();
+  const contextMonth = state.month ?? now.getMonth() + 1;
 
   const [componentsRaw, setComponentsRaw] = useState<AttendanceComponent[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   /** component id -> leave type id from backend mapping */
   const [componentToLeaveTypeId, setComponentToLeaveTypeId] = useState<Record<string, string>>({});
+  /** Leave names from monthly details – used to filter Type dropdown to only configured leaves */
+  const [monthlyDetailsLeaveNames, setMonthlyDetailsLeaveNames] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [selectedComponentId, setSelectedComponentId] = useState('');
@@ -76,7 +105,10 @@ export default function ApplyEventPage() {
 
   const typeSelected = !!selectedComponentId;
 
-  const leaveComponents = useMemo(() => getLeaveComponents(componentsRaw), [componentsRaw]);
+  const leaveComponents = useMemo(() => {
+    const leaveOnly = getLeaveComponents(componentsRaw);
+    return filterByMonthlyDetailsLeaves(leaveOnly, monthlyDetailsLeaveNames);
+  }, [componentsRaw, monthlyDetailsLeaveNames]);
 
   useEffect(() => {
     if (!organizationId) {
@@ -119,6 +151,29 @@ export default function ApplyEventPage() {
       cancelled = true;
     };
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!organizationId || !contextEmployeeId) {
+      setMonthlyDetailsLeaveNames([]);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ data: { leave?: Array<{ name: string }> } }>('/attendance/monthly-details', {
+        params: { organizationId, employeeId: contextEmployeeId, year: contextYear, month: contextMonth },
+      })
+      .then((res) => {
+        if (!cancelled && res.data?.data?.leave) {
+          setMonthlyDetailsLeaveNames(res.data.data.leave.map((r) => r.name).filter(Boolean));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMonthlyDetailsLeaveNames([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId, contextEmployeeId, contextYear, contextMonth]);
 
   const handleCancel = () => {
     navigate('/attendance', { replace: true });

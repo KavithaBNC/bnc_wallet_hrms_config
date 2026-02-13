@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { parsePagination, parseString } from '../utils/queryParser';
 
-const WORKFLOW_TYPES = ['Employee', 'Manager', 'HR'];
+const WORKFLOW_TYPES = ['Employee', 'Manager', 'HR', 'Org Admin', 'Super Admin'];
 
 export class ApprovalWorkflowService {
   /**
@@ -29,7 +29,7 @@ export class ApprovalWorkflowService {
     }
 
     if (!WORKFLOW_TYPES.includes(data.workflowType)) {
-      throw new AppError('Invalid workflow type. Must be Employee, Manager, or HR', 400);
+      throw new AppError('Invalid workflow type. Must be one of: Employee, Manager, HR, Org Admin, Super Admin', 400);
     }
 
     const existing = await prisma.approvalWorkflow.findFirst({
@@ -156,7 +156,7 @@ export class ApprovalWorkflowService {
     }
 
     if (data.workflowType && !WORKFLOW_TYPES.includes(data.workflowType)) {
-      throw new AppError('Invalid workflow type. Must be Employee, Manager, or HR', 400);
+      throw new AppError('Invalid workflow type. Must be one of: Employee, Manager, HR, Org Admin, Super Admin', 400);
     }
 
     if (data.shortName && data.shortName.trim() !== existing.shortName) {

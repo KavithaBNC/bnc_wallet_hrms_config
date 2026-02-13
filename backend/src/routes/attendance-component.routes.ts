@@ -42,6 +42,16 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/attendance-components/unmapped-leave-components
+ * @desc    List Leave-category components not linked to any Leave Type
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/unmapped-leave-components',
+  attendanceComponentController.getUnmappedLeaveComponents.bind(attendanceComponentController)
+);
+
+/**
  * @route   GET /api/v1/attendance-components/:id
  * @desc    Get attendance component by ID
  * @access  Private (All authenticated users)
