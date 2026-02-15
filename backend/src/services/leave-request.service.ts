@@ -19,8 +19,21 @@ import {
   parseApprovalLevels,
   type ApprovalLevelConfig,
 } from './approval-routing.service';
+import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
 
 export class LeaveRequestService {
+  private parseDateOnly(input: string): Date {
+    const [y, m, d] = input.split('-').map(Number);
+    return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0, 0));
+  }
+
+  private formatDateOnly(date: Date): string {
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   /**
    * Calculate total days between two dates (excluding weekends)
    */
@@ -82,9 +95,16 @@ export class LeaveRequestService {
   /**
    * Check if date is weekend (Saturday/Sunday)
    */
-  private isWeekend(date: Date): boolean {
-    const day = date.getDay();
-    return day === 0 || day === 6;
+  private async isWeekOffForEmployee(employeeId: string, organizationId: string, date: Date): Promise<boolean> {
+    const weekOff = await shiftAssignmentRuleService.getApplicableWeekOffForEmployee(
+      employeeId,
+      date,
+      organizationId
+    );
+    if (weekOff) return true;
+
+    // Fallback when no week-off rule is configured: Sunday only.
+    return date.getDay() === 0;
   }
 
   /**
@@ -92,7 +112,7 @@ export class LeaveRequestService {
    */
   private async isHoliday(organizationId: string, date: Date): Promise<boolean> {
     const dateOnly = new Date(date);
-    dateOnly.setHours(0, 0, 0, 0);
+    dateOnly.setUTCHours(0, 0, 0, 0);
     const holiday = await prisma.holiday.findFirst({
       where: {
         organizationId,
@@ -108,6 +128,7 @@ export class LeaveRequestService {
    * If allowHolidaySelection is false, no date in range may be a holiday.
    */
   private async validateWeekOffAndHoliday(
+    employeeId: string,
     organizationId: string,
     startDate: Date,
     endDate: Date,
@@ -116,23 +137,23 @@ export class LeaveRequestService {
   ): Promise<{ valid: boolean; reason?: string }> {
     if (allowWeekOff && allowHoliday) return { valid: true };
     const current = new Date(startDate);
-    current.setHours(0, 0, 0, 0);
+    current.setUTCHours(0, 0, 0, 0);
     const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    end.setUTCHours(23, 59, 59, 999);
     while (current <= end) {
-      if (!allowWeekOff && this.isWeekend(current)) {
+      if (!allowWeekOff && (await this.isWeekOffForEmployee(employeeId, organizationId, current))) {
         return {
           valid: false,
-          reason: `This leave type cannot be applied on week-offs. ${current.toISOString().split('T')[0]} is a weekend.`,
+          reason: `This leave type cannot be applied on week-offs. ${this.formatDateOnly(current)} is a weekend.`,
         };
       }
       if (!allowHoliday && (await this.isHoliday(organizationId, current))) {
         return {
           valid: false,
-          reason: `This leave type cannot be applied on holidays. ${current.toISOString().split('T')[0]} is a holiday.`,
+          reason: `This leave type cannot be applied on holidays. ${this.formatDateOnly(current)} is a holiday.`,
         };
       }
-      current.setDate(current.getDate() + 1);
+      current.setUTCDate(current.getUTCDate() + 1);
     }
     return { valid: true };
   }
@@ -280,14 +301,39 @@ export class LeaveRequestService {
     }
 
     // Parse dates
-    const startDate = new Date(data.startDate);
-    const endDate = new Date(data.endDate);
+    const startDate = this.parseDateOnly(data.startDate);
+    const endDate = this.parseDateOnly(data.endDate);
 
     // Validate dates
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
+    const leaveTypeKey = `${leaveType.name} ${leaveType.code ?? ''}`.toLowerCase();
+    const allowsPastWithinCurrentMonth =
+      leaveTypeKey.includes('earned leave') ||
+      leaveTypeKey.includes('el') ||
+      leaveTypeKey.includes('sick leave') ||
+      leaveTypeKey.includes('sl') ||
+      leaveTypeKey.includes('permission') ||
+      leaveTypeKey.includes('work from home') ||
+      leaveTypeKey.includes('wfh');
+
     if (startDate < today) {
-      throw new AppError('Start date cannot be in the past', 400);
+      if (!allowsPastWithinCurrentMonth) {
+        throw new AppError('Start date cannot be in the past', 400);
+      }
+
+      const sameMonthAndYear =
+        startDate.getUTCFullYear() === today.getUTCFullYear() &&
+        startDate.getUTCMonth() === today.getUTCMonth() &&
+        endDate.getUTCFullYear() === today.getUTCFullYear() &&
+        endDate.getUTCMonth() === today.getUTCMonth();
+
+      if (!sameMonthAndYear) {
+        throw new AppError(
+          'Past-date apply is allowed only within the current month for this leave type',
+          400
+        );
+      }
     }
 
     // Check eligibility based on leave policy
@@ -336,6 +382,7 @@ export class LeaveRequestService {
 
     // Allow WeekOff/Holiday = NO → block applying on those days
     const weekOffHolidayCheck = await this.validateWeekOffAndHoliday(
+      employeeId,
       employee.organizationId,
       startDate,
       endDate,
@@ -380,7 +427,7 @@ export class LeaveRequestService {
       },
     });
 
-    if (policy?.advanceNoticeDays) {
+    if (policy?.advanceNoticeDays && startDate >= today) {
       const daysUntilStart = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       if (daysUntilStart < policy.advanceNoticeDays) {
         throw new AppError(
@@ -1091,8 +1138,8 @@ export class LeaveRequestService {
     const updateData: any = {};
 
     if (data.startDate || data.endDate) {
-      const startDate = data.startDate ? new Date(data.startDate) : leaveRequest.startDate;
-      const endDate = data.endDate ? new Date(data.endDate) : leaveRequest.endDate;
+      const startDate = data.startDate ? this.parseDateOnly(data.startDate) : leaveRequest.startDate;
+      const endDate = data.endDate ? this.parseDateOnly(data.endDate) : leaveRequest.endDate;
 
       // Check for overlaps (excluding current request)
       const overlapCheck = await this.checkOverlap(employeeId, startDate, endDate, id);

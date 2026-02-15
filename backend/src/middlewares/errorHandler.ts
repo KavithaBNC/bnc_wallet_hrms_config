@@ -32,14 +32,24 @@ export const errorHandler = (
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
 
-  // Log error
-  logger.error({
-    message: err.message,
-    statusCode: err.statusCode,
-    stack: err.stack,
-    url: req.originalUrl,
-    method: req.method,
-  });
+  // Log: 4xx client errors (e.g. 401 Unauthorized) as warn to avoid noise; 5xx as error with stack
+  const is4xx = err.statusCode >= 400 && err.statusCode < 500;
+  if (is4xx) {
+    logger.warn({
+      message: err.message,
+      statusCode: err.statusCode,
+      url: req.originalUrl,
+      method: req.method,
+    });
+  } else {
+    logger.error({
+      message: err.message,
+      statusCode: err.statusCode,
+      stack: err.stack,
+      url: req.originalUrl,
+      method: req.method,
+    });
+  }
 
   // Development error response
   if (config.nodeEnv === 'development') {

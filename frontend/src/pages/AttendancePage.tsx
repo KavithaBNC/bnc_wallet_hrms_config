@@ -49,6 +49,45 @@ interface AttendancePunch {
   punchSource?: string;
 }
 
+interface CalendarLeaveRequestItem {
+  id: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | string;
+  reason?: string | null;
+  leaveType?: {
+    id: string;
+    name: string;
+    code?: string | null;
+  } | null;
+}
+
+/** Parse "[Permission HH:MM-HH:MM]" or "[Permission HH:MM - HH:MM]" from start of reason for calendar display. Shows timing even when leave type name is not "Permission" (e.g. 4–6 PM permission on 2nd). */
+function parsePermissionTimingFromReason(reason: string | undefined | null, _leaveTypeName?: string | undefined): string | null {
+  if (!reason?.trim()) return null;
+  const match = reason.match(/^\[Permission\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\]/i);
+  if (!match) return null;
+  return `${match[1]} - ${match[2]}`;
+}
+
+/** Get permission end time as Date on the given dateStr (yyyy-MM-dd) for display logic. Returns null if no approved permission with time. Matches reason pattern even when leave type name is not "Permission". */
+function getPermissionEndTimeForDate(
+  dateStr: string,
+  leaveRequests: Array<{ status?: string; reason?: string | null; leaveType?: { name?: string } | null }>
+): Date | null {
+  const permissionReasonRegex = /^\[Permission\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\]/i;
+  for (const lr of leaveRequests) {
+    if ((lr.status || '').toUpperCase() !== 'APPROVED' || !lr.reason?.trim()) continue;
+    const match = lr.reason.match(permissionReasonRegex);
+    if (!match) continue;
+    const endHHMM = match[2];
+    const d = new Date(dateStr + 'T' + endHHMM + ':00');
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
 /** Convert decimal hours to 'HH:mm' (e.g. 0.2h → '00:12', 2.5h → '02:30'). */
 function formatWorkHoursAsHHMM(decimalHours: number): string {
   const totalMinutes = Math.round(decimalHours * 60);
@@ -332,9 +371,10 @@ interface AttendanceCalendarViewProps {
   organizationId?: string;
   lateEarlyPolicy?: LateEarlyPolicy;
   approvedCompOffs?: CompOffRequestItem[];
+  leaveRequests?: CalendarLeaveRequestItem[];
 }
 
-const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, lateEarlyPolicy = null, approvedCompOffs = [] }: AttendanceCalendarViewProps) => {
+const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, lateEarlyPolicy = null, approvedCompOffs = [], leaveRequests = [] }: AttendanceCalendarViewProps) => {
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -459,6 +499,25 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
     }
   });
 
+  // Map leave requests (pending/approved etc.) by each date in the current month
+  const leaveByDate = new Map<string, CalendarLeaveRequestItem[]>();
+  (leaveRequests || []).forEach((lr) => {
+    const s = new Date(lr.startDate);
+    const e = new Date(lr.endDate);
+    s.setHours(0, 0, 0, 0);
+    e.setHours(0, 0, 0, 0);
+    const from = s < monthStart ? new Date(monthStart) : s;
+    const to = e > monthEnd ? new Date(monthEnd) : e;
+    if (to < from) return;
+    const d = new Date(from);
+    while (d <= to) {
+      const key = format(d, 'yyyy-MM-dd');
+      if (!leaveByDate.has(key)) leaveByDate.set(key, []);
+      leaveByDate.get(key)!.push(lr);
+      d.setDate(d.getDate() + 1);
+    }
+  });
+
   const navigateMonth = (direction: 'prev' | 'next') => {
     try {
       // Use date-fns addMonths to handle edge cases (e.g., Jan 31 -> Feb 28/29)
@@ -577,11 +636,44 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                     {shiftName === 'W' ? 'Week Off' : shiftName === 'Weekoff' ? 'Week Off' : shiftName}
                   </div>
                 )}
+
+                {/* Leave badges (pending/approved/rejected/cancelled) */}
+                {(leaveByDate.get(dateStr) || []).map((lr) => {
+                  const status = (lr.status || '').toUpperCase();
+                  const leaveTypeName = lr.leaveType?.name || 'Leave';
+                  const isPermission = leaveTypeName.toLowerCase().includes('permission');
+                  const permissionTiming = parsePermissionTimingFromReason(lr.reason ?? undefined, leaveTypeName);
+                  const statusText =
+                    status === 'APPROVED' ? 'Approved' :
+                    status === 'REJECTED' ? 'Rejected' :
+                    status === 'CANCELLED' ? 'Cancelled' : 'Pending';
+                  const dayType = isPermission ? 'Permission' : (Number(lr.totalDays) >= 1 ? 'Full Day' : 'Half Day');
+                  const titleParts = [leaveTypeName, permissionTiming || dayType, statusText].filter(Boolean);
+                  const tone =
+                    status === 'APPROVED'
+                      ? 'bg-emerald-500 text-white'
+                      : status === 'REJECTED' || status === 'CANCELLED'
+                        ? 'bg-red-500 text-white'
+                        : 'bg-lime-500 text-white';
+                  return (
+                    <div
+                      key={`leave-${lr.id}-${dateStr}`}
+                      className={`inline-block max-w-full rounded px-2 py-1 text-xs font-semibold leading-tight ${tone}`}
+                      title={titleParts.join(' - ')}
+                    >
+                      <div className="truncate">{leaveTypeName}</div>
+                      <div className="truncate">{permissionTiming || dayType} - {statusText}</div>
+                    </div>
+                  );
+                })}
                 
                 {dayRecords.length > 0 ? (
                   dayRecords.map((record) => {
                     const dateStr = format(day, 'yyyy-MM-dd');
                     const dayPunches = punchesByDateEmployee.get(`${dateStr}:${record.employee.id}`) || [];
+                    const hasApprovedHalfDayLeave = (leaveByDate.get(dateStr) || []).some(
+                      (lr) => (lr.status || '').toUpperCase() === 'APPROVED' && Number(lr.totalDays) > 0 && Number(lr.totalDays) < 1
+                    );
                     const sessions = buildSessionPairs(dayPunches);
                     const firstIn = record.checkIn || (dayPunches.find((p) => (p.status?.toUpperCase() || '') === 'IN')?.punchTime);
                     const lastOut = record.checkOut || (dayPunches.filter((p) => (p.status?.toUpperCase() || '') === 'OUT').pop()?.punchTime);
@@ -646,25 +738,59 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                           }`}>
                             {(record.status || 'PRESENT') === 'PRESENT' && (record.isDeviation || (() => {
                               const lateM = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
-                              const earlyM = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                              const earlyMRaw = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                              const earlyM = hasApprovedHalfDayLeave ? 0 : earlyMRaw;
                               const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
                               return getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateM, earlyM, breakExcessM).showShortfall;
                             })()) ? 'Present (with deviation)' : (record.status || 'PRESENT')}
                           </div>
                         )}
                         {/* Policy indicators: L (Late), EG (Early Going), D (Deviation), OT (Overtime), Shortfall.
-                            - Use frontend fallback so calendar reflects current policy even when record wasn't recalculated.
-                            - Shortfall badge and D shown from backend OR from read-time shortfall when policy says Consider X as Shortfall = YES. */}
+                            - When approved permission (e.g. 09:00-11:00) exists and first punch is at/after permission end, hide Late and shortfall from late.
+                            - Use frontend fallback so calendar reflects current policy even when record wasn't recalculated. */}
                         {(() => {
+                          const leavesForDay = leaveByDate.get(dateStr) || [];
+                          const permissionEndTime = getPermissionEndTimeForDate(dateStr, leavesForDay);
+                          const firstPunchTime = firstIn
+                            ? new Date(typeof firstIn === 'string' ? firstIn : (firstIn as Date).toISOString())
+                            : null;
+                          const permissionCoversLate =
+                            permissionEndTime != null &&
+                            firstPunchTime != null &&
+                            firstPunchTime >= permissionEndTime;
+                          const permissionOnDay = leavesForDay.some((lr) => {
+                            if ((lr.status || '').toUpperCase() !== 'APPROVED' || !lr.reason?.trim()) return false;
+                            return /^\[Permission\s+\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\]/i.test(lr.reason);
+                          });
+
                           const lateMin = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
-                          const earlyMin = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                          const earlyMinRaw = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                          const earlyMin = hasApprovedHalfDayLeave || permissionOnDay ? 0 : earlyMinRaw;
                           const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
-                          const { showShortfall } = getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateMin, earlyMin, breakExcessM);
+                          const { showShortfall, shortfallMinutes } = getDisplayShortfall(
+                            record,
+                            effectiveShiftForRecord,
+                            lateEarlyPolicy,
+                            permissionCoversLate ? 0 : lateMin,
+                            earlyMin,
+                            breakExcessM
+                          );
+                          const lateMinsForDisplay = permissionCoversLate ? 0 : (record.lateMinutes ?? lateMin ?? 0);
+                          const shortfallFromLate = permissionCoversLate ? 0 : (record.lateMinutes ?? lateMin ?? 0);
+                          const shortfallMinsForDisplay = Math.max(0, shortfallMinutes - (permissionCoversLate ? shortfallFromLate : 0));
+                          const minShortfallMins = lateEarlyPolicy?.minShortfallHoursAsDeviation
+                            ? (() => {
+                                const [h, m] = (lateEarlyPolicy.minShortfallHoursAsDeviation || '00:00').split(':').map(Number);
+                                return (h || 0) * 60 + (m || 0);
+                              })()
+                            : 0;
+                          const showShortfallAdjusted = shortfallMinsForDisplay > 0 && shortfallMinsForDisplay >= minShortfallMins;
+
                           const excessStayMins = getExcessStayMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
                           const earlyComingMins = getEarlyComingMinutes(record, effectiveShiftForRecord);
-                          const showLate = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0;
-                          const showEarly = ((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyMin ?? 0) > 0;
-                          const showDeviation = !!record.isDeviation || showShortfall;
+                          const showLate = !permissionCoversLate && (((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0);
+                          const showEarly = !hasApprovedHalfDayLeave && !permissionOnDay && (((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyMin ?? 0) > 0);
+                          const showDeviation = !!record.isDeviation || showShortfallAdjusted;
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const showOt = record.otMinutes != null && record.otMinutes > 0 && record.otMinutes >= minOtMins;
                           const showExcessStay = excessStayMins > 0;
@@ -690,11 +816,13 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                                 D
                               </span>
                             )}
-                            {/* Shortfall: from backend deviationReason or from read-time when policy Consider Early/Late as Shortfall = YES */}
-                            {(record.isDeviation && (record.deviationReason ?? '').includes('Shortfall')) || showShortfall ? (() => {
+                            {/* Shortfall: when permission covers late we show adjusted shortfall (excluding late portion) */}
+                            {(record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && !permissionCoversLate) || showShortfallAdjusted ? (() => {
                               const backendShortfall = (record.lateMinutes ?? 0) + (record.earlyMinutes ?? 0);
-                              const { shortfallMinutes } = getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateMin, earlyMin, breakExcessM);
-                              const mins = record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && backendShortfall > 0 ? backendShortfall : shortfallMinutes;
+                              const mins =
+                                record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && backendShortfall > 0 && !permissionCoversLate
+                                  ? backendShortfall
+                                  : shortfallMinsForDisplay;
                               return (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800">
                                   {mins > 0 ? `Shortfall: ${mins} min` : 'Shortfall'}
@@ -843,6 +971,7 @@ const AttendancePage = () => {
 
   // Approved comp-off entries for calendar display
   const [approvedCompOffs, setApprovedCompOffs] = useState<CompOffRequestItem[]>([]);
+  const [calendarLeaveRequests, setCalendarLeaveRequests] = useState<CalendarLeaveRequestItem[]>([]);
 
   // Manual punch (for testing): any date, multiple In/Out per day
   const [manualPunchDate, setManualPunchDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -949,6 +1078,7 @@ const AttendancePage = () => {
             checkTodayStatus(),
             fetchCompOffSummary(),
             fetchApprovedCompOffs(),
+            fetchCalendarLeaveRequests(),
           ]);
         } catch (err: any) {
           console.error('Error in useEffect:', err);
@@ -992,6 +1122,7 @@ const AttendancePage = () => {
         fetchPunches();
         fetchCompOffSummary({ silent: true });
         fetchApprovedCompOffs();
+        fetchCalendarLeaveRequests();
       }
     };
     window.addEventListener('focus', onFocus);
@@ -1004,14 +1135,18 @@ const AttendancePage = () => {
     const shouldRefetch = (state?.refreshFromFacePunch || state?.refreshFromShiftGrid) && user;
     if (shouldRefetch) {
       const refetch = async () => {
-        await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), checkTodayStatus()]);
+        await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), checkTodayStatus(), fetchCalendarLeaveRequests()]);
         navigate('/attendance', { replace: true, state: {} });
       };
       refetch();
     }
     if (state?.leaveApplied) {
       setShowLeaveAppliedBanner(true);
-      navigate('/attendance', { replace: true, state: {} });
+      const refetchLeaveData = async () => {
+        await Promise.all([fetchRecords({ silent: true }), fetchMyRecords({ silent: true }), fetchCalendarLeaveRequests()]);
+        navigate('/attendance', { replace: true, state: {} });
+      };
+      refetchLeaveData();
     }
   }, [location.state, user]);
 
@@ -1180,14 +1315,20 @@ const AttendancePage = () => {
     if (!canViewTeamAttendance && user?.employee?.id) employeeId = user.employee.id; // EMPLOYEE: always own
     else if (viewMode === 'my' && user?.employee?.id) employeeId = user.employee.id;
     else if (isHRForCalendar && viewMode === 'team' && selectedEmployeeId) employeeId = selectedEmployeeId;
-    else if (canViewTeamAttendance && viewMode === 'team' && !isHRForCalendar) return; // manager team: many employees, skip punches
-    if (!employeeId) {
+    else if (canViewTeamAttendance && viewMode === 'team' && !isHRForCalendar) {
+      // Manager team mode can include many employees; this endpoint expects one employee.
       setPunches([]);
       return;
     }
     try {
+      const params: { startDate: string; endDate: string; employeeId?: string } = {
+        startDate: monthStart,
+        endDate: monthEnd,
+      };
+      // For employee self-view, allow backend to infer employeeId from logged-in user.
+      if (employeeId) params.employeeId = employeeId;
       const res = await api.get<{ data: { punches: AttendancePunch[] } }>('/attendance/punches', {
-        params: { startDate: monthStart, endDate: monthEnd, employeeId },
+        params,
       });
       setPunches(res.data?.data?.punches || []);
     } catch {
@@ -1481,6 +1622,59 @@ const AttendancePage = () => {
     }
   };
 
+  const fetchCalendarLeaveRequests = async () => {
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    if (!organizationId) {
+      setCalendarLeaveRequests([]);
+      return;
+    }
+    const targetEmpId =
+      viewMode === 'my' || !canViewTeamAttendance
+        ? user?.employee?.id
+        : selectedEmployeeId || user?.employee?.id;
+    if (!targetEmpId) {
+      setCalendarLeaveRequests([]);
+      return;
+    }
+
+    const dateFrom = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+    const dateTo = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+    try {
+      const response = await api.get('/leaves/requests', {
+        params: {
+          organizationId,
+          employeeId: targetEmpId,
+          dateFrom,
+          dateTo,
+          page: 1,
+          limit: 500,
+          sortBy: 'appliedOn',
+          sortOrder: 'desc',
+        },
+      });
+      const requests = response.data?.data?.leaveRequests || response.data?.data?.requests || [];
+      setCalendarLeaveRequests(requests);
+    } catch {
+      setCalendarLeaveRequests([]);
+    }
+  };
+
+  const approvedHalfDayLeaveDateSet = new Set<string>();
+  (calendarLeaveRequests || []).forEach((lr) => {
+    if ((lr.status || '').toUpperCase() !== 'APPROVED') return;
+    const totalDays = Number(lr.totalDays);
+    if (!(totalDays > 0 && totalDays < 1)) return;
+    const start = new Date(lr.startDate);
+    const end = new Date(lr.endDate);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      approvedHalfDayLeaveDateSet.add(format(cursor, 'yyyy-MM-dd'));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  });
+
   const showingSelectedEmployeeSummary =
     canChooseEmployeeCompOffSummary && viewMode === 'team' && !!selectedEmployeeId;
   const isOwnCompOffSummary = !showingSelectedEmployeeSummary || selectedEmployeeId === user?.employee?.id;
@@ -1550,7 +1744,7 @@ const AttendancePage = () => {
         {showLeaveAppliedBanner && (
           <div className="mb-4 flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
             <span>
-              Leave request submitted. After approval it will reflect in the calendar sidebar (Opening, Used, Balance) and in the leave table.
+              Leave request submitted. It is shown as Pending in calendar now; once manager approves, status updates to Approved automatically.
             </span>
             <button type="button" onClick={() => setShowLeaveAppliedBanner(false)} className="ml-2 shrink-0 rounded p-1 hover:bg-green-100" aria-label="Dismiss">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -1908,6 +2102,7 @@ const AttendancePage = () => {
                   organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
                   lateEarlyPolicy={lateEarlyPolicy}
                   approvedCompOffs={approvedCompOffs}
+                  leaveRequests={calendarLeaveRequests}
                 />
               </div>
               <MonthlyDetailsSidebar
@@ -1995,14 +2190,17 @@ const AttendancePage = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         {(() => {
                           const shiftT = record.shift ?? null;
+                          const recordDateKey = format(new Date(record.date), 'yyyy-MM-dd');
+                          const hasApprovedHalfDayLeave = approvedHalfDayLeaveDateSet.has(recordDateKey);
                           const lateM = getLateMinutesFallback(record, shiftT, lateEarlyPolicy);
-                          const earlyM = getEarlyMinutes(record, shiftT, lateEarlyPolicy);
+                          const earlyMRaw = getEarlyMinutes(record, shiftT, lateEarlyPolicy);
+                          const earlyM = hasApprovedHalfDayLeave ? 0 : earlyMRaw;
                           const breakExcessM = getBreakExcessMinutes(record, shiftT, lateEarlyPolicy);
                           const { showShortfall, shortfallMinutes } = getDisplayShortfall(record, shiftT, lateEarlyPolicy, lateM, earlyM, breakExcessM);
                           const excessStayMins = getExcessStayMinutes(record, shiftT, lateEarlyPolicy);
                           const earlyComingMins = getEarlyComingMinutes(record, shiftT);
                           const showLate = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateM ?? 0) > 0;
-                          const showEarly = ((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyM ?? 0) > 0;
+                          const showEarly = !hasApprovedHalfDayLeave && (((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyM ?? 0) > 0);
                           const showDeviation = !!record.isDeviation || showShortfall;
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const otMinutes = record.otMinutes ?? 0;

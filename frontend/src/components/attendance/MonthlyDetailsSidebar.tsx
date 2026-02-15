@@ -157,9 +157,9 @@ export default function MonthlyDetailsSidebar({
               key={tab}
               type="button"
               onClick={() => {
-                if (tab === 'Leave')
+                if (tab === 'Leave' || tab === 'Permission')
                   navigate('/attendance/apply-event', {
-                    state: { employeeId, year, month },
+                    state: { employeeId, year, month, applyTab: tab },
                   });
                 else setApplyTab(tab);
               }}

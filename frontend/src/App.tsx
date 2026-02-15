@@ -72,6 +72,7 @@ import EmployeeMasterApprovalPage from './pages/EmployeeMasterApprovalPage';
 import EsopListPage from './pages/EsopListPage';
 import EsopPage from './pages/EsopPage';
 import LeaveApprovalPage from './pages/LeaveApprovalPage';
+import EventRequestPage from './pages/EventRequestPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 function App() {
@@ -600,8 +601,18 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="/leave/apply" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/leave" element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/event/requests"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EventRequestPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/leave/apply" element={<Navigate to="/attendance/apply-event" replace />} />
+          <Route path="/leave" element={<Navigate to="/attendance/apply-event" replace />} />
           <Route
             path="/time-attendance"
             element={

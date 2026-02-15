@@ -1,9 +1,7 @@
 /**
- * Apply Event page – opened when user clicks Leave from the calendar Monthly Details.
- * Type dropdown is populated from attendance components (event names).
- * From Date, To Date, and Reason show only after Type is selected.
- * On Save, a LeaveRequest is created via /leaves/requests so that,
- * once approved, opening/used/balance in the calendar sidebar update automatically.
+ * Apply Event page – supports Leave and Permission event types.
+ * Both flows create a LeaveRequest via /leaves/requests so manager approval,
+ * calendar badges, and monthly details stay aligned in one pipeline.
  */
 
 import { useState, useEffect, useMemo } from 'react';
@@ -12,6 +10,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import attendanceComponentService from '../services/attendanceComponent.service';
 import type { AttendanceComponent } from '../services/attendanceComponent.service';
+import AppHeader from '../components/layout/AppHeader';
 
 type DurationOption = 'FULL_DAY' | 'FIRST_HALF' | 'SECOND_HALF';
 
@@ -27,9 +26,9 @@ interface LeaveType {
   code: string;
 }
 
-/** Leave-category attendance components for the Type dropdown */
-function getLeaveComponents(components: AttendanceComponent[]): AttendanceComponent[] {
-  return components.filter((c) => c.eventCategory === 'Leave');
+/** Leave/Permission attendance components for the Type dropdown */
+function getEventComponents(components: AttendanceComponent[]): AttendanceComponent[] {
+  return components.filter((c) => c.eventCategory === 'Leave' || c.eventCategory === 'Permission');
 }
 
 /** Filter to only components that appear in monthly details leave rows (by name match) */
@@ -71,15 +70,18 @@ interface MonthlyDetailsState {
   employeeId?: string;
   year?: number;
   month?: number;
+  applyTab?: 'Leave' | 'Permission' | 'Onduty';
 }
 
 export default function ApplyEventPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
+  const organizationName = user?.employee?.organization?.name;
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
 
   const state = (location.state as MonthlyDetailsState | null) || {};
+  const pageMode: 'Leave' | 'Permission' = state.applyTab === 'Leave' ? 'Leave' : 'Permission';
   const now = new Date();
   const contextEmployeeId = state.employeeId || user?.employee?.id;
   const contextYear = state.year ?? now.getFullYear();
@@ -89,8 +91,9 @@ export default function ApplyEventPage() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   /** component id -> leave type id from backend mapping */
   const [componentToLeaveTypeId, setComponentToLeaveTypeId] = useState<Record<string, string>>({});
-  /** Leave names from monthly details – used to filter Type dropdown to only configured leaves */
+  /** Leave/Permission names from monthly details – used to filter Type dropdown */
   const [monthlyDetailsLeaveNames, setMonthlyDetailsLeaveNames] = useState<string[]>([]);
+  const [monthlyDetailsPermissionNames, setMonthlyDetailsPermissionNames] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [selectedComponentId, setSelectedComponentId] = useState('');
@@ -98,6 +101,9 @@ export default function ApplyEventPage() {
   const [toDate, setToDate] = useState('');
   const [fromDuration, setFromDuration] = useState<DurationOption>('FULL_DAY');
   const [toDuration, setToDuration] = useState<DurationOption>('FULL_DAY');
+  const [entryDate, setEntryDate] = useState('');
+  const [fromTime, setFromTime] = useState('');
+  const [toTime, setToTime] = useState('');
   const [reason, setReason] = useState('');
   const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
   const [saving, setSaving] = useState(false);
@@ -105,10 +111,30 @@ export default function ApplyEventPage() {
 
   const typeSelected = !!selectedComponentId;
 
-  const leaveComponents = useMemo(() => {
-    const leaveOnly = getLeaveComponents(componentsRaw);
-    return filterByMonthlyDetailsLeaves(leaveOnly, monthlyDetailsLeaveNames);
-  }, [componentsRaw, monthlyDetailsLeaveNames]);
+  const eventComponents = useMemo(() => {
+    const all = getEventComponents(componentsRaw);
+    if (pageMode === 'Leave') {
+      return filterByMonthlyDetailsLeaves(
+        all.filter((c) => c.eventCategory === 'Leave'),
+        monthlyDetailsLeaveNames
+      );
+    }
+    return filterByMonthlyDetailsLeaves(
+      all.filter((c) => c.eventCategory === 'Permission'),
+      monthlyDetailsPermissionNames
+    );
+  }, [componentsRaw, monthlyDetailsLeaveNames, monthlyDetailsPermissionNames, pageMode]);
+
+  const selectedComponent = useMemo(
+    () => eventComponents.find((c) => c.id === selectedComponentId) ?? null,
+    [eventComponents, selectedComponentId]
+  );
+  const isPermissionType = selectedComponent?.eventCategory === 'Permission' || pageMode === 'Permission';
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
 
   useEffect(() => {
     if (!organizationId) {
@@ -159,21 +185,30 @@ export default function ApplyEventPage() {
     }
     let cancelled = false;
     api
-      .get<{ data: { leave?: Array<{ name: string }> } }>('/attendance/monthly-details', {
+      .get<{ data: { leave?: Array<{ name: string }>; permission?: Array<{ name: string }> } }>('/attendance/monthly-details', {
         params: { organizationId, employeeId: contextEmployeeId, year: contextYear, month: contextMonth },
       })
       .then((res) => {
-        if (!cancelled && res.data?.data?.leave) {
-          setMonthlyDetailsLeaveNames(res.data.data.leave.map((r) => r.name).filter(Boolean));
+        if (!cancelled && res.data?.data) {
+          setMonthlyDetailsLeaveNames((res.data.data.leave || []).map((r) => r.name).filter(Boolean));
+          setMonthlyDetailsPermissionNames((res.data.data.permission || []).map((r) => r.name).filter(Boolean));
         }
       })
       .catch(() => {
-        if (!cancelled) setMonthlyDetailsLeaveNames([]);
+        if (!cancelled) {
+          setMonthlyDetailsLeaveNames([]);
+          setMonthlyDetailsPermissionNames([]);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [organizationId, contextEmployeeId, contextYear, contextMonth]);
+
+  useEffect(() => {
+    if (selectedComponentId || eventComponents.length === 0) return;
+    setSelectedComponentId(eventComponents[0].id);
+  }, [selectedComponentId, eventComponents]);
 
   const handleCancel = () => {
     navigate('/attendance', { replace: true });
@@ -187,26 +222,38 @@ export default function ApplyEventPage() {
       setError('Please select a Type.');
       return;
     }
-    if (typeSelected && (!fromDate || !toDate || !reason.trim())) {
-      setError('From Date, To Date and Reason are required.');
-      return;
+    if (isPermissionType) {
+      if (typeSelected && (!entryDate || !fromTime || !toTime || !reason.trim())) {
+        setError('Entry Date, From Time, To Time and Reason are required.');
+        return;
+      }
+    } else {
+      if (typeSelected && (!fromDate || !toDate || !reason.trim())) {
+        setError('From Date, To Date and Reason are required.');
+        return;
+      }
     }
 
-    const selectedComponent =
-      leaveComponents.find((c) => c.id === selectedComponentId) ?? null;
+    const permissionFallback = leaveTypes.find((lt) => {
+      const key = `${lt.name || ''} ${lt.code || ''}`.toLowerCase();
+      return key.includes('permission');
+    })?.id;
 
     // Resolve leave type id:
     // 1) explicit mapping (preferred)
-    // 2) manual selection from Leave Type dropdown
+    // 2) manual selection from Leave Type dropdown (leave mode only)
     // 3) fallback name/code match for older data
+    // 4) permission fallback (permission mode only)
     const fromMapping = componentToLeaveTypeId[selectedComponentId];
-    const fromManual = selectedLeaveTypeId || undefined;
+    const fromManual = isPermissionType ? undefined : (selectedLeaveTypeId || undefined);
     const fromNameMatch = resolveLeaveTypeIdFromComponent(leaveTypes, selectedComponent);
-    const leaveTypeIdForSubmit = fromMapping || fromManual || fromNameMatch;
+    const leaveTypeIdForSubmit = fromMapping || fromManual || fromNameMatch || (isPermissionType ? permissionFallback : undefined);
 
     if (!leaveTypeIdForSubmit) {
       setError(
-        'This event type is not linked to any leave type. Please either map it in Event Configuration or select a Leave Type below.'
+        isPermissionType
+          ? 'Permission event is not mapped to a Leave Type. Please configure Event Mapping for Permission.'
+          : 'This event type is not linked to any leave type. Please either map it in Event Configuration or select a Leave Type below.'
       );
       return;
     }
@@ -214,12 +261,49 @@ export default function ApplyEventPage() {
     try {
       setSaving(true);
 
+      let startDate = fromDate;
+      let endDate = toDate;
+      let totalDays: number | undefined;
+      let submitReason = reason.trim();
+
+      if (isPermissionType) {
+        const [fromH, fromM] = fromTime.split(':').map(Number);
+        const [toH, toM] = toTime.split(':').map(Number);
+        const startMinutes = fromH * 60 + fromM;
+        const endMinutes = toH * 60 + toM;
+        const allowedStart = 8 * 60 + 30; // 08:30
+        const allowedEnd = 17 * 60 + 30; // 17:30
+
+        if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
+          setError('Please provide valid From/To time.');
+          return;
+        }
+        if (endMinutes <= startMinutes) {
+          setError('To Time should be greater than From Time.');
+          return;
+        }
+        if (startMinutes < allowedStart || endMinutes > allowedEnd) {
+          setError('Permission can be applied only between 08:30 and 17:30.');
+          return;
+        }
+
+        const durationMinutes = endMinutes - startMinutes;
+        totalDays = Number((durationMinutes / 540).toFixed(4)); // 9-hour office window basis
+        startDate = entryDate;
+        endDate = entryDate;
+        submitReason = `[Permission ${fromTime}-${toTime}] ${submitReason}`;
+      } else {
+        const isSingleDay = fromDate === toDate;
+        const isHalfDaySelection = fromDuration !== 'FULL_DAY' || toDuration !== 'FULL_DAY';
+        totalDays = isSingleDay && isHalfDaySelection ? 0.5 : undefined;
+      }
+
       const payload = {
         leaveTypeId: leaveTypeIdForSubmit,
-        startDate: fromDate,
-        endDate: toDate,
-        reason: reason.trim(),
-        // totalDays omitted – backend calculates working days between start & end
+        startDate,
+        endDate,
+        reason: submitReason,
+        ...(totalDays != null ? { totalDays } : {}),
       };
 
       await api.post('/leaves/requests', payload);
@@ -238,7 +322,7 @@ export default function ApplyEventPage() {
       } else if (err?.message) {
         setError(err.message);
       } else {
-        setError('Failed to submit leave request. Please try again.');
+        setError('Failed to submit event request. Please try again.');
       }
     } finally {
       setSaving(false);
@@ -246,14 +330,20 @@ export default function ApplyEventPage() {
   };
 
   const canSubmit =
-    !!selectedComponentId && (!typeSelected || (fromDate && toDate && reason.trim()));
+    !!selectedComponentId &&
+    (!typeSelected ||
+      (isPermissionType
+        ? (entryDate && fromTime && toTime && reason.trim())
+        : (fromDate && toDate && reason.trim())));
 
   if (!organizationId) {
     return (
-      <div className="flex flex-col min-h-0 flex-1">
-        <header className="flex-shrink-0 bg-[#1e3a5f] px-4 py-3">
-          <h1 className="text-lg font-semibold text-white">Apply Event</h1>
-        </header>
+      <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <AppHeader
+          title={pageMode === 'Permission' ? 'Apply Permission' : 'Apply Event'}
+          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+          onLogout={handleLogout}
+        />
         <div className="flex-1 p-4">
           <p className="text-sm text-gray-600">Organization not found. Please go back to Attendance.</p>
           <button type="button" onClick={() => navigate('/attendance')} className="mt-2 text-blue-600 hover:underline">
@@ -265,14 +355,15 @@ export default function ApplyEventPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-0 flex-1 bg-white">
-      {/* Dark blue header */}
-      <header className="flex-shrink-0 bg-[#1e3a5f] px-4 py-3">
-        <h1 className="text-lg font-semibold text-white">Apply Event</h1>
-      </header>
+    <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <AppHeader
+        title={pageMode === 'Permission' ? 'Apply Permission' : 'Apply Event'}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        onLogout={handleLogout}
+      />
 
-      <div className="flex-1 overflow-auto">
-        <form onSubmit={handleSave} className="p-4 flex flex-col max-w-xl">
+      <div className="flex-1 overflow-auto p-4">
+        <form onSubmit={handleSave} className="mx-auto flex w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           {error && (
             <div className="mb-4 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
               {error}
@@ -289,17 +380,17 @@ export default function ApplyEventPage() {
                 value={selectedComponentId}
                 onChange={(e) => setSelectedComponentId(e.target.value)}
                 required
-                disabled={loading}
+                disabled={loading || pageMode === 'Permission'}
                 className="flex-1 min-w-0 py-2 pl-3 pr-8 bg-transparent text-sm text-gray-900 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500 border-0 rounded-md"
               >
                 <option value="">: Type</option>
-                {leaveComponents.map((c) => (
+                {eventComponents.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.eventName || c.shortName || c.id}
                   </option>
                 ))}
               </select>
-              {selectedComponentId && (
+              {selectedComponentId && pageMode !== 'Permission' && (
                 <button
                   type="button"
                   onClick={() => setSelectedComponentId('')}
@@ -322,8 +413,8 @@ export default function ApplyEventPage() {
           {/* From Date, To Date, Reason, Leave Type – only after Type is selected */}
           {typeSelected && (
             <>
-              {/* Optional explicit Leave Type selector when no mapping exists */}
-              {leaveTypes.length > 0 && !componentToLeaveTypeId[selectedComponentId] && (
+              {/* Optional explicit Leave Type selector when no mapping exists (leave mode only) */}
+              {!isPermissionType && leaveTypes.length > 0 && !componentToLeaveTypeId[selectedComponentId] && (
                 <div className="mb-6">
                   <label htmlFor="leaveType" className="block text-sm font-medium text-gray-700 mb-1">
                     Leave Type <span className="text-red-500">*</span>
@@ -347,99 +438,150 @@ export default function ApplyEventPage() {
                 </div>
               )}
 
-              {/* From Date */}
-              <div className="mb-6">
-                <label htmlFor="fromDate" className="block text-sm font-medium text-gray-700 mb-1">
-                  From Date <span className="text-red-500">*</span>
-                </label>
-                <div className="mt-1 flex gap-2 items-center flex-wrap">
-                  <div className="flex-1 min-w-[140px] relative flex items-center rounded-md border border-gray-300 bg-white shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
-                    <span className="pl-3 text-gray-400 pointer-events-none">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </span>
+              {isPermissionType ? (
+                <>
+                  <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                    Event can be applied from <span className="font-semibold">08:30</span> to <span className="font-semibold">17:30</span>
+                  </div>
+                  <div className="mb-6">
+                    <label htmlFor="entryDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      Entry Date <span className="text-red-500">*</span>
+                    </label>
                     <input
-                      id="fromDate"
+                      id="entryDate"
                       type="date"
-                      value={fromDate}
-                      onChange={(e) => setFromDate(e.target.value)}
+                      value={entryDate}
+                      onChange={(e) => setEntryDate(e.target.value)}
                       required={typeSelected}
-                      className="flex-1 min-w-0 py-2 pl-2 pr-3 border-0 bg-transparent text-sm text-gray-900 focus:outline-none"
+                      className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
-                  <div className="flex items-center gap-1 rounded-md border border-gray-300 bg-white py-1.5 pl-2 pr-1">
-                    <select
-                      value={fromDuration}
-                      onChange={(e) => setFromDuration(e.target.value as DurationOption)}
-                      className="text-sm text-gray-900 focus:outline-none border-0 bg-transparent py-0 pr-6"
-                    >
-                      {(Object.keys(DURATION_LABELS) as DurationOption[]).map((d) => (
-                        <option key={d} value={d}>
-                          {DURATION_LABELS[d]}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setFromDuration('FULL_DAY')}
-                      className="p-1 text-gray-400 hover:text-gray-600 rounded"
-                      aria-label="Clear duration"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+                  <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="fromTime" className="block text-sm font-medium text-gray-700 mb-1">
+                        From Time <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="fromTime"
+                        type="time"
+                        value={fromTime}
+                        onChange={(e) => setFromTime(e.target.value)}
+                        required={typeSelected}
+                        className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="toTime" className="block text-sm font-medium text-gray-700 mb-1">
+                        To Time <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        id="toTime"
+                        type="time"
+                        value={toTime}
+                        onChange={(e) => setToTime(e.target.value)}
+                        required={typeSelected}
+                        className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
-                </div>
-              </div>
+                </>
+              ) : (
+                <>
+                  {/* From Date */}
+                  <div className="mb-6">
+                    <label htmlFor="fromDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      From Date <span className="text-red-500">*</span>
+                    </label>
+                    <div className="mt-1 flex gap-2 items-center flex-wrap">
+                      <div className="flex-1 min-w-[140px] relative flex items-center rounded-md border border-gray-300 bg-white shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+                        <span className="pl-3 text-gray-400 pointer-events-none">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </span>
+                        <input
+                          id="fromDate"
+                          type="date"
+                          value={fromDate}
+                          onChange={(e) => setFromDate(e.target.value)}
+                          required={typeSelected}
+                          className="flex-1 min-w-0 py-2 pl-2 pr-3 border-0 bg-transparent text-sm text-gray-900 focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 rounded-md border border-gray-300 bg-white py-1.5 pl-2 pr-1">
+                        <select
+                          value={fromDuration}
+                          onChange={(e) => setFromDuration(e.target.value as DurationOption)}
+                          className="text-sm text-gray-900 focus:outline-none border-0 bg-transparent py-0 pr-6"
+                        >
+                          {(Object.keys(DURATION_LABELS) as DurationOption[]).map((d) => (
+                            <option key={d} value={d}>
+                              {DURATION_LABELS[d]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setFromDuration('FULL_DAY')}
+                          className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                          aria-label="Clear duration"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
-              {/* To Date */}
-              <div className="mb-6">
-                <label htmlFor="toDate" className="block text-sm font-medium text-gray-700 mb-1">
-                  To Date <span className="text-red-500">*</span>
-                </label>
-                <div className="mt-1 flex gap-2 items-center flex-wrap">
-                  <div className="flex-1 min-w-[140px] relative flex items-center rounded-md border border-gray-300 bg-white shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
-                    <span className="pl-3 text-gray-400 pointer-events-none">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                    </span>
-                    <input
-                      id="toDate"
-                      type="date"
-                      value={toDate}
-                      onChange={(e) => setToDate(e.target.value)}
-                      required={typeSelected}
-                      className="flex-1 min-w-0 py-2 pl-2 pr-3 border-0 bg-transparent text-sm text-gray-900 focus:outline-none"
-                    />
+                  {/* To Date */}
+                  <div className="mb-6">
+                    <label htmlFor="toDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      To Date <span className="text-red-500">*</span>
+                    </label>
+                    <div className="mt-1 flex gap-2 items-center flex-wrap">
+                      <div className="flex-1 min-w-[140px] relative flex items-center rounded-md border border-gray-300 bg-white shadow-sm focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500">
+                        <span className="pl-3 text-gray-400 pointer-events-none">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </span>
+                        <input
+                          id="toDate"
+                          type="date"
+                          value={toDate}
+                          onChange={(e) => setToDate(e.target.value)}
+                          required={typeSelected}
+                          className="flex-1 min-w-0 py-2 pl-2 pr-3 border-0 bg-transparent text-sm text-gray-900 focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center gap-1 rounded-md border border-gray-300 bg-white py-1.5 pl-2 pr-1">
+                        <select
+                          value={toDuration}
+                          onChange={(e) => setToDuration(e.target.value as DurationOption)}
+                          className="text-sm text-gray-900 focus:outline-none border-0 bg-transparent py-0 pr-6"
+                        >
+                          {(Object.keys(DURATION_LABELS) as DurationOption[]).map((d) => (
+                            <option key={d} value={d}>
+                              {DURATION_LABELS[d]}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setToDuration('FULL_DAY')}
+                          className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                          aria-label="Clear duration"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 rounded-md border border-gray-300 bg-white py-1.5 pl-2 pr-1">
-                    <select
-                      value={toDuration}
-                      onChange={(e) => setToDuration(e.target.value as DurationOption)}
-                      className="text-sm text-gray-900 focus:outline-none border-0 bg-transparent py-0 pr-6"
-                    >
-                      {(Object.keys(DURATION_LABELS) as DurationOption[]).map((d) => (
-                        <option key={d} value={d}>
-                          {DURATION_LABELS[d]}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => setToDuration('FULL_DAY')}
-                      className="p-1 text-gray-400 hover:text-gray-600 rounded"
-                      aria-label="Clear duration"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
+                </>
+              )}
 
               {/* Reason */}
               <div className="mb-6">

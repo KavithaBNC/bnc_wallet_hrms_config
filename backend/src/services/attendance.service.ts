@@ -465,7 +465,9 @@ export class AttendanceService {
         } catch {
           excessRuleData = null;
         }
-        // Full policy when we have both check-in and check-out
+        // Full policy when we have both check-in and check-out. Use approved permission end (e.g. 11:00) as effective shift start for late so 9–11 permission + punch at 11 is not late.
+        const dayStartLocal = new Date(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate(), 0, 0, 0, 0);
+        const effectiveShiftStartForLate = await this.getApprovedPermissionEndForDay(employeeId, dayStartLocal);
         const breakHours =
           record.breakHours != null
             ? parseFloat(record.breakHours.toString())
@@ -480,7 +482,8 @@ export class AttendanceService {
           policyRules,
           dayStart,
           status,
-          excessRuleData
+          excessRuleData,
+          effectiveShiftStartForLate
         );
         await prisma.attendanceRecord.update({
           where: { id: record.id },
@@ -499,14 +502,23 @@ export class AttendanceService {
           },
         });
       } else {
-        // Only check-in so far ("Currently In"): compute and persist late; clear early-going (no check-out yet)
+        // Only check-in so far ("Currently In"): compute and persist late; use permission end as effective shift start when applicable
         let isLate = false;
         let lateMinutes: number | null = null;
-        if (shiftForCompute?.startTime && policyRules?.considerLateFromGraceTime) {
-          const shiftStart = new Date(dayStart);
-          const [startHours, startMinutes] = (shiftForCompute.startTime as any).split(':').map(Number);
-          shiftStart.setHours(startHours, startMinutes, 0, 0);
-          const graceEndTime = this.getShiftTimeWithGrace(shiftStart, undefined, true, policyRules);
+        const dayStartLocal = new Date(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate(), 0, 0, 0, 0);
+        const effectiveShiftStartForLate = await this.getApprovedPermissionEndForDay(employeeId, dayStartLocal);
+        const effectiveStart =
+          effectiveShiftStartForLate ??
+          (shiftForCompute?.startTime
+            ? (() => {
+                const shiftStart = new Date(dayStartLocal.getTime());
+                const [startHours, startMinutes] = (shiftForCompute.startTime as string).split(':').map(Number);
+                shiftStart.setHours(startHours, startMinutes, 0, 0);
+                return shiftStart;
+              })()
+            : null);
+        if (effectiveStart && policyRules?.considerLateFromGraceTime) {
+          const graceEndTime = this.getShiftTimeWithGrace(effectiveStart, undefined, true, policyRules);
           isLate = checkIn > graceEndTime;
           lateMinutes = isLate
             ? Math.round((checkIn.getTime() - graceEndTime.getTime()) / (1000 * 60))
@@ -615,8 +627,45 @@ export class AttendanceService {
   }
 
   /**
+   * Get approved permission end time for an employee on a given date.
+   * Used to treat permission period (e.g. 09:00-11:00) as allowed absence so punch at 11:00 is not marked late.
+   * dayStartMidnight: Date at midnight (local or UTC) for the attendance day.
+   * Returns the same day at permission end time (e.g. 11:00) so late is computed against it, or null if no approved permission.
+   * Matches by reason pattern [Permission HH:MM-HH:MM] so it works even when leave type name is not "Permission".
+   */
+  private async getApprovedPermissionEndForDay(employeeId: string, dayStartMidnight: Date): Promise<Date | null> {
+    const dayEnd = new Date(dayStartMidnight);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const approvedLeaves = await prisma.leaveRequest.findMany({
+      where: {
+        employeeId,
+        status: 'APPROVED',
+        startDate: { lte: dayEnd },
+        endDate: { gte: dayStartMidnight },
+      },
+      orderBy: { appliedOn: 'desc' },
+    });
+
+    // Reason pattern: [Permission 09:00-11:00] or [Permission 09:00 - 11:00] (optional spaces around hyphen)
+    const permissionReasonRegex = /^\[Permission\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\]/i;
+    for (const leave of approvedLeaves) {
+      if (!leave?.reason) continue;
+      const match = leave.reason.match(permissionReasonRegex);
+      if (!match) continue;
+      const [, , endHHMM] = match;
+      const [endHours, endMinutes] = endHHMM.split(':').map(Number);
+      const permissionEnd = new Date(dayStartMidnight.getTime());
+      permissionEnd.setHours(endHours, endMinutes, 0, 0);
+      return permissionEnd;
+    }
+    return null;
+  }
+
+  /**
    * Compute policy-derived fields for a day (late, early, deviation, OT, workHours).
    * Used by checkOut and syncAttendanceRecordFromPunches.
+   * When effectiveShiftStartForLate is provided (e.g. from approved permission end time), late is computed against it instead of shift start.
    */
   private async computePolicyFieldsForDay(
     checkIn: Date,
@@ -626,7 +675,8 @@ export class AttendanceService {
     policyRules: Record<string, any> | null,
     _attendanceDate: Date,
     attendanceStatus?: AttendanceStatus,
-    excessRuleData?: EventRuleData | null
+    excessRuleData?: EventRuleData | null,
+    effectiveShiftStartForLate?: Date | null
   ): Promise<{
     workHours: number;
     overtimeHours: number;
@@ -646,17 +696,28 @@ export class AttendanceService {
     const workHours = this.calculateWorkHours(checkIn, checkOut, breakHours);
     let overtimeHours = 0;
 
-    // Late coming (supports shiftStartGraceMinutes or shiftStartGraceTime HH:MM)
+    // Late coming (supports shiftStartGraceMinutes or shiftStartGraceTime HH:MM).
+    // When effectiveShiftStartForLate is set (e.g. from approved permission 09:00-11:00), use it so punch at 11:00 is not late.
     let isLate = false;
     let lateMinutes: number | null = null;
-    if (policyRules && shift?.startTime && policyRules.considerLateFromGraceTime) {
-      const shiftStart = new Date(dayStart.getTime());
-      const [startHours, startMinutes] = (shift.startTime as any).split(':').map(Number);
-      shiftStart.setHours(startHours, startMinutes, 0, 0);
-      const graceEndTime = this.getShiftTimeWithGrace(shiftStart, undefined, true, policyRules);
-      if (checkIn > graceEndTime) {
-        isLate = true;
-        lateMinutes = Math.round((checkIn.getTime() - graceEndTime.getTime()) / (1000 * 60));
+    if (policyRules && policyRules.considerLateFromGraceTime) {
+      const effectiveStart =
+        effectiveShiftStartForLate != null
+          ? effectiveShiftStartForLate
+          : shift?.startTime
+            ? (() => {
+                const shiftStart = new Date(dayStart.getTime());
+                const [startHours, startMinutes] = (shift.startTime as string).split(':').map(Number);
+                shiftStart.setHours(startHours, startMinutes, 0, 0);
+                return shiftStart;
+              })()
+            : null;
+      if (effectiveStart) {
+        const graceEndTime = this.getShiftTimeWithGrace(effectiveStart, undefined, true, policyRules);
+        if (checkIn > graceEndTime) {
+          isLate = true;
+          lateMinutes = Math.round((checkIn.getTime() - graceEndTime.getTime()) / (1000 * 60));
+        }
       }
     }
 
@@ -1029,6 +1090,8 @@ export class AttendanceService {
     } catch {
       excessRuleData = null;
     }
+    const dayStartLocal = new Date(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate(), 0, 0, 0, 0);
+    const effectiveShiftStartForLate = await this.getApprovedPermissionEndForDay(employeeId, dayStartLocal);
     const computed = await this.computePolicyFieldsForDay(
       checkIn,
       now,
@@ -1037,7 +1100,8 @@ export class AttendanceService {
       policyRules,
       attendanceDateForUpdate,
       attendance.status as AttendanceStatus,
-      excessRuleData
+      excessRuleData,
+      effectiveShiftStartForLate
     );
 
     // If no policy, apply shift-based OT fallback
@@ -1333,18 +1397,19 @@ export class AttendanceService {
     const out: any[] = [];
     for (const record of records) {
       const isSynthetic = typeof record.id === 'string' && record.id.startsWith('synthetic-');
-      // Recalc when early/deviation missing OR when otMinutes missing/zero (e.g. 26th saved with old minOTHours logic so OT not shown).
+      // Recalc when early/deviation missing, otMinutes missing/zero, OR when marked late (so permission can clear late/shortfall without re-sync).
+      const hasMissingFields =
+        record.earlyMinutes == null ||
+        record.isDeviation == null ||
+        record.otMinutes == null ||
+        record.otMinutes === 0 ||
+        record.excessStayMinutes == null;
+      const markedLate = record.isLate === true && record.lateMinutes != null && Number(record.lateMinutes) > 0;
       const needsBackfill =
         record.status === 'PRESENT' &&
         record.checkIn &&
         record.checkOut &&
-        (
-          record.earlyMinutes == null ||
-          record.isDeviation == null ||
-          record.otMinutes == null ||
-          record.otMinutes === 0 ||
-          record.excessStayMinutes == null
-        ) &&
+        (hasMissingFields || markedLate) &&
         record.shift?.endTime &&
         !isSynthetic;
 
@@ -1393,6 +1458,8 @@ export class AttendanceService {
         excessRuleData = null;
       }
 
+      const dayStartLocal = new Date(checkIn.getFullYear(), checkIn.getMonth(), checkIn.getDate(), 0, 0, 0, 0);
+      const effectiveShiftStartForLate = await this.getApprovedPermissionEndForDay(employeeId, dayStartLocal);
       const computed = await this.computePolicyFieldsForDay(
         checkIn,
         checkOut,
@@ -1401,7 +1468,8 @@ export class AttendanceService {
         policyRules,
         date,
         record.status as AttendanceStatus,
-        excessRuleData
+        excessRuleData,
+        effectiveShiftStartForLate
       );
 
       try {
@@ -2016,7 +2084,7 @@ export class AttendanceService {
 
     const yearStart = new Date(year, 0, 1);
 
-    const [employee, components, leaveTypes, autoCreditSettings, leaveBalances, records, leaveRequests] =
+    const [employee, components, leaveTypes, autoCreditSettings, leaveBalances, previousYearLeaveBalances, records, leaveRequests, ruleSettings] =
       await Promise.all([
         prisma.employee.findUnique({
           where: { id: employeeId },
@@ -2057,6 +2125,14 @@ export class AttendanceService {
           },
         },
       }),
+      prisma.employeeLeaveBalance.findMany({
+        where: { employeeId, year: year - 1 },
+        include: {
+          leaveType: {
+            select: { id: true, name: true, code: true, defaultDaysPerYear: true },
+          },
+        },
+      }),
       (async () => {
         try {
           return await prisma.attendanceRecord.findMany({
@@ -2091,7 +2167,7 @@ export class AttendanceService {
       prisma.leaveRequest.findMany({
         where: {
           employeeId,
-          status: LeaveStatus.APPROVED,
+          status: { in: [LeaveStatus.APPROVED, LeaveStatus.PENDING] },
           // Any leave that overlaps the year-to-month range
           startDate: { lte: monthEnd },
           endDate: { gte: yearStart },
@@ -2100,6 +2176,19 @@ export class AttendanceService {
           leaveType: {
             select: { id: true },
           },
+        },
+      }),
+      prisma.ruleSetting.findMany({
+        where: { organizationId },
+        select: {
+          id: true,
+          eventType: true,
+          displayName: true,
+          eventRuleDefinition: true,
+          remarks: true,
+          paygroupId: true,
+          departmentId: true,
+          associate: true,
         },
       }),
     ]);
@@ -2120,6 +2209,16 @@ export class AttendanceService {
       return true;
     };
 
+    const isRuleSettingApplicableToEmployee = (r: (typeof ruleSettings)[0]) => {
+      if (r.paygroupId && r.paygroupId !== employee.paygroupId) return false;
+      if (r.departmentId && r.departmentId !== employee.departmentId) return false;
+      if (r.associate) {
+        const a = r.associate.trim();
+        if (a && a !== employee.employeeCode && a !== employee.id) return false;
+      }
+      return true;
+    };
+
     const readEntitlementDays = (rule: unknown): number | null => {
       if (!rule || typeof rule !== 'object') return null;
       const r = rule as Record<string, unknown>;
@@ -2135,6 +2234,8 @@ export class AttendanceService {
     const nameToEntitlementStrict = new Map<string, number>();
     const codeToEntitlementStrict = new Map<string, number>();
     const entitlementByEventNameOrCodeStrict = new Map<string, number>();
+    const entitlementByNormalizedKey = new Map<string, number>();
+    const normalizeEntitlementKey = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
 
     for (const s of autoCreditSettings) {
       const n = readEntitlementDays(s.autoCreditRule);
@@ -2145,11 +2246,15 @@ export class AttendanceService {
         const key = s.eventType.toLowerCase().trim();
         nameToEntitlementStrict.set(key, n);
         entitlementByEventNameOrCodeStrict.set(key, n);
+        const normalized = normalizeEntitlementKey(key);
+        if (normalized) entitlementByNormalizedKey.set(normalized, n);
       }
       if (s.displayName) {
         const key = s.displayName.trim().toUpperCase();
         codeToEntitlementStrict.set(key, n);
         entitlementByEventNameOrCodeStrict.set(key, n);
+        const normalized = normalizeEntitlementKey(key);
+        if (normalized) entitlementByNormalizedKey.set(normalized, n);
       }
     }
 
@@ -2162,6 +2267,11 @@ export class AttendanceService {
       if (entitlementStrict != null) entitlementFromAutoCreditByLeaveTypeId.set(lt.id, entitlementStrict);
     }
 
+    const previousYearBalanceByLeaveTypeId = new Map<string, number>();
+    for (const pb of previousYearLeaveBalances) {
+      previousYearBalanceByLeaveTypeId.set(pb.leaveTypeId, Number(pb.available ?? 0));
+    }
+
     let excessStayMinutes = 0;
     const shortfallMinutes = 0;
     let lateCount = 0;
@@ -2169,8 +2279,27 @@ export class AttendanceService {
     let earlyGoingCount = 0;
     let earlyGoingMinutes = 0;
 
+    const approvedHalfDayLeaveDateKeys = new Set<string>();
+    for (const lr of leaveRequests) {
+      const totalDays = Number(lr.totalDays);
+      if (lr.status !== LeaveStatus.APPROVED || !(totalDays > 0 && totalDays < 1)) continue;
+      const start = new Date(lr.startDate);
+      const end = new Date(lr.endDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      const from = new Date(Math.max(start.getTime(), monthStart.getTime()));
+      const to = new Date(Math.min(end.getTime(), monthEnd.getTime()));
+      if (to < from) continue;
+      const cursor = new Date(from);
+      while (cursor <= to) {
+        approvedHalfDayLeaveDateKeys.add(this.toDateKey(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
     for (const r of records) {
       const rExcessStayMinutes = (r as { excessStayMinutes?: number | null }).excessStayMinutes;
+      const recordDateKey = this.toDateKey(new Date(r.date));
       const shiftName = String((r.shift as { name?: string | null } | null)?.name ?? '').trim().toLowerCase();
       const isWeekOffLike =
         r.status === AttendanceStatus.WEEKEND ||
@@ -2213,7 +2342,7 @@ export class AttendanceService {
         const [eh, em] = (r.shift.endTime as string).split(':').map(Number);
         const shiftEnd = new Date(r.date);
         shiftEnd.setHours(eh, em || 0, 0, 0);
-        if (new Date(r.checkOut) < shiftEnd) {
+        if (!approvedHalfDayLeaveDateKeys.has(recordDateKey) && new Date(r.checkOut) < shiftEnd) {
           earlyGoingCount += 1;
           earlyGoingMinutes += Math.round((shiftEnd.getTime() - new Date(r.checkOut).getTime()) / 60000);
         }
@@ -2285,11 +2414,42 @@ export class AttendanceService {
       byCategory.get(cat)!.push(c);
     }
 
+    const normalizeKey = (value: string | null | undefined) =>
+      (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const componentMatchesLeaveType = (
+      comp: { eventName?: string | null; shortName?: string | null },
+      lt: { name?: string | null; code?: string | null }
+    ) => {
+      const compEvent = normalizeKey(comp.eventName);
+      const compShort = normalizeKey(comp.shortName);
+      const typeName = normalizeKey(lt.name);
+      const typeCode = normalizeKey(lt.code);
+
+      const exact =
+        (compEvent && (compEvent === typeName || compEvent === typeCode)) ||
+        (compShort && (compShort === typeCode || compShort === typeName));
+      if (exact) return true;
+
+      // Fallback for naming differences like "Permission" vs "Permission Leave"
+      const fuzzy =
+        (compEvent && typeName && (compEvent.includes(typeName) || typeName.includes(compEvent))) ||
+        (compShort && typeCode && (compShort.includes(typeCode) || typeCode.includes(compShort))) ||
+        (compEvent && typeCode && (compEvent.includes(typeCode) || typeCode.includes(compEvent))) ||
+        (compShort && typeName && (compShort.includes(typeName) || typeName.includes(compShort)));
+      return fuzzy;
+    };
+
     const computeMonthlyLeaveRow = (
       bal: (typeof leaveBalances)[0],
       opts?: { yearEntitlementOverride?: number | null }
     ) => {
       const leaveTypeId = bal.leaveTypeId;
+      const isJanuary = month === 1;
+      const carryForward =
+        Number(bal.carriedForward ?? 0) > 0
+          ? Number(bal.carriedForward ?? 0)
+          : Number(previousYearBalanceByLeaveTypeId.get(leaveTypeId) ?? 0);
       const entitlementFromBalance =
         Number(bal.openingBalance) > 0
           ? Number(bal.openingBalance) + Number(bal.carriedForward)
@@ -2314,24 +2474,57 @@ export class AttendanceService {
       const usedBefore = usageBeforeMonth.get(leaveTypeId) ?? 0;
       const usedThis = usageThisMonth.get(leaveTypeId) ?? 0;
 
-      const opening = Math.max(0, yearEntitlement - usedBefore);
-      const closing = Math.max(0, opening - usedThis);
+      const opening = isJanuary
+        ? Math.max(0, carryForward)
+        : Math.max(0, yearEntitlement - usedBefore);
+      const credit = isJanuary
+        ? Math.max(
+            0,
+            entitlementFromAutoCredit ??
+              entitlementFromLeaveType ??
+              (Number(bal.openingBalance ?? 0) > 0 ? Number(bal.openingBalance ?? 0) : 0)
+          )
+        : 0;
+      const closing = isJanuary
+        ? Math.max(0, opening + credit - usedThis)
+        : Math.max(0, opening - usedThis);
 
       return {
         name: bal.leaveType.name,
         opening,
-        credit: 0,
+        credit,
         used: usedThis,
         balance: closing,
         entitlementConfigured: entitlementFromBalance != null || entitlementFromAutoCredit != null || entitlementFromLeaveType != null,
       };
     };
 
-    const leaveRows = (byCategory.get('Leave') || []).map((comp) => {
+    const readPermissionOpeningCount = (ruleDef: unknown, remarks?: string | null): number | null => {
+      if (ruleDef && typeof ruleDef === 'object') {
+        const r = ruleDef as Record<string, unknown>;
+        const candidates = [r.occasionsInMonth, r.maxEventAvailDaysInMonth];
+        for (const v of candidates) {
+          const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.trim()) : NaN;
+          if (Number.isFinite(n) && n > 0) return Math.floor(n);
+        }
+      }
+      if (remarks && remarks.trim()) {
+        const m = remarks.match(/(\d+)\s*(times|time|count|occasion)/i) || remarks.match(/\bmonthly\s*(\d+)\b/i);
+        if (m && m[1]) {
+          const n = Number(m[1]);
+          if (Number.isFinite(n) && n > 0) return Math.floor(n);
+        }
+      }
+      return null;
+    };
+
+    const computeMappedRowForComponent = (comp: (typeof components)[0]) => {
       const bal = leaveBalances.find(
         (b) =>
-          b.leaveType.name.toLowerCase() === comp.eventName?.toLowerCase() ||
-          (b.leaveType.code && b.leaveType.code.toLowerCase() === comp.shortName?.toLowerCase())
+          componentMatchesLeaveType(
+            { eventName: comp.eventName, shortName: comp.shortName },
+            { name: b.leaveType.name, code: b.leaveType.code }
+          )
       );
 
       if (bal) {
@@ -2346,25 +2539,33 @@ export class AttendanceService {
       const leaveType =
         leaveTypes.find(
           (lt) =>
-            lt.name.toLowerCase() === (comp.eventName || '').toLowerCase() ||
-            (lt.code && lt.code.toLowerCase() === (comp.shortName || '').toLowerCase())
+            componentMatchesLeaveType(
+              { eventName: comp.eventName, shortName: comp.shortName },
+              { name: lt.name, code: lt.code }
+            )
         ) ?? null;
 
       if (leaveType) {
         // Priority: (b) Auto Credit, (c) Leave Type defaultDaysPerYear – no balance when bal not found
+        const isJanuary = month === 1;
         const entitlementFromAutoCredit = entitlementFromAutoCreditByLeaveTypeId.get(leaveType.id) ?? null;
         const entitlementFromLeaveType = leaveType.defaultDaysPerYear ? Number(leaveType.defaultDaysPerYear) : null;
         const yearEntitlement = entitlementFromAutoCredit ?? entitlementFromLeaveType ?? 0;
-        const entitlementConfigured = entitlementFromAutoCredit != null || entitlementFromLeaveType != null;
+        const entitlementConfigured = !comp.hasBalance || entitlementFromAutoCredit != null || entitlementFromLeaveType != null;
 
         const usedBefore = usageBeforeMonth.get(leaveType.id) ?? 0;
         const usedThis = usageThisMonth.get(leaveType.id) ?? 0;
-        const opening = Math.max(0, yearEntitlement - usedBefore);
-        const closing = Math.max(0, opening - usedThis);
+        const opening = isJanuary
+          ? Math.max(0, Number(previousYearBalanceByLeaveTypeId.get(leaveType.id) ?? 0))
+          : Math.max(0, yearEntitlement - usedBefore);
+        const credit = isJanuary ? Math.max(0, yearEntitlement) : 0;
+        const closing = isJanuary
+          ? Math.max(0, opening + credit - usedThis)
+          : Math.max(0, opening - usedThis);
         return {
           name: comp.eventName || comp.shortName,
           opening,
-          credit: 0,
+          credit,
           used: usedThis,
           balance: closing,
           entitlementConfigured,
@@ -2373,7 +2574,9 @@ export class AttendanceService {
 
       const directEntitlement =
         entitlementByEventNameOrCodeStrict.get((comp.eventName || '').toLowerCase().trim()) ??
-        (comp.shortName ? entitlementByEventNameOrCodeStrict.get(comp.shortName.trim().toUpperCase()) : undefined);
+        (comp.shortName ? entitlementByEventNameOrCodeStrict.get(comp.shortName.trim().toUpperCase()) : undefined) ??
+        entitlementByNormalizedKey.get(normalizeEntitlementKey(comp.eventName || '')) ??
+        entitlementByNormalizedKey.get(normalizeEntitlementKey(comp.shortName || ''));
       if (directEntitlement != null && directEntitlement > 0) {
         return {
           name: comp.eventName || comp.shortName,
@@ -2381,6 +2584,18 @@ export class AttendanceService {
           credit: 0,
           used: 0,
           balance: directEntitlement,
+          entitlementConfigured: true,
+        };
+      }
+
+      // Events like LOP (Has balance = NO) should not require entitlement configuration.
+      if (!comp.hasBalance) {
+        return {
+          name: comp.eventName || comp.shortName,
+          opening: 0,
+          credit: 0,
+          used: 0,
+          balance: 0,
           entitlementConfigured: true,
         };
       }
@@ -2393,7 +2608,9 @@ export class AttendanceService {
         balance: 0,
         entitlementConfigured: false,
       };
-    });
+    };
+
+    const leaveRows = (byCategory.get('Leave') || []).map((comp) => computeMappedRowForComponent(comp));
 
     const balanceRow = (comp: (typeof components)[0]) => ({
       name: comp.eventName || comp.shortName,
@@ -2404,7 +2621,51 @@ export class AttendanceService {
     });
 
     const ondutyRows = (byCategory.get('Onduty') || byCategory.get('On Duty') || []).map(balanceRow);
-    const permissionRows = (byCategory.get('Permission') || []).map(balanceRow);
+
+    const permissionReasonRegex = /^\[Permission\s+\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\]/i;
+    const isPermissionRequest = (lr: { leaveTypeId: string; reason: string; status: string }) =>
+      lr.status === LeaveStatus.APPROVED &&
+      (permissionReasonRegex.test(lr.reason || '') ||
+        leaveTypes.some((lt) => lt.id === lr.leaveTypeId && (lt.name || '').toLowerCase().includes('permission')));
+    const permissionRequestsInMonth = leaveRequests.filter((lr) => {
+      const s = new Date(lr.startDate);
+      const e = new Date(lr.endDate);
+      if (s > monthEnd || e < monthStart) return false;
+      return isPermissionRequest(lr as { leaveTypeId: string; reason: string; status: string });
+    });
+
+    const permissionRows = (byCategory.get('Permission') || []).map((comp) => {
+      const usedCountThisMonth = permissionRequestsInMonth.length;
+      const matchingRule = ruleSettings.find(
+        (r) =>
+          isRuleSettingApplicableToEmployee(r) &&
+          componentMatchesLeaveType(
+            { eventName: comp.eventName, shortName: comp.shortName },
+            { name: r.eventType, code: r.displayName }
+          )
+      );
+      const openingCount = readPermissionOpeningCount(
+        matchingRule?.eventRuleDefinition,
+        matchingRule?.remarks ?? null
+      );
+      if (openingCount != null) {
+        return {
+          name: comp.eventName || comp.shortName,
+          opening: openingCount,
+          credit: 0,
+          used: usedCountThisMonth,
+          balance: Math.max(0, openingCount - usedCountThisMonth),
+        };
+      }
+      const row = computeMappedRowForComponent(comp);
+      return {
+        name: row.name,
+        opening: row.opening,
+        credit: row.credit,
+        used: row.used,
+        balance: row.balance,
+      };
+    });
     const presentRows = (byCategory.get('Present') || []).map(balanceRow);
 
     // Build final leave rows: start with component-based rows, then append any

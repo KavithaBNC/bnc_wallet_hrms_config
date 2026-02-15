@@ -293,6 +293,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   // Super Admin always sees all menus; Dashboard is always visible for authenticated users (landing page).
   // Time attendance: show if user has time_attendance/shifts, or if HR/Org Admin with any permissions (fallback so menu appears after sync).
   const isHrOrOrgAdmin = role === 'HR_MANAGER' || role === 'ORG_ADMIN';
+  const isManager = role === 'MANAGER';
+  const isHr = role === 'HR_MANAGER';
+  const isEmployee = role === 'EMPLOYEE';
+  const canAccessEventByRole = isManager || isHr || isEmployee;
+  const canAccessEventApprovalByRole = isManager || isHr;
   const hasAnyReadPermission = useMemo(
     () => Array.from(userPermissionKeys).some((k) => k.endsWith('.read')),
     [userPermissionKeys]
@@ -300,8 +305,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const visibleNavItems = useMemo(() => {
     const items: AppModule[] = [];
     for (const mod of APP_MODULES) {
-      if (mod.path === '/leave') continue; // Leave Management module hidden from sidebar
-      if (mod.path === '/attendance/excess-time-approval' && !(role === 'MANAGER' || role === 'HR_MANAGER')) continue;
+      if (mod.path === '/attendance/excess-time-approval' && !canAccessEventApprovalByRole) continue;
+      if (
+        (mod.path === '/leave/approvals' ||
+          mod.path === '/attendance/my-requests/excess-time-request') &&
+        !canAccessEventApprovalByRole
+      ) {
+        continue;
+      }
+      if (mod.path === '/attendance/apply-event' && !canAccessEventByRole) continue;
       const isDashboard = mod.path === '/dashboard';
       if (isDashboard) {
         items.push(mod); // Always show Dashboard for authenticated users
@@ -312,14 +324,37 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       } else {
         const hasThisView = hasView(mod.resource);
         const isTimeAttendanceParent = mod.path === '/time-attendance';
+        const isLeaveModule = mod.path === '/leave' || mod.parentPath === '/leave';
+        const isEventApply = mod.path === '/attendance/apply-event';
+        const isEventRequest = mod.path === '/event/requests';
+        const isEventApproval = mod.path === '/leave/approvals';
+        const isExcessTimeRequest = mod.path === '/attendance/my-requests/excess-time-request';
+        const isExcessTimeApproval = mod.path === '/attendance/excess-time-approval';
         const showTimeAttendance =
           isTimeAttendanceParent &&
           (hasView('time_attendance') || hasView('shifts') || (isHrOrOrgAdmin && hasAnyReadPermission));
-        if (hasThisView || showTimeAttendance) items.push(mod);
+        const showEventModule = isLeaveModule && canAccessEventByRole;
+        const showEventApply = isEventApply && canAccessEventByRole;
+        const showEventRequest = isEventRequest && canAccessEventByRole;
+        const showEventApproval = isEventApproval && canAccessEventApprovalByRole;
+        const showExcessTimeRequest = isExcessTimeRequest && canAccessEventApprovalByRole;
+        const showExcessTimeApproval = isExcessTimeApproval && canAccessEventApprovalByRole;
+        if (
+          hasThisView ||
+          showTimeAttendance ||
+          showEventModule ||
+          showEventApply ||
+          showEventRequest ||
+          showEventApproval ||
+          showExcessTimeRequest ||
+          showExcessTimeApproval
+        ) {
+          items.push(mod);
+        }
       }
     }
     return items;
-  }, [isSuperAdmin, hasView, isHrOrOrgAdmin, hasAnyReadPermission]);
+  }, [isSuperAdmin, hasView, isHrOrOrgAdmin, hasAnyReadPermission, canAccessEventByRole, canAccessEventApprovalByRole]);
 
   // Payroll Master dropdown: open when current path is under its children (e.g. /payroll/employee-separation)
   const payrollMasterDropdownOpen = location.pathname.startsWith('/payroll/');
@@ -373,8 +408,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     if (attendanceDropdownOpen) setAttendanceExpanded(true);
   }, [attendanceDropdownOpen]);
 
-  // Leave dropdown: open when current path is under /leave
-  const leaveDropdownOpen = location.pathname.startsWith('/leave');
+  // Event dropdown (old leave menu): open for leave/event and excess-time event pages.
+  const leaveDropdownOpen =
+    location.pathname.startsWith('/leave') ||
+    location.pathname.startsWith('/event/') ||
+    location.pathname === '/attendance/apply-event' ||
+    location.pathname.startsWith('/attendance/my-requests/excess-time-request') ||
+    location.pathname.startsWith('/attendance/excess-time-approval');
   const [leaveExpanded, setLeaveExpanded] = useState(leaveDropdownOpen);
   useEffect(() => {
     if (leaveDropdownOpen) setLeaveExpanded(true);
@@ -393,8 +433,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const currentModule = APP_MODULES.find((m) => m.path === location.pathname);
   const isDashboardOrProfile = location.pathname === '/dashboard' || location.pathname === '/profile';
   const isTimeAttendanceArea = currentModule?.path === '/time-attendance' || currentModule?.parentPath === '/time-attendance';
+  const isLeaveArea = currentModule?.path === '/leave' || currentModule?.parentPath === '/leave';
   const hasTimeAttendanceAccess =
     hasView('time_attendance') || hasView('shifts') || (isHrOrOrgAdmin && hasAnyReadPermission);
+  const isEventApplyPath = currentModule?.path === '/attendance/apply-event';
+  const isEventRequestPath = currentModule?.path === '/event/requests';
+  const isEventApprovalPath = currentModule?.path === '/leave/approvals';
+  const isExcessTimeRequestPath = currentModule?.path === '/attendance/my-requests/excess-time-request';
+  const isExcessTimeApprovalPath = currentModule?.path === '/attendance/excess-time-approval';
+  const hasLeaveAccess = canAccessEventByRole;
+  const hasEventApplyAccess = canAccessEventByRole;
+  const hasEventRequestAccess = canAccessEventByRole;
+  const hasEventApprovalAccess = canAccessEventApprovalByRole;
+  const hasExcessTimeRequestAccess = canAccessEventApprovalByRole;
+  const hasExcessTimeApprovalAccess = canAccessEventApprovalByRole;
   const allowed = isDashboardOrProfile
     ? true
     : !currentModule
@@ -405,6 +457,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           ? isSuperAdmin || hasView('permissions')
           : isTimeAttendanceArea
             ? hasTimeAttendanceAccess
+            : isEventApplyPath
+              ? hasEventApplyAccess
+              : isEventRequestPath
+                ? hasEventRequestAccess
+              : isEventApprovalPath
+                ? hasEventApprovalAccess
+                : isExcessTimeRequestPath
+                  ? hasExcessTimeRequestAccess
+                  : isExcessTimeApprovalPath
+                    ? hasExcessTimeApprovalAccess
+            : isLeaveArea
+              ? hasLeaveAccess
             : hasView(currentModule.resource);
 
   useEffect(() => {
@@ -425,7 +489,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           {topLevelNavItems.map((mod) => {
             const isActive =
               location.pathname === mod.path ||
-              (mod.path === '/leave' && location.pathname.startsWith('/leave/'));
+              (mod.path === '/leave' &&
+                (location.pathname.startsWith('/leave/') ||
+                  location.pathname.startsWith('/event/') ||
+                  location.pathname === '/attendance/apply-event' ||
+                  location.pathname.startsWith('/attendance/my-requests/excess-time-request') ||
+                  location.pathname.startsWith('/attendance/excess-time-approval')));
             const icon = ICONS_BY_PATH[mod.path];
             const childItems = visibleNavItems.filter((m) => m.parentPath === mod.path);
             const isParentWithChildren = childItems.length > 0;

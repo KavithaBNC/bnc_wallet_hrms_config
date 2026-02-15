@@ -22,6 +22,18 @@ export type AttendanceComponentFlags = {
   applicableForRegularization: boolean;
 };
 
+type AttendanceComponentWithLabels = AttendanceComponentFlags & {
+  eventName: string | null;
+  shortName: string | null;
+};
+
+function toAttendanceComponentFlags(component: AttendanceComponentWithLabels): AttendanceComponentFlags {
+  const { eventName, shortName, ...flags } = component;
+  void eventName;
+  void shortName;
+  return flags;
+}
+
 /**
  * Find the AttendanceComponent that corresponds to a LeaveType in the same organization.
  * Match by: component.eventName ≈ leaveType.name (case-insensitive) or
@@ -38,6 +50,7 @@ export async function getAttendanceComponentForLeaveType(
   const components = await prisma.attendanceComponent.findMany({
     where: {
       organizationId,
+      eventCategory: 'Leave',
       OR: [
         { eventName: { equals: leaveType.name, mode: 'insensitive' as const } },
         ...(codeKey
@@ -63,19 +76,16 @@ export async function getAttendanceComponentForLeaveType(
   // Prefer exact match by name, then by code (eventName/shortName used only for matching)
   const byName = components.find((c) => c.eventName?.toLowerCase().trim() === nameKey);
   if (byName) {
-    const { eventName: _en, shortName: _sn, ...flags } = byName;
-    return flags as AttendanceComponentFlags;
+    return toAttendanceComponentFlags(byName as AttendanceComponentWithLabels);
   }
   if (codeKey) {
     const byCode = components.find((c) => c.shortName?.toLowerCase().trim() === codeKey);
     if (byCode) {
-      const { eventName: _en, shortName: _sn, ...flags } = byCode;
-      return flags as AttendanceComponentFlags;
+      return toAttendanceComponentFlags(byCode as AttendanceComponentWithLabels);
     }
   }
   if (components[0]) {
-    const { eventName: _en, shortName: _sn, ...flags } = components[0];
-    return flags as AttendanceComponentFlags;
+    return toAttendanceComponentFlags(components[0] as AttendanceComponentWithLabels);
   }
   return null;
 }
