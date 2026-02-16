@@ -12,6 +12,10 @@ import {
 } from '../utils/leave.validation';
 import { getEntitlementForEmployeeAndLeaveType } from '../utils/auto-credit-entitlement';
 import { getAttendanceComponentForLeaveType } from '../utils/event-config';
+import {
+  canPerformAttendanceEventAction,
+  resolveRightsAllocationForEmployee,
+} from '../utils/rights-allocation';
 import { resolveWorkflowForEmployeeOrNull } from './workflow-resolution.service';
 import {
   getFirstApprover,
@@ -22,6 +26,97 @@ import {
 import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
 
 export class LeaveRequestService {
+  private readonly hrManagedOnlyLeaveNameKeys = [
+    'marriageleave',
+    'paternityleave',
+    'beverageleave',
+    'bereavementleave',
+  ];
+
+  private readonly hrManagedOnlyRoles = new Set(['HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN']);
+
+  private normalizeEventKey(value: string | null | undefined): string {
+    return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  private isHrManagedOnlyLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
+    const nameKey = this.normalizeEventKey(leaveType.name);
+    const codeKey = this.normalizeEventKey(leaveType.code);
+    return this.hrManagedOnlyLeaveNameKeys.some(
+      (k) => nameKey.includes(k) || codeKey === k
+    );
+  }
+
+  private isUuid(value: string | null | undefined): boolean {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  private parseApprovalAttendanceEvents(value: unknown): Array<{
+    id?: string;
+    name?: string;
+    applicable?: boolean;
+    toApprove?: boolean;
+    cancelApproval?: boolean;
+  }> {
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((v) => v && typeof v === 'object')
+      .map((v) => v as { id?: string; name?: string; applicable?: boolean; toApprove?: boolean });
+  }
+
+  private async assertApprovalAllowedForLeaveEvent(params: {
+    organizationId: string;
+    approvalWorkflowId?: string | null;
+    leaveType: { name?: string | null; code?: string | null };
+    attendanceComponentId?: string | null;
+    action: 'toApprove' | 'cancelApproval';
+  }): Promise<void> {
+    const { organizationId, approvalWorkflowId, leaveType, attendanceComponentId, action } = params;
+    if (!this.isUuid(approvalWorkflowId)) return;
+
+    const workflow = await prisma.approvalWorkflow.findFirst({
+      where: { id: approvalWorkflowId!, organizationId },
+      select: { attendanceEvents: true },
+    });
+    if (!workflow) return;
+
+    const events = this.parseApprovalAttendanceEvents(workflow.attendanceEvents);
+    if (!events.length) return;
+
+    let component: { eventName: string | null; shortName: string | null } | null = null;
+    if (attendanceComponentId) {
+      component = await prisma.attendanceComponent.findUnique({
+        where: { id: attendanceComponentId },
+        select: { eventName: true, shortName: true },
+      });
+    }
+
+    const keys = new Set(
+      [
+        this.normalizeEventKey(leaveType.name),
+        this.normalizeEventKey(leaveType.code),
+        this.normalizeEventKey(component?.eventName),
+        this.normalizeEventKey(component?.shortName),
+      ].filter(Boolean)
+    );
+
+    const matched =
+      events.find((e) => attendanceComponentId && e.id && String(e.id) === String(attendanceComponentId)) ||
+      events.find((e) => {
+        const n = this.normalizeEventKey(e.name);
+        return n ? keys.has(n) : false;
+      });
+
+    if (!matched) return;
+    if (matched.applicable === false || matched[action] === false) {
+      throw new AppError(
+        `${action === 'cancelApproval' ? 'Cancel approval' : 'Approval'} is not allowed for ${leaveType.name || 'this event'} in current approval workflow.`,
+        403
+      );
+    }
+  }
+
   private parseDateOnly(input: string): Date {
     const [y, m, d] = input.split('-').map(Number);
     return new Date(Date.UTC(y, (m || 1) - 1, d || 1, 0, 0, 0, 0));
@@ -32,6 +127,47 @@ export class LeaveRequestService {
     const m = String(date.getUTCMonth() + 1).padStart(2, '0');
     const d = String(date.getUTCDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
+  }
+
+  /**
+   * Validate whether current reviewer can act on the leave request.
+   * - Assigned approver can always act
+   * - HR_MANAGER / ORG_ADMIN can act within same organization
+   * - SUPER_ADMIN is also allowed (still requires linked employee record for audit trail)
+   */
+  private async validateReviewerAccess(
+    reviewerId: string,
+    reviewerRole: string | undefined,
+    leaveRequest: {
+      assignedApproverEmployeeId?: string | null;
+      employee: { reportingManagerId?: string | null; organizationId: string };
+    }
+  ): Promise<{ id: string }> {
+    const reviewerEmployee = await prisma.employee.findUnique({
+      where: { userId: reviewerId },
+      select: { id: true, organizationId: true },
+    });
+
+    if (!reviewerEmployee) {
+      throw new AppError('Reviewer employee record not found', 404);
+    }
+
+    const assignedApproverId =
+      leaveRequest.assignedApproverEmployeeId ?? leaveRequest.employee.reportingManagerId;
+    const isAssignedApprover = assignedApproverId === reviewerEmployee.id;
+    const isOrgHrApprover =
+      (reviewerRole === 'HR_MANAGER' || reviewerRole === 'ORG_ADMIN') &&
+      reviewerEmployee.organizationId === leaveRequest.employee.organizationId;
+    const isSuperAdmin = reviewerRole === 'SUPER_ADMIN';
+
+    if (!isAssignedApprover && !isOrgHrApprover && !isSuperAdmin) {
+      throw new AppError(
+        'Access denied. You are not the assigned approver for this request.',
+        403
+      );
+    }
+
+    return { id: reviewerEmployee.id };
   }
 
   /**
@@ -51,6 +187,19 @@ export class LeaveRequestService {
     }
 
     return totalDays;
+  }
+
+  /**
+   * Calculate inclusive calendar days between two dates.
+   */
+  private calculateCalendarDays(startDate: Date, endDate: Date): number {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    start.setUTCHours(0, 0, 0, 0);
+    end.setUTCHours(0, 0, 0, 0);
+    const diffMs = end.getTime() - start.getTime();
+    if (diffMs < 0) return 0;
+    return Math.floor(diffMs / (1000 * 60 * 60 * 24)) + 1;
   }
 
   /**
@@ -156,6 +305,136 @@ export class LeaveRequestService {
       current.setUTCDate(current.getUTCDate() + 1);
     }
     return { valid: true };
+  }
+
+  private normalizeKey(value: string | null | undefined): string {
+    return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  private isPermissionLikeLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
+    const key = `${leaveType.name || ''} ${leaveType.code || ''}`.toLowerCase();
+    return key.includes('permission');
+  }
+
+  private readPermissionMonthlyLimit(ruleDef: unknown, remarks?: string | null): number | null {
+    if (ruleDef && typeof ruleDef === 'object') {
+      const r = ruleDef as Record<string, unknown>;
+      const candidates = [r.occasionsInMonth, r.maxEventAvailDaysInMonth];
+      for (const v of candidates) {
+        const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.trim()) : NaN;
+        if (Number.isFinite(n) && n > 0) return Math.floor(n);
+      }
+    }
+    if (remarks && remarks.trim()) {
+      const m =
+        remarks.match(/(\d+)\s*(times|time|count|occasion)/i) ||
+        remarks.match(/\bmonthly\s*(\d+)\b/i);
+      if (m && m[1]) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > 0) return Math.floor(n);
+      }
+    }
+    return null;
+  }
+
+  private async enforceMonthlyPermissionLimit(
+    employee: {
+      id: string;
+      organizationId: string;
+      paygroupId?: string | null;
+      departmentId?: string | null;
+      employeeCode?: string | null;
+    },
+    leaveType: { id: string; name?: string | null; code?: string | null },
+    startDate: Date,
+    endDate: Date
+  ): Promise<void> {
+    if (!this.isPermissionLikeLeaveType(leaveType)) return;
+
+    const isRuleApplicableToEmployee = (r: {
+      paygroupId?: string | null;
+      departmentId?: string | null;
+      associate?: string | null;
+    }) => {
+      if (r.paygroupId && r.paygroupId !== employee.paygroupId) return false;
+      if (r.departmentId && r.departmentId !== employee.departmentId) return false;
+      if (r.associate) {
+        const a = r.associate.trim();
+        if (a && a !== employee.employeeCode && a !== employee.id) return false;
+      }
+      return true;
+    };
+
+    const leaveTypeNameKey = this.normalizeKey(leaveType.name);
+    const leaveTypeCodeKey = this.normalizeKey(leaveType.code);
+    const ruleSettings = await prisma.ruleSetting.findMany({
+      where: { organizationId: employee.organizationId },
+      select: {
+        id: true,
+        eventType: true,
+        displayName: true,
+        eventRuleDefinition: true,
+        remarks: true,
+        paygroupId: true,
+        departmentId: true,
+        associate: true,
+      },
+    });
+
+    const matchingRule = ruleSettings.find((r) => {
+      if (!isRuleApplicableToEmployee(r)) return false;
+      const eventTypeKey = this.normalizeKey(r.eventType);
+      const displayNameKey = this.normalizeKey(r.displayName);
+      const isPermissionRule =
+        eventTypeKey.includes('permission') ||
+        displayNameKey.includes('permission') ||
+        (leaveTypeNameKey && (eventTypeKey === leaveTypeNameKey || displayNameKey === leaveTypeNameKey)) ||
+        (leaveTypeCodeKey && (eventTypeKey === leaveTypeCodeKey || displayNameKey === leaveTypeCodeKey));
+      return isPermissionRule;
+    });
+
+    const monthlyLimit = this.readPermissionMonthlyLimit(
+      matchingRule?.eventRuleDefinition,
+      matchingRule?.remarks ?? null
+    );
+    if (!monthlyLimit) return;
+
+    const monthStart = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1, 0, 0, 0, 0));
+    const monthEnd = new Date(
+      Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+    );
+    const permissionReasonRegex = /^\[Permission\s+\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\]/i;
+
+    const existingMonthlyRequests = await prisma.leaveRequest.findMany({
+      where: {
+        employeeId: employee.id,
+        status: { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] },
+        startDate: { lte: monthEnd },
+        endDate: { gte: monthStart },
+      },
+      include: {
+        leaveType: {
+          select: { name: true, code: true },
+        },
+      },
+    });
+
+    const usedPermissionCount = existingMonthlyRequests.filter((lr) => {
+      if (permissionReasonRegex.test(lr.reason || '')) return true;
+      return this.isPermissionLikeLeaveType(lr.leaveType);
+    }).length;
+
+    if (usedPermissionCount >= monthlyLimit) {
+      throw new AppError(
+        `Monthly permission limit reached. Allowed: ${monthlyLimit}, Used: ${usedPermissionCount}.`,
+        400
+      );
+    }
+
+    // Also block cross-month multi-day permission requests.
+    if (endDate.getUTCFullYear() !== startDate.getUTCFullYear() || endDate.getUTCMonth() !== startDate.getUTCMonth()) {
+      throw new AppError('Permission can be applied only within a single month.', 400);
+    }
   }
 
   /**
@@ -272,7 +551,11 @@ export class LeaveRequestService {
   /**
    * Apply for leave
    */
-  async create(employeeId: string, data: CreateLeaveRequestInput) {
+  async create(
+    employeeId: string,
+    data: CreateLeaveRequestInput,
+    requesterRole?: string
+  ) {
     // Verify employee exists
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
@@ -300,6 +583,17 @@ export class LeaveRequestService {
       throw new AppError('Leave type does not belong to your organization', 403);
     }
 
+    // Certain leave types must be granted only by HR/Admin users.
+    if (
+      this.isHrManagedOnlyLeaveType(leaveType) &&
+      !this.hrManagedOnlyRoles.has(String(requesterRole || ''))
+    ) {
+      throw new AppError(
+        `${leaveType.name} can be added only by HR. Please contact HR team.`,
+        403
+      );
+    }
+
     // Parse dates
     const startDate = this.parseDateOnly(data.startDate);
     const endDate = this.parseDateOnly(data.endDate);
@@ -307,34 +601,8 @@ export class LeaveRequestService {
     // Validate dates
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    const leaveTypeKey = `${leaveType.name} ${leaveType.code ?? ''}`.toLowerCase();
-    const allowsPastWithinCurrentMonth =
-      leaveTypeKey.includes('earned leave') ||
-      leaveTypeKey.includes('el') ||
-      leaveTypeKey.includes('sick leave') ||
-      leaveTypeKey.includes('sl') ||
-      leaveTypeKey.includes('permission') ||
-      leaveTypeKey.includes('work from home') ||
-      leaveTypeKey.includes('wfh');
-
-    if (startDate < today) {
-      if (!allowsPastWithinCurrentMonth) {
-        throw new AppError('Start date cannot be in the past', 400);
-      }
-
-      const sameMonthAndYear =
-        startDate.getUTCFullYear() === today.getUTCFullYear() &&
-        startDate.getUTCMonth() === today.getUTCMonth() &&
-        endDate.getUTCFullYear() === today.getUTCFullYear() &&
-        endDate.getUTCMonth() === today.getUTCMonth();
-
-      if (!sameMonthAndYear) {
-        throw new AppError(
-          'Past-date apply is allowed only within the current month for this leave type',
-          400
-        );
-      }
-    }
+    // Past-date apply is allowed.
+    // Keep only date-format/order validation (handled by schema + parseDateOnly).
 
     // Check eligibility based on leave policy
     const eligibility = await leavePolicyService.checkEligibility(employeeId, data.leaveTypeId);
@@ -366,10 +634,30 @@ export class LeaveRequestService {
 
     // Event config: resolve AttendanceComponent for this leave type (by name/code)
     const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
+    const rightsAllocation = await resolveRightsAllocationForEmployee(
+      employeeId,
+      employee.organizationId
+    );
+    const canAddEvent = canPerformAttendanceEventAction(rightsAllocation, 'add', {
+      eventId: component?.id,
+      leaveTypeName: leaveType.name,
+      leaveTypeCode: leaveType.code,
+    });
+    if (!canAddEvent) {
+      throw new AppError('You do not have permission to apply this event.', 403);
+    }
 
-    // Calculate total days (optional totalDays from body for half-day e.g. 0.5)
+    // Calculate total days (optional totalDays from body for half-day e.g. 0.5).
+    // For leave types that allow week-off/holiday selection, count calendar days so
+    // a full-day request on weekend/holiday is not incorrectly stored as half-day/0-day.
+    const computedWorkingDays = this.calculateTotalDays(startDate, endDate);
+    const computedCalendarDays = this.calculateCalendarDays(startDate, endDate);
+    const shouldCountCalendarDays =
+      !!component && (component.allowWeekOffSelection || component.allowHolidaySelection);
     const totalDays =
-      data.totalDays != null ? data.totalDays : this.calculateTotalDays(startDate, endDate);
+      data.totalDays != null
+        ? data.totalDays
+        : (shouldCountCalendarDays ? computedCalendarDays : computedWorkingDays);
 
     // Allow Hourly = NO → reject half-day/hourly requests
     const isHourlyOrHalfDay = totalDays < 1 || totalDays % 1 !== 0;
@@ -452,11 +740,16 @@ export class LeaveRequestService {
       );
     }
 
+    // Enforce monthly permission application limit from Rule Settings (server-side guard)
+    await this.enforceMonthlyPermissionLimit(employee, leaveType, startDate, endDate);
+
     // Get current year
     const year = new Date().getFullYear();
 
+    // Onduty-marked requests should behave like non-balance events even when a fallback leave type is used.
+    const isOndutyMarkedRequest = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(data.reason || '');
     // Has Balance = NO → do not maintain balance; skip balance check and deduction on approve
-    const shouldCheckBalance = component === null || component.hasBalance;
+    const shouldCheckBalance = !isOndutyMarkedRequest && (component === null || component.hasBalance);
     if (shouldCheckBalance) {
       const balance = await this.getOrCreateLeaveBalance(employeeId, data.leaveTypeId, year);
       const availableDays = parseFloat(balance.available.toString());
@@ -731,7 +1024,7 @@ export class LeaveRequestService {
    * @param reviewComments - Optional review comments
    * @param reviewerRole - Role of the reviewer (for RBAC validation)
    */
-  async approve(id: string, reviewerId: string, reviewComments?: string, _reviewerRole?: string) {
+  async approve(id: string, reviewerId: string, reviewComments?: string, reviewerRole?: string) {
     const leaveRequest = await prisma.leaveRequest.findUnique({
       where: { id },
       include: {
@@ -776,28 +1069,23 @@ export class LeaveRequestService {
       leaveRequest.employee.organizationId,
       leaveRequest.leaveType
     );
-    const shouldDeductBalance = component === null || component.hasBalance;
+    const isOndutyMarkedRequest = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(leaveRequest.reason || '');
+    const shouldDeductBalance = !isOndutyMarkedRequest && (component === null || component.hasBalance);
 
-    const reviewerEmployee = await prisma.employee.findUnique({
-      where: { userId: reviewerId },
-      select: { id: true },
-    });
-
-    if (!reviewerEmployee) {
-      throw new AppError('Reviewer employee record not found', 404);
-    }
-
-    // RBAC: verify reviewer is the assigned approver (workflow) or reporting manager (fallback)
-    const assignedApproverId = leaveRequest.assignedApproverEmployeeId ?? leaveRequest.employee.reportingManagerId;
-    if (assignedApproverId !== reviewerEmployee.id) {
-      throw new AppError(
-        'Access denied. You are not the assigned approver for this request.',
-        403
-      );
-    }
+    const reviewerEmployee = await this.validateReviewerAccess(reviewerId, reviewerRole, leaveRequest);
 
     const approvalLevels = parseApprovalLevels(leaveRequest.workflowMapping?.approvalLevels);
     const currentLevel = leaveRequest.currentApprovalLevel ?? 1;
+    const currentLevelConfig = Array.isArray(approvalLevels)
+      ? approvalLevels.find((l: ApprovalLevelConfig) => l.level === currentLevel) ?? approvalLevels[0]
+      : null;
+    await this.assertApprovalAllowedForLeaveEvent({
+      organizationId: leaveRequest.employee.organizationId,
+      approvalWorkflowId: currentLevelConfig?.approvalLevel,
+      leaveType: leaveRequest.leaveType,
+      attendanceComponentId: component?.id ?? null,
+      action: 'toApprove',
+    });
     const hasNextLevel =
       Array.isArray(approvalLevels) &&
       approvalLevels.some((l: ApprovalLevelConfig) => l.level === currentLevel + 1);
@@ -856,6 +1144,7 @@ export class LeaveRequestService {
           select: {
             id: true,
             name: true,
+            code: true,
           },
         },
       },
@@ -918,6 +1207,17 @@ export class LeaveRequestService {
       return updated;
     }
 
+    const leaveTypeKey = `${leaveRequest.leaveType?.name || ''} ${leaveRequest.leaveType?.code || ''}`.toLowerCase();
+    const isOndutyOrWorkFromHome =
+      leaveTypeKey.includes('on duty') ||
+      leaveTypeKey.includes('onduty') ||
+      leaveTypeKey.includes('work from home') ||
+      leaveTypeKey.includes('wfh');
+    const approvedAttendanceStatus = isOndutyOrWorkFromHome ? AttendanceStatus.PRESENT : AttendanceStatus.LEAVE;
+    const approvedAttendanceNote = isOndutyOrWorkFromHome
+      ? `Present: Full Day (${leaveRequest.leaveType?.name ?? 'On Duty'})`
+      : `Leave: ${leaveRequest.leaveType?.name ?? 'Approved leave'}`;
+
     const start = new Date(leaveRequest.startDate);
     start.setHours(0, 0, 0, 0);
     const end = new Date(leaveRequest.endDate);
@@ -932,12 +1232,12 @@ export class LeaveRequestService {
         create: {
           employeeId: leaveRequest.employeeId,
           date: dateOnly,
-          status: AttendanceStatus.LEAVE,
-          notes: `Leave: ${leaveRequest.leaveType?.name ?? 'Approved leave'}`,
+          status: approvedAttendanceStatus,
+          notes: approvedAttendanceNote,
         },
         update: {
-          status: AttendanceStatus.LEAVE,
-          notes: `Leave: ${leaveRequest.leaveType?.name ?? 'Approved leave'}`,
+          status: approvedAttendanceStatus,
+          notes: approvedAttendanceNote,
         },
       });
     }
@@ -967,7 +1267,7 @@ export class LeaveRequestService {
    * @param reviewComments - Review comments
    * @param reviewerRole - Role of the reviewer (for RBAC validation)
    */
-  async reject(id: string, reviewerId: string, reviewComments: string, _reviewerRole?: string) {
+  async reject(id: string, reviewerId: string, reviewComments: string, reviewerRole?: string) {
     const leaveRequest = await prisma.leaveRequest.findUnique({
       where: { id },
       include: {
@@ -985,6 +1285,7 @@ export class LeaveRequestService {
           select: {
             id: true,
             name: true,
+            code: true,
           },
         },
       },
@@ -1001,22 +1302,30 @@ export class LeaveRequestService {
       );
     }
 
-    // RBAC: verify reviewer is the assigned approver (workflow) or reporting manager (fallback)
-    const reviewerEmployee = await prisma.employee.findUnique({
-      where: { userId: reviewerId },
-      select: { id: true },
+    await this.validateReviewerAccess(reviewerId, reviewerRole, leaveRequest);
+
+    const component = await getAttendanceComponentForLeaveType(
+      leaveRequest.employee.organizationId,
+      leaveRequest.leaveType
+    );
+    const workflowMapping = leaveRequest.workflowMappingId
+      ? await prisma.workflowMapping.findUnique({
+          where: { id: leaveRequest.workflowMappingId },
+          select: { approvalLevels: true },
+        })
+      : null;
+    const approvalLevels = parseApprovalLevels(workflowMapping?.approvalLevels);
+    const currentLevel = leaveRequest.currentApprovalLevel ?? 1;
+    const currentLevelConfig = Array.isArray(approvalLevels)
+      ? approvalLevels.find((l: ApprovalLevelConfig) => l.level === currentLevel) ?? approvalLevels[0]
+      : null;
+    await this.assertApprovalAllowedForLeaveEvent({
+      organizationId: leaveRequest.employee.organizationId,
+      approvalWorkflowId: currentLevelConfig?.approvalLevel,
+      leaveType: leaveRequest.leaveType,
+      attendanceComponentId: component?.id ?? null,
+      action: 'cancelApproval',
     });
-    if (!reviewerEmployee) {
-      throw new AppError('Reviewer employee record not found', 404);
-    }
-    const assignedApproverIdForReject =
-      leaveRequest.assignedApproverEmployeeId ?? leaveRequest.employee.reportingManagerId;
-    if (assignedApproverIdForReject !== reviewerEmployee.id) {
-      throw new AppError(
-        'Access denied. You are not the assigned approver for this request.',
-        403
-      );
-    }
 
     const updated = await prisma.leaveRequest.update({
       where: { id },
@@ -1083,6 +1392,32 @@ export class LeaveRequestService {
         `Cannot cancel leave request. Current status: ${leaveRequest.status}`,
         400
       );
+    }
+
+    const [employee, leaveType] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { id: true, organizationId: true },
+      }),
+      prisma.leaveType.findUnique({
+        where: { id: leaveRequest.leaveTypeId },
+        select: { id: true, name: true, code: true },
+      }),
+    ]);
+    if (employee && leaveType) {
+      const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
+      const rightsAllocation = await resolveRightsAllocationForEmployee(
+        employee.id,
+        employee.organizationId
+      );
+      const canCancelEvent = canPerformAttendanceEventAction(rightsAllocation, 'cancel', {
+        eventId: component?.id,
+        leaveTypeName: leaveType.name,
+        leaveTypeCode: leaveType.code,
+      });
+      if (!canCancelEvent) {
+        throw new AppError('You do not have permission to cancel this event.', 403);
+      }
     }
 
     const updated = await prisma.leaveRequest.update({
@@ -1170,7 +1505,17 @@ export class LeaveRequestService {
         }
       }
 
-      const totalDays = this.calculateTotalDays(startDate, endDate);
+      const leaveType = await prisma.leaveType.findUnique({
+        where: { id: leaveRequest.leaveTypeId },
+      });
+      const component = leaveType && employee
+        ? await getAttendanceComponentForLeaveType(employee.organizationId, leaveType)
+        : null;
+      const computedWorkingDays = this.calculateTotalDays(startDate, endDate);
+      const computedCalendarDays = this.calculateCalendarDays(startDate, endDate);
+      const shouldCountCalendarDays =
+        !!component && (component.allowWeekOffSelection || component.allowHolidaySelection);
+      const totalDays = shouldCountCalendarDays ? computedCalendarDays : computedWorkingDays;
       updateData.startDate = startDate;
       updateData.endDate = endDate;
       updateData.totalDays = new Prisma.Decimal(totalDays);

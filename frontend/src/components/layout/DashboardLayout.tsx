@@ -309,7 +309,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       if (
         (mod.path === '/leave/approvals' ||
           mod.path === '/attendance/my-requests/excess-time-request') &&
-        !canAccessEventApprovalByRole
+        !canAccessEventByRole
       ) {
         continue;
       }
@@ -337,7 +337,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const showEventApply = isEventApply && canAccessEventByRole;
         const showEventRequest = isEventRequest && canAccessEventByRole;
         const showEventApproval = isEventApproval && canAccessEventApprovalByRole;
-        const showExcessTimeRequest = isExcessTimeRequest && canAccessEventApprovalByRole;
+        const showExcessTimeRequest = isExcessTimeRequest && canAccessEventByRole;
         const showExcessTimeApproval = isExcessTimeApproval && canAccessEventApprovalByRole;
         if (
           hasThisView ||
@@ -445,7 +445,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const hasEventApplyAccess = canAccessEventByRole;
   const hasEventRequestAccess = canAccessEventByRole;
   const hasEventApprovalAccess = canAccessEventApprovalByRole;
-  const hasExcessTimeRequestAccess = canAccessEventApprovalByRole;
+  const hasExcessTimeRequestAccess = canAccessEventByRole;
   const hasExcessTimeApprovalAccess = canAccessEventApprovalByRole;
   const allowed = isDashboardOrProfile
     ? true

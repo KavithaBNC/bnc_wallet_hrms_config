@@ -12,6 +12,21 @@ import {
 } from '../utils/validation';
 
 export class AuthService {
+  private isDatabaseConnectivityError(error: unknown): boolean {
+    const prismaErr = error as { code?: string; message?: string };
+    const code = prismaErr?.code;
+    const message = String(prismaErr?.message || '').toLowerCase();
+    return (
+      code === 'P1001' ||
+      code === 'P1017' ||
+      code === 'P2024' ||
+      message.includes('connection pool') ||
+      message.includes("can't reach database server") ||
+      message.includes('server has closed the connection') ||
+      message.includes('connectionreset')
+    );
+  }
+
   /**
    * Register a new user
    */
@@ -263,6 +278,12 @@ export class AuthService {
 
       return tokens;
     } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      if (this.isDatabaseConnectivityError(error)) {
+        throw new AppError('Authentication service temporarily unavailable. Please try again.', 503);
+      }
       throw new AppError('Invalid or expired refresh token', 401);
     }
   }

@@ -29,6 +29,22 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
+  const prismaErr = err as ApiError & { code?: string };
+  const prismaCode = prismaErr.code;
+  const errMessage = String(err.message || '').toLowerCase();
+  const isDbConnectivityError =
+    prismaCode === 'P1001' ||
+    prismaCode === 'P1017' ||
+    prismaCode === 'P2024' ||
+    errMessage.includes('connection pool') ||
+    errMessage.includes("can't reach database server") ||
+    errMessage.includes('server has closed the connection') ||
+    errMessage.includes('connectionreset');
+
+  if (isDbConnectivityError) {
+    err = new AppError('Database temporarily unavailable. Please try again.', 503);
+  }
+
   err.statusCode = err.statusCode || 500;
   err.status = err.status || 'error';
 

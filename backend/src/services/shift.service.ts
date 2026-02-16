@@ -158,7 +158,7 @@ export class ShiftService {
    */
   async getAll(query: {
     organizationId?: string;
-    isActive?: boolean;
+    isActive?: boolean | string;
     search?: string;
     page?: string;
     limit?: string;
@@ -174,7 +174,17 @@ export class ShiftService {
     }
 
     if (query.isActive !== undefined) {
-      where.isActive = query.isActive;
+      const normalizedIsActive =
+        typeof query.isActive === 'string'
+          ? query.isActive.toLowerCase() === 'true'
+            ? true
+            : query.isActive.toLowerCase() === 'false'
+              ? false
+              : undefined
+          : query.isActive;
+      if (typeof normalizedIsActive === 'boolean') {
+        where.isActive = normalizedIsActive;
+      }
     }
 
     if (query.search && query.search.trim()) {

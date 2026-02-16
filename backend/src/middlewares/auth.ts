@@ -4,6 +4,21 @@ import { AppError } from './errorHandler';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 
+const isDatabaseConnectivityError = (error: unknown): boolean => {
+  const prismaErr = error as { code?: string; message?: string };
+  const code = prismaErr?.code;
+  const message = String(prismaErr?.message || '').toLowerCase();
+  return (
+    code === 'P1001' ||
+    code === 'P1017' ||
+    code === 'P2024' ||
+    message.includes('connection pool') ||
+    message.includes("can't reach database server") ||
+    message.includes('server has closed the connection') ||
+    message.includes('connectionreset')
+  );
+};
+
 // Extend Express Request to include user
 declare global {
   namespace Express {
@@ -64,6 +79,8 @@ export const authenticate = async (
   } catch (error) {
     if (error instanceof AppError) {
       next(error);
+    } else if (isDatabaseConnectivityError(error)) {
+      next(new AppError('Database temporarily unavailable. Please try again.', 503));
     } else {
       next(new AppError('Invalid or expired token.', 401));
     }

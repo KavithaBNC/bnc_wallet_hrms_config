@@ -189,7 +189,10 @@ export async function getLeaveComponentToLeaveTypeMapping(
 ): Promise<Record<string, string>> {
   const [components, leaveTypes] = await Promise.all([
     prisma.attendanceComponent.findMany({
-      where: { organizationId, eventCategory: 'Leave' },
+      where: {
+        organizationId,
+        eventCategory: { in: ['Leave', 'Onduty', 'On Duty', 'Permission'] },
+      },
       select: { id: true, eventName: true, shortName: true },
     }),
     prisma.leaveType.findMany({
@@ -199,14 +202,32 @@ export async function getLeaveComponentToLeaveTypeMapping(
   ]);
 
   const mapping: Record<string, string> = {};
-  const nameKey = (s: string | null) => s?.toLowerCase().trim() ?? '';
+  const nameKey = (s: string | null) => (s || '').toLowerCase().trim();
+  const normalizeKey = (s: string | null) => nameKey(s).replace(/[^a-z0-9]/g, '');
   for (const c of components) {
     const en = nameKey(c.eventName);
     const sn = nameKey(c.shortName);
+    const enNorm = normalizeKey(c.eventName);
+    const snNorm = normalizeKey(c.shortName);
     const matched = leaveTypes.find(
-      (lt) =>
-        (en && (nameKey(lt.name) === en || nameKey(lt.code) === en)) ||
-        (sn && (nameKey(lt.code) === sn || nameKey(lt.name) === sn))
+      (lt) => {
+        const n = nameKey(lt.name);
+        const code = nameKey(lt.code);
+        const nNorm = normalizeKey(lt.name);
+        const codeNorm = normalizeKey(lt.code);
+        const exact =
+          (en && (n === en || code === en)) ||
+          (sn && (code === sn || n === sn)) ||
+          (enNorm && (nNorm === enNorm || codeNorm === enNorm)) ||
+          (snNorm && (codeNorm === snNorm || nNorm === snNorm));
+        if (exact) return true;
+        return (
+          (enNorm && nNorm && (enNorm.includes(nNorm) || nNorm.includes(enNorm))) ||
+          (enNorm && codeNorm && (enNorm.includes(codeNorm) || codeNorm.includes(enNorm))) ||
+          (snNorm && nNorm && (snNorm.includes(nNorm) || nNorm.includes(snNorm))) ||
+          (snNorm && codeNorm && (snNorm.includes(codeNorm) || codeNorm.includes(snNorm)))
+        );
+      }
     );
     if (matched) mapping[c.id] = matched.id;
   }

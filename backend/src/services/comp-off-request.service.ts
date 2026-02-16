@@ -7,6 +7,10 @@ import {
   getApplicableExcessTimeRule,
   isExcessTimeConversionEnabled,
 } from '../utils/excess-time-rule';
+import {
+  canPerformExcessTimeEventAction,
+  resolveRightsAllocationForEmployee,
+} from '../utils/rights-allocation';
 
 export class CompOffRequestService {
   private readonly APPROVED_ATTENDANCE_STATUSES: AttendanceStatus[] = [
@@ -395,6 +399,14 @@ export class CompOffRequestService {
     organizationId: string,
     data: { requestType: CompOffRequestType; reason?: string }
   ) {
+    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId);
+    const canAddCompOff = canPerformExcessTimeEventAction(rightsAllocation, 'add', {
+      eventName: 'Excess time to Comp off',
+    });
+    if (!canAddCompOff) {
+      throw new AppError('You do not have permission to request comp off from excess time.', 403);
+    }
+
     const summary = await this.getSummary(employeeId, organizationId);
     if (!summary.conversionEnabled) {
       throw new AppError('Comp Off conversion is disabled by event rule', 400);
@@ -442,6 +454,14 @@ export class CompOffRequestService {
     organizationId: string,
     data?: { reason?: string }
   ) {
+    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId);
+    const canAddCompOff = canPerformExcessTimeEventAction(rightsAllocation, 'add', {
+      eventName: 'Excess time to Comp off',
+    });
+    if (!canAddCompOff) {
+      throw new AppError('You do not have permission to request comp off from excess time.', 403);
+    }
+
     const summary = await this.getSummary(employeeId, organizationId);
     if (!summary.conversionEnabled) {
       throw new AppError('Comp Off conversion is disabled by event rule', 400);

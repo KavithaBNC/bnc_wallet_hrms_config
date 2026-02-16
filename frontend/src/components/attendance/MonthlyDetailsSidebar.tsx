@@ -4,11 +4,39 @@ import api from '../../services/api';
 
 interface MonthlyDetailsData {
   shortFall: { excessStay: string; shortfall: string; difference: string };
-  leave: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
+  leave: Array<{
+    name: string;
+    opening: number;
+    credit: number;
+    used: number;
+    balance: number;
+    source?: 'attendance_component' | 'default_leave_module';
+  }>;
   entitlementWarnings?: string[];
-  onduty: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
-  permission: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
-  present: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>;
+  onduty: Array<{
+    name: string;
+    opening: number;
+    credit: number;
+    used: number;
+    balance: number;
+    source?: 'attendance_component' | 'default_leave_module';
+  }>;
+  permission: Array<{
+    name: string;
+    opening: number;
+    credit: number;
+    used: number;
+    balance: number;
+    source?: 'attendance_component' | 'default_leave_module';
+  }>;
+  present: Array<{
+    name: string;
+    opening: number;
+    credit: number;
+    used: number;
+    balance: number;
+    source?: 'attendance_component' | 'default_leave_module';
+  }>;
   late: { count: number; hours: string };
   earlyGoing: { count: number; hours: string };
 }
@@ -31,6 +59,19 @@ function formatBalance(value: number, asHours = false): string {
   return String(value);
 }
 
+function isPermissionName(name: string | null | undefined): boolean {
+  return (name || '').toLowerCase().includes('permission');
+}
+
+type MonthlyRow = {
+  name: string;
+  opening: number;
+  credit: number;
+  used: number;
+  balance: number;
+  source?: 'attendance_component' | 'default_leave_module';
+};
+
 export default function MonthlyDetailsSidebar({
   organizationId,
   employeeId,
@@ -40,7 +81,7 @@ export default function MonthlyDetailsSidebar({
   const [data, setData] = useState<MonthlyDetailsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [applyTab, setApplyTab] = useState<ApplyTab>('Onduty');
+  const [applyTab, setApplyTab] = useState<ApplyTab>('Leave');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -104,9 +145,14 @@ export default function MonthlyDetailsSidebar({
     );
   }
 
+  const leaveRowsWithoutPermission = data.leave.filter((row) => !isPermissionName(row.name));
+  const entitlementWarningsWithoutPermission = (data.entitlementWarnings || []).filter(
+    (name) => !isPermissionName(name)
+  );
+
   const renderTable = (
     title: string,
-    rows: Array<{ name: string; opening: number; credit: number; used: number; balance: number }>,
+    rows: MonthlyRow[],
     colLabel: string
   ) => (
     <div className="mb-4">
@@ -130,15 +176,28 @@ export default function MonthlyDetailsSidebar({
                 </td>
               </tr>
             ) : (
-              rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="px-2 py-1.5 text-gray-900">{row.name}</td>
+              rows.map((row, i) => {
+                const isDefaultLeaveModule = title === 'Leave' && row.source !== 'attendance_component';
+                return (
+                <tr
+                  key={i}
+                  className={isDefaultLeaveModule ? 'bg-amber-50' : undefined}
+                >
+                  <td className={`px-2 py-1.5 ${isDefaultLeaveModule ? 'text-amber-900 font-medium' : 'text-gray-900'}`}>
+                    {row.name}
+                    {isDefaultLeaveModule && (
+                      <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                        Default
+                      </span>
+                    )}
+                  </td>
                   <td className="px-2 py-1.5 text-right text-gray-700">{formatBalance(row.opening)}</td>
                   <td className="px-2 py-1.5 text-right text-gray-700">{formatBalance(row.credit)}</td>
                   <td className="px-2 py-1.5 text-right text-gray-700">{formatBalance(row.used)}</td>
                   <td className="px-2 py-1.5 text-right text-gray-700">{formatBalance(row.balance)}</td>
                 </tr>
-              ))
+              );
+              })
             )}
           </tbody>
         </table>
@@ -157,16 +216,13 @@ export default function MonthlyDetailsSidebar({
               key={tab}
               type="button"
               onClick={() => {
-                if (tab === 'Leave' || tab === 'Permission')
-                  navigate('/attendance/apply-event', {
-                    state: { employeeId, year, month, applyTab: tab },
-                  });
-                else setApplyTab(tab);
+                setApplyTab(tab);
+                navigate('/attendance/apply-event', {
+                  state: { employeeId, year, month, applyTab: tab },
+                });
               }}
               className={`px-3 py-1.5 rounded text-sm font-medium ${
-                tab === 'Leave'
-                  ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  : applyTab === tab
+                applyTab === tab
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
@@ -201,16 +257,16 @@ export default function MonthlyDetailsSidebar({
           </table>
         </div>
 
-        {data.entitlementWarnings && data.entitlementWarnings.length > 0 && (
+        {entitlementWarningsWithoutPermission.length > 0 && (
           <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             <p className="font-medium">Entitlement not configured</p>
             <p className="mt-1">
-              Configure entitlement for: {data.entitlementWarnings.join(', ')} in Leave Management (Default Days Per Year)
+              Configure entitlement for: {entitlementWarningsWithoutPermission.join(', ')} in Leave Management (Default Days Per Year)
               or Event Configuration → Auto Credit Setting.
             </p>
           </div>
         )}
-        {renderTable('Leave', data.leave, 'Leave')}
+        {renderTable('Leave', leaveRowsWithoutPermission, 'Leave')}
         {renderTable('Onduty', data.onduty, 'Onduty')}
         {renderTable('Permission', data.permission, 'Permission')}
         {renderTable('Present', data.present, 'Present')}

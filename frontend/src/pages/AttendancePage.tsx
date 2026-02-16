@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { attendanceService, type CompOffSummary, type CompOffRequestItem } from '../services/attendance.service';
@@ -71,6 +71,23 @@ function parsePermissionTimingFromReason(reason: string | undefined | null, _lea
   return `${match[1]} - ${match[2]}`;
 }
 
+function parseOndutyLabelFromReason(reason: string | undefined | null): string | null {
+  if (!reason?.trim()) return null;
+  const match = reason.match(/^\[Onduty(?:\s+([^\]]+))?\]/i);
+  if (!match) return null;
+  return (match[1] || '').trim() || 'Onduty';
+}
+
+function isOndutyOrWfhLeaveType(name: string | null | undefined): boolean {
+  const key = (name || '').toLowerCase();
+  return (
+    key.includes('on duty') ||
+    key.includes('onduty') ||
+    key.includes('work from home') ||
+    /\bwfh\b/.test(key)
+  );
+}
+
 /** Get permission end time as Date on the given dateStr (yyyy-MM-dd) for display logic. Returns null if no approved permission with time. Matches reason pattern even when leave type name is not "Permission". */
 function getPermissionEndTimeForDate(
   dateStr: string,
@@ -86,6 +103,27 @@ function getPermissionEndTimeForDate(
     if (!isNaN(d.getTime())) return d;
   }
   return null;
+}
+
+/** Sum approved permission minutes for the day from reason pattern "[Permission HH:MM-HH:MM]". */
+function getApprovedPermissionMinutesForDate(
+  leaveRequests: Array<{ status?: string; reason?: string | null }>
+): number {
+  const permissionReasonRegex = /^\[Permission\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\]/i;
+  let total = 0;
+  for (const lr of leaveRequests) {
+    if ((lr.status || '').toUpperCase() !== 'APPROVED' || !lr.reason?.trim()) continue;
+    const match = lr.reason.match(permissionReasonRegex);
+    if (!match) continue;
+    const [startH, startM] = match[1].split(':').map(Number);
+    const [endH, endM] = match[2].split(':').map(Number);
+    const start = startH * 60 + startM;
+    const end = endH * 60 + endM;
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+      total += end - start;
+    }
+  }
+  return total;
 }
 
 /** Convert decimal hours to 'HH:mm' (e.g. 0.2h → '00:12', 2.5h → '02:30'). */
@@ -375,9 +413,12 @@ interface AttendanceCalendarViewProps {
 }
 
 const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, lateEarlyPolicy = null, approvedCompOffs = [], leaveRequests = [] }: AttendanceCalendarViewProps) => {
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
+  const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
+  const daysInMonth = useMemo(
+    () => eachDayOfInterval({ start: monthStart, end: monthEnd }),
+    [monthStart, monthEnd]
+  );
   
   // Get first day of month to calculate offset
   const firstDayOfWeek = getDay(monthStart);
@@ -403,66 +444,45 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
   }, [organizationId]);
   
   // Fetch or determine shift assignments for each day
+  const recordByDateForEmployee = useMemo(() => {
+    const byDate = new Map<string, AttendanceRecord>();
+    if (!employeeId) return byDate;
+    for (const record of records) {
+      if (record.employee.id !== employeeId) continue;
+      const dateStr = format(new Date(record.date), 'yyyy-MM-dd');
+      if (!byDate.has(dateStr)) byDate.set(dateStr, record);
+    }
+    return byDate;
+  }, [records, employeeId]);
+
   useEffect(() => {
     if (!employeeId || !organizationId) return;
-    
+
     setLoadingShifts(true);
-    
+
     // Create shift assignments map - default to "General Shift" for all dates.
     // Sunday is default Week Off; Saturday and other days follow configured policy/records.
-    // Override with explicitly assigned shifts from attendance records
+    // Override with explicitly assigned shifts from attendance records.
     const assignments = new Map<string, string>();
     const defaultShift = 'General Shift';
-    
-    console.log('📅 Calendar: Determining shift assignments for employee:', employeeId);
-    console.log('📅 Calendar: Total records received:', records.length);
-    console.log('📅 Calendar: Records with shifts:', records.filter(r => r.shift?.name).map(r => ({
-      date: format(new Date(r.date), 'yyyy-MM-dd'),
-      shift: r.shift?.name,
-      employeeId: r.employee.id
-    })));
-    
-    daysInMonth.forEach((date) => {
+
+    for (const date of daysInMonth) {
       const dateStr = format(date, 'yyyy-MM-dd');
       const dayOfWeek = date.getDay(); // 0=Sunday
-      
-      // Check if there's an attendance record with shift for this date (from saved shift assignments)
-      // IMPORTANT: Check all records, not just ones with check-in/check-out
-      const dayRecord = records.find(r => {
-        const recordDate = format(new Date(r.date), 'yyyy-MM-dd');
-        const matchesDate = recordDate === dateStr;
-        const matchesEmployee = r.employee.id === employeeId;
-        return matchesDate && matchesEmployee;
-      });
-      
-      if (dayRecord) {
-        console.log(`📅 Calendar: Found record for ${dateStr}:`, {
-          hasShift: !!dayRecord.shift,
-          shiftName: dayRecord.shift?.name,
-          employeeId: dayRecord.employee.id,
-          matchesTargetEmployee: dayRecord.employee.id === employeeId
-        });
-      }
-      
-      // Business rule: all Sundays should display as Week Off by default.
-      // Keep this higher priority than generic shift fallback.
+      const dayRecord = recordByDateForEmployee.get(dateStr);
+
       if (dayOfWeek === 0) {
         assignments.set(dateStr, 'Weekoff');
       } else if (dayRecord?.shift?.name) {
-        // Use shift from attendance record (this reflects saved shift assignments from Associate Shift Grid)
-        // This overrides the default "General Shift" for this specific date
-        console.log(`✅ Calendar: Using saved shift "${dayRecord.shift.name}" for ${dateStr}`);
         assignments.set(dateStr, dayRecord.shift.name);
       } else {
-        // No explicit assignment for this date - keep default General Shift (including Saturdays).
         assignments.set(dateStr, defaultShift);
       }
-    });
-    
-    console.log('📅 Calendar: Final shift assignments:', Array.from(assignments.entries()));
+    }
+
     setShiftAssignments(assignments);
     setLoadingShifts(false);
-  }, [daysInMonth, records, employeeId, shifts, organizationId]);
+  }, [daysInMonth, recordByDateForEmployee, employeeId, organizationId]);
   
   // Create a map of date strings to records for quick lookup.
   // Use checkIn's local date so punches show on the correct calendar day (fixes timezone "yesterday" bug).
@@ -641,6 +661,8 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                 {(leaveByDate.get(dateStr) || []).map((lr) => {
                   const status = (lr.status || '').toUpperCase();
                   const leaveTypeName = lr.leaveType?.name || 'Leave';
+                  const ondutyReasonLabel = parseOndutyLabelFromReason(lr.reason ?? undefined);
+                  const displayLeaveTypeName = ondutyReasonLabel || leaveTypeName;
                   const isPermission = leaveTypeName.toLowerCase().includes('permission');
                   const permissionTiming = parsePermissionTimingFromReason(lr.reason ?? undefined, leaveTypeName);
                   const statusText =
@@ -648,7 +670,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                     status === 'REJECTED' ? 'Rejected' :
                     status === 'CANCELLED' ? 'Cancelled' : 'Pending';
                   const dayType = isPermission ? 'Permission' : (Number(lr.totalDays) >= 1 ? 'Full Day' : 'Half Day');
-                  const titleParts = [leaveTypeName, permissionTiming || dayType, statusText].filter(Boolean);
+                  const titleParts = [displayLeaveTypeName, permissionTiming || dayType, statusText].filter(Boolean);
                   const tone =
                     status === 'APPROVED'
                       ? 'bg-emerald-500 text-white'
@@ -661,7 +683,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                       className={`inline-block max-w-full rounded px-2 py-1 text-xs font-semibold leading-tight ${tone}`}
                       title={titleParts.join(' - ')}
                     >
-                      <div className="truncate">{leaveTypeName}</div>
+                      <div className="truncate">{displayLeaveTypeName}</div>
                       <div className="truncate">{permissionTiming || dayType} - {statusText}</div>
                     </div>
                   );
@@ -671,6 +693,27 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                   dayRecords.map((record) => {
                     const dateStr = format(day, 'yyyy-MM-dd');
                     const dayPunches = punchesByDateEmployee.get(`${dateStr}:${record.employee.id}`) || [];
+                    const approvedLeavesForDay = (leaveByDate.get(dateStr) || []).filter(
+                      (lr) => (lr.status || '').toUpperCase() === 'APPROVED'
+                    );
+                    const primaryApprovedLeave = approvedLeavesForDay[0];
+                    const hasApprovedPermission = approvedLeavesForDay.some((lr) => {
+                      const leaveTypeName = (lr.leaveType?.name || '').toLowerCase();
+                      if (leaveTypeName.includes('permission')) return true;
+                      return parsePermissionTimingFromReason(lr.reason ?? undefined, lr.leaveType?.name) !== null;
+                    });
+                    const workedMinutes = Number.isFinite(Number(record.workHours))
+                      ? Math.round(Number(record.workHours) * 60)
+                      : 0;
+                    const isPermissionFullDayPresent =
+                      (record.status || 'PRESENT') === 'PRESENT' &&
+                      hasApprovedPermission &&
+                      workedMinutes >= 7 * 60;
+                    const isOndutyOrWfhFullDayPresent =
+                      (record.status || 'PRESENT') === 'PRESENT' &&
+                      approvedLeavesForDay.some((lr) =>
+                        isOndutyOrWfhLeaveType(lr.leaveType?.name) || !!parseOndutyLabelFromReason(lr.reason ?? undefined)
+                      );
                     const hasApprovedHalfDayLeave = (leaveByDate.get(dateStr) || []).some(
                       (lr) => (lr.status || '').toUpperCase() === 'APPROVED' && Number(lr.totalDays) > 0 && Number(lr.totalDays) < 1
                     );
@@ -726,23 +769,45 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                         )}
                         {(record.status || (firstIn && lastOut && 'PRESENT')) && (
                           <div className={`text-xs font-medium ${
-                            (record.status || 'PRESENT') === 'PRESENT'
+                            (((record.status || 'PRESENT') === 'LEAVE' && workedMinutes > 0)
+                              ? 'PRESENT'
+                              : (record.status || 'PRESENT')) === 'PRESENT'
                               ? 'text-green-700'
-                              : (record.status || '') === 'ABSENT'
+                              : ((((record.status || 'PRESENT') === 'LEAVE' && workedMinutes > 0)
+                                ? 'PRESENT'
+                                : (record.status || 'PRESENT')) === 'ABSENT')
                               ? 'text-red-700'
-                              : (record.status || '') === 'LEAVE'
+                              : ((((record.status || 'PRESENT') === 'LEAVE' && workedMinutes > 0)
+                                ? 'PRESENT'
+                                : (record.status || 'PRESENT')) === 'LEAVE')
                               ? 'text-purple-700'
-                              : (record.status || '') === 'HOLIDAY'
+                              : ((((record.status || 'PRESENT') === 'LEAVE' && workedMinutes > 0)
+                                ? 'PRESENT'
+                                : (record.status || 'PRESENT')) === 'HOLIDAY')
                               ? 'text-orange-700'
                               : 'text-yellow-700'
                           }`}>
-                            {(record.status || 'PRESENT') === 'PRESENT' && (record.isDeviation || (() => {
-                              const lateM = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
-                              const earlyMRaw = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
-                              const earlyM = hasApprovedHalfDayLeave ? 0 : earlyMRaw;
-                              const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
-                              return getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateM, earlyM, breakExcessM).showShortfall;
-                            })()) ? 'Present (with deviation)' : (record.status || 'PRESENT')}
+                            {(() => {
+                              const rawStatusText = record.status || 'PRESENT';
+                              const statusText =
+                                rawStatusText === 'LEAVE' && workedMinutes > 0 ? 'PRESENT' : rawStatusText;
+                              if (isPermissionFullDayPresent || isOndutyOrWfhFullDayPresent) {
+                                return 'Present: Full Day';
+                              }
+                              if (statusText === 'PRESENT' && (record.isDeviation || (() => {
+                                const lateM = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
+                                const earlyMRaw = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                                const earlyM = hasApprovedHalfDayLeave ? 0 : earlyMRaw;
+                                const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                                return getDisplayShortfall(record, effectiveShiftForRecord, lateEarlyPolicy, lateM, earlyM, breakExcessM).showShortfall;
+                              })())) {
+                                return 'Present (with deviation)';
+                              }
+                              if (statusText === 'LEAVE' && primaryApprovedLeave?.leaveType) {
+                                return primaryApprovedLeave.leaveType.code || primaryApprovedLeave.leaveType.name || 'LEAVE';
+                              }
+                              return statusText;
+                            })()}
                           </div>
                         )}
                         {/* Policy indicators: L (Late), EG (Early Going), D (Deviation), OT (Overtime), Shortfall.
@@ -751,6 +816,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                         {(() => {
                           const leavesForDay = leaveByDate.get(dateStr) || [];
                           const permissionEndTime = getPermissionEndTimeForDate(dateStr, leavesForDay);
+                          const approvedPermissionMinutes = getApprovedPermissionMinutesForDate(leavesForDay);
                           const firstPunchTime = firstIn
                             ? new Date(typeof firstIn === 'string' ? firstIn : (firstIn as Date).toISOString())
                             : null;
@@ -765,15 +831,19 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
 
                           const lateMin = getLateMinutesFallback(record, effectiveShiftForRecord, lateEarlyPolicy);
                           const earlyMinRaw = getEarlyMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
-                          const earlyMin = hasApprovedHalfDayLeave || permissionOnDay ? 0 : earlyMinRaw;
+                          const earlyMin = hasApprovedHalfDayLeave ? 0 : earlyMinRaw;
                           const breakExcessM = getBreakExcessMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
+                          const adjustedBreakExcessM =
+                            approvedPermissionMinutes > 0
+                              ? Math.max(0, breakExcessM - approvedPermissionMinutes)
+                              : breakExcessM;
                           const { showShortfall, shortfallMinutes } = getDisplayShortfall(
                             record,
                             effectiveShiftForRecord,
                             lateEarlyPolicy,
                             permissionCoversLate ? 0 : lateMin,
                             earlyMin,
-                            breakExcessM
+                            adjustedBreakExcessM
                           );
                           const lateMinsForDisplay = permissionCoversLate ? 0 : (record.lateMinutes ?? lateMin ?? 0);
                           const shortfallFromLate = permissionCoversLate ? 0 : (record.lateMinutes ?? lateMin ?? 0);
@@ -784,20 +854,59 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                                 return (h || 0) * 60 + (m || 0);
                               })()
                             : 0;
-                          const showShortfallAdjusted = shortfallMinsForDisplay > 0 && shortfallMinsForDisplay >= minShortfallMins;
+                          const shortfallWithoutPermission = Math.max(0, shortfallMinsForDisplay - approvedPermissionMinutes);
+                          const showShortfallAdjusted =
+                            shortfallWithoutPermission > 0 && shortfallWithoutPermission >= minShortfallMins;
+                          const forceShortfallFromWorkedLeave =
+                            (record.status || '').toUpperCase() === 'LEAVE' &&
+                            workedMinutes > 0 &&
+                            (record.earlyMinutes ?? earlyMin ?? 0) > 0;
 
                           const excessStayMins = getExcessStayMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
                           const earlyComingMins = getEarlyComingMinutes(record, effectiveShiftForRecord);
+                          const recordStatusKey = (record.status || '').toUpperCase();
+                          const shiftNameKey = (shiftName || '').toLowerCase();
+                          const isWeekOffLikeDay =
+                            recordStatusKey === 'WEEKEND' ||
+                            recordStatusKey === 'HOLIDAY' ||
+                            shiftNameKey === 'weekoff' ||
+                            shiftNameKey === 'week off' ||
+                            shiftNameKey === 'w';
                           const showLate = !permissionCoversLate && (((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0);
-                          const showEarly = !hasApprovedHalfDayLeave && !permissionOnDay && (((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyMin ?? 0) > 0);
-                          const showDeviation = !!record.isDeviation || showShortfallAdjusted;
+                          const showEarly =
+                            !hasApprovedHalfDayLeave &&
+                            (((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyMin ?? 0) > 0);
+                          const shortfallOnlyDeviationAdjusted =
+                            approvedPermissionMinutes > 0 &&
+                            !!record.isDeviation &&
+                            (record.deviationReason ?? '').toLowerCase().includes('shortfall');
+                          const showDeviation =
+                            (!shortfallOnlyDeviationAdjusted && !!record.isDeviation) ||
+                            showShortfallAdjusted ||
+                            forceShortfallFromWorkedLeave;
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const showOt = record.otMinutes != null && record.otMinutes > 0 && record.otMinutes >= minOtMins;
-                          const showExcessStay = excessStayMins > 0;
-                          const showEarlyComing = earlyComingMins > 0;
-                          const showIndicators = showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing;
+                          // Keep calendar indicators aligned with monthly-details summary:
+                          // weekend/holiday rows are excluded from early/excess aggregation.
+                          const showExcessStay = !isWeekOffLikeDay && excessStayMins > 0;
+                          const showEarlyComing = !isWeekOffLikeDay && earlyComingMins > 0;
+                          const showFullDayPermissionBadge = isPermissionFullDayPresent || isOndutyOrWfhFullDayPresent;
+                          const showIndicators =
+                            showFullDayPermissionBadge ||
+                            showLate ||
+                            showEarly ||
+                            showDeviation ||
+                            showOt ||
+                            showExcessStay ||
+                            showEarlyComing ||
+                            forceShortfallFromWorkedLeave;
                           return showIndicators ? (
                           <div className="flex flex-wrap gap-1 mt-0.5">
+                            {showFullDayPermissionBadge && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                Present: Full Day
+                              </span>
+                            )}
                             {showLate && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">
                                 Late: {(record.lateMinutes ?? lateMin ?? 0)} min
@@ -817,12 +926,15 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                               </span>
                             )}
                             {/* Shortfall: when permission covers late we show adjusted shortfall (excluding late portion) */}
-                            {(record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && !permissionCoversLate) || showShortfallAdjusted ? (() => {
+                            {(record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && !permissionCoversLate) ||
+                            showShortfallAdjusted ||
+                            forceShortfallFromWorkedLeave ? (() => {
                               const backendShortfall = (record.lateMinutes ?? 0) + (record.earlyMinutes ?? 0);
+                              const forcedShortfall = forceShortfallFromWorkedLeave ? (record.earlyMinutes ?? earlyMin ?? 0) : 0;
                               const mins =
                                 record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && backendShortfall > 0 && !permissionCoversLate
                                   ? backendShortfall
-                                  : shortfallMinsForDisplay;
+                                  : (shortfallWithoutPermission > 0 ? shortfallWithoutPermission : forcedShortfall);
                               return (
                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800">
                                   {mins > 0 ? `Shortfall: ${mins} min` : 'Shortfall'}
@@ -921,9 +1033,6 @@ const AttendancePage = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMyRecords, setLoadingMyRecords] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [checkingIn, setCheckingIn] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
   const [loadingUser, setLoadingUser] = useState(false);
   const [componentError, setComponentError] = useState<string | null>(null);
   // Restore view and month from URL so refresh keeps selection
@@ -1075,7 +1184,6 @@ const AttendancePage = () => {
             fetchRecords(),
             fetchMyRecords(),
             fetchPunches(),
-            checkTodayStatus(),
             fetchCompOffSummary(),
             fetchApprovedCompOffs(),
             fetchCalendarLeaveRequests(),
@@ -1088,34 +1196,10 @@ const AttendancePage = () => {
     }
   }, [user, currentMonth, viewMode, selectedEmployeeId]);
 
-  // Also check status when records are fetched
-  useEffect(() => {
-    if (user?.employee?.id && (records.length > 0 || myRecords.length > 0)) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString().split('T')[0];
-      const recordsToCheck = canViewTeamAttendance && myRecords.length > 0 ? myRecords : records;
-      const todayRecord = recordsToCheck.find((r: AttendanceRecord) => {
-        try {
-          const recordDate = new Date(r.date).toISOString().split('T')[0];
-          return recordDate === todayStr && r.employee?.id === user.employee?.id;
-        } catch (e) {
-          return false;
-        }
-      });
-      if (todayRecord?.checkIn && !todayRecord?.checkOut) {
-        setCheckedIn(true);
-      } else if (todayRecord?.checkOut) {
-        setCheckedIn(false);
-      }
-    }
-  }, [records, myRecords, user, canViewTeamAttendance]);
-
   // Refetch when tab/window gains focus so device punches (or web check-in/out) are reflected without manual refresh
   useEffect(() => {
     const onFocus = () => {
       if (user) {
-        checkTodayStatus();
         // Keep existing values visible and refresh in background.
         fetchRecords({ silent: true });
         fetchMyRecords({ silent: true });
@@ -1135,7 +1219,7 @@ const AttendancePage = () => {
     const shouldRefetch = (state?.refreshFromFacePunch || state?.refreshFromShiftGrid) && user;
     if (shouldRefetch) {
       const refetch = async () => {
-        await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), checkTodayStatus(), fetchCalendarLeaveRequests()]);
+        await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), fetchCalendarLeaveRequests()]);
         navigate('/attendance', { replace: true, state: {} });
       };
       refetch();
@@ -1381,103 +1465,6 @@ const AttendancePage = () => {
     }
   };
 
-  const checkTodayStatus = async () => {
-    try {
-      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
-      if (!organizationId || !user?.employee?.id) {
-        return; // Skip if organization or employee ID not available
-      }
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayStr = today.toISOString().split('T')[0];
-      
-      // Always fetch own records for status check
-      const params: any = {
-        page: 1,
-        limit: 50,
-        startDate: todayStr,
-        endDate: todayStr,
-        organizationId,
-        employeeId: user.employee.id,
-      };
-      
-      const response = await api.get('/attendance/records', { params });
-      
-      if (response.data?.data?.records) {
-        const todayRecord = response.data.data.records.find(
-          (r: AttendanceRecord) => {
-            try {
-              const d = r.checkIn ? new Date(r.checkIn) : new Date(r.date);
-              const recordDate = format(new Date(d.getFullYear(), d.getMonth(), d.getDate()), 'yyyy-MM-dd');
-              return recordDate === todayStr;
-            } catch (e) {
-              return false;
-            }
-          }
-        );
-        
-        if (todayRecord?.checkIn && !todayRecord?.checkOut) {
-          setCheckedIn(true);
-        } else {
-          setCheckedIn(false);
-        }
-      } else {
-        setCheckedIn(false);
-      }
-    } catch (err) {
-      // Ignore errors for status check - don't crash the component
-      console.error('Error checking today status:', err);
-      setCheckedIn(false);
-    }
-  };
-
-  const handleCheckIn = async () => {
-    try {
-      setCheckingIn(true);
-      setError(null);
-      await api.post('/attendance/check-in', {
-        notes: 'Checked in from web',
-      });
-      setCheckedIn(true);
-      await Promise.all([fetchRecords(), fetchMyRecords(), checkTodayStatus()]);
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.message || 'Failed to check in';
-      setError(errorMessage);
-      
-      // If error says "already checked in", update state to show check-out button
-      if (errorMessage.toLowerCase().includes('already checked in')) {
-        setCheckedIn(true);
-        // Refresh status to get the actual record
-        await checkTodayStatus();
-      }
-    } finally {
-      setCheckingIn(false);
-    }
-  };
-
-  const handleCheckOut = async () => {
-    try {
-      setCheckingOut(true);
-      setError(null);
-      const response = await api.post('/attendance/check-out', {
-        notes: 'Checked out from web',
-      });
-      
-      if (response.data.status === 'success') {
-        setCheckedIn(false);
-        // Refresh records and status so calendar reflects the punch
-        await Promise.all([fetchRecords(), fetchMyRecords(), checkTodayStatus()]);
-      }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.message || 'Failed to check out';
-      setError(errorMessage);
-      console.error('Check-out error:', err);
-    } finally {
-      setCheckingOut(false);
-    }
-  };
-
   const handleManualPunch = async () => {
     const employeeId = manualPunchEmployeeId || user?.employee?.id;
     if (!employeeId) {
@@ -1499,7 +1486,7 @@ const AttendancePage = () => {
         punchAt: punchAtISO,
       });
       setManualPunchMessage({ type: 'success', text: 'Punch added (In/Out toggled for this date).' });
-      await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches(), checkTodayStatus()]);
+      await Promise.all([fetchRecords(), fetchMyRecords(), fetchPunches()]);
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Failed to add punch';
       setManualPunchMessage({ type: 'error', text: msg });
@@ -1757,95 +1744,6 @@ const AttendancePage = () => {
           </div>
         )}
 
-        {/* Check-in/Check-out Section */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Today's Attendance</h2>
-          <div className="flex flex-wrap items-center gap-4">
-            {!checkedIn ? (
-              <button
-                onClick={handleCheckIn}
-                disabled={checkingIn}
-                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {checkingIn ? 'Checking In...' : 'Check In'}
-              </button>
-            ) : (
-              <button
-                onClick={handleCheckOut}
-                disabled={checkingOut}
-                className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {checkingOut ? 'Checking Out...' : 'Check Out'}
-              </button>
-            )}
-            <div className="flex items-center text-gray-600">
-              <span className="text-sm">
-                Status: {checkedIn ? '✅ Checked In' : '⏰ Not Checked In'}
-              </span>
-            </div>
-            <button
-              onClick={() => navigate('/attendance/face')}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-            >
-              Face Punch
-            </button>
-          </div>
-        </div>
-
-        {/* Excess Time Summary (manual comp off request, no separate menu) */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8 border border-indigo-100">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Excess Time Summary</h2>
-              <p className="text-sm text-gray-600 mt-1">
-                Rule: {compOffSummary?.fullDayMinutes ?? 480} min = 1 day, {compOffSummary?.halfDayMinutes ?? 240} min = 0.5 day
-              </p>
-            </div>
-            {compOffSummary && compOffSummary.eligibleCompOffDays > 0 && compOffSummary.conversionEnabled && isOwnCompOffSummary && (
-              <button
-                onClick={handleOpenCompOffModal}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition"
-              >
-                Request Comp Off
-              </button>
-            )}
-          </div>
-
-          {loadingCompOffSummary ? (
-            <div className="mt-4 text-sm text-gray-500">Loading excess summary...</div>
-          ) : (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
-                <div className="text-xs uppercase text-gray-500">Total Excess Minutes</div>
-                <div className="text-lg font-semibold text-gray-900 mt-1">
-                  {compOffSummary?.availableExcessMinutesForRequest ?? 0}
-                </div>
-              </div>
-              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3">
-                <div className="text-xs uppercase text-gray-500">Eligible Comp Off Days</div>
-                <div className="text-lg font-semibold text-gray-900 mt-1">
-                  {compOffSummary?.eligibleCompOffDays ?? 0}
-                </div>
-              </div>
-            </div>
-          )}
-          {compOffSummary && !compOffSummary.conversionEnabled && (
-            <p className="mt-3 text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
-              Comp Off conversion is disabled in Excess Time Conversion Rule.
-            </p>
-          )}
-          {showingSelectedEmployeeSummary && !isOwnCompOffSummary && (
-            <p className="mt-3 text-sm text-blue-700 bg-blue-50 px-3 py-2 rounded-lg">
-              Showing excess summary for selected employee.
-            </p>
-          )}
-          {compOffMessage && (
-            <p className={`mt-3 text-sm ${compOffMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-              {compOffMessage.text}
-            </p>
-          )}
-        </div>
-
         {/* Manual punch (for testing): select any date, multiple In/Out per day */}
         {canManualPunch && (
           <div className="bg-white rounded-lg shadow p-6 mb-8 border border-amber-200">
@@ -1893,6 +1791,12 @@ const AttendancePage = () => {
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {manualPunchSubmitting ? 'Adding...' : 'Add punch (In/Out)'}
+              </button>
+              <button
+                onClick={() => navigate('/attendance/face')}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
+              >
+                Face Punch
               </button>
             </div>
             {manualPunchMessage && (
@@ -2173,18 +2077,24 @@ const AttendancePage = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            record.status === 'PRESENT'
+                            ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'PRESENT'
                               ? 'bg-green-100 text-green-800'
-                              : record.status === 'ABSENT'
+                              : ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'ABSENT'
                               ? 'bg-red-100 text-red-800'
-                              : record.status === 'LEAVE'
+                              : ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'LEAVE'
                               ? 'bg-purple-100 text-purple-800'
-                              : record.status === 'HOLIDAY'
+                              : ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'HOLIDAY'
                               ? 'bg-orange-100 text-orange-800'
                               : 'bg-yellow-100 text-yellow-800'
                           }`}
                         >
-                          {record.status === 'PRESENT' && record.isDeviation ? 'Present (with deviation)' : record.status}
+                          {(() => {
+                            const effectiveStatus =
+                              record.status === 'LEAVE' && record.checkIn && record.checkOut ? 'PRESENT' : record.status;
+                            return effectiveStatus === 'PRESENT' && record.isDeviation
+                              ? 'Present (with deviation)'
+                              : effectiveStatus;
+                          })()}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -2192,6 +2102,16 @@ const AttendancePage = () => {
                           const shiftT = record.shift ?? null;
                           const recordDateKey = format(new Date(record.date), 'yyyy-MM-dd');
                           const hasApprovedHalfDayLeave = approvedHalfDayLeaveDateSet.has(recordDateKey);
+                          const shiftNameKey = String((shiftT as { name?: string | null } | null)?.name ?? '')
+                            .trim()
+                            .toLowerCase();
+                          const recordStatusKey = String(record.status || '').toUpperCase();
+                          const isWeekOffLikeDay =
+                            recordStatusKey === 'WEEKEND' ||
+                            recordStatusKey === 'HOLIDAY' ||
+                            shiftNameKey === 'weekoff' ||
+                            shiftNameKey === 'week off' ||
+                            shiftNameKey === 'w';
                           const lateM = getLateMinutesFallback(record, shiftT, lateEarlyPolicy);
                           const earlyMRaw = getEarlyMinutes(record, shiftT, lateEarlyPolicy);
                           const earlyM = hasApprovedHalfDayLeave ? 0 : earlyMRaw;
@@ -2201,13 +2121,19 @@ const AttendancePage = () => {
                           const earlyComingMins = getEarlyComingMinutes(record, shiftT);
                           const showLate = ((record.lateMinutes ?? 0) > 0) || record.isLate || (lateM ?? 0) > 0;
                           const showEarly = !hasApprovedHalfDayLeave && (((record.earlyMinutes ?? 0) > 0) || record.isEarly || (earlyM ?? 0) > 0);
-                          const showDeviation = !!record.isDeviation || showShortfall;
+                          const forceShortfallFromWorkedLeave =
+                            record.status === 'LEAVE' &&
+                            !!record.checkIn &&
+                            !!record.checkOut &&
+                            (record.earlyMinutes ?? earlyM ?? 0) > 0;
+                          const showDeviation = !!record.isDeviation || showShortfall || forceShortfallFromWorkedLeave;
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const otMinutes = record.otMinutes ?? 0;
                           const showOt = otMinutes > 0 && otMinutes >= minOtMins;
-                          const showExcessStay = excessStayMins > 0;
-                          const showEarlyComing = earlyComingMins > 0;
-                          const showIndicators = showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing;
+                          const showExcessStay = !isWeekOffLikeDay && excessStayMins > 0;
+                          const showEarlyComing = !isWeekOffLikeDay && earlyComingMins > 0;
+                          const showIndicators =
+                            showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing || forceShortfallFromWorkedLeave;
                           return showIndicators ? (
                           <div className="flex flex-wrap gap-1">
                             {showLate && (
@@ -2221,11 +2147,11 @@ const AttendancePage = () => {
                             {showDeviation && (
                               <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800" title={record.deviationReason ?? (showShortfall ? 'Shortfall' : 'Deviation')}>D</span>
                             )}
-                            {((record.isDeviation && (record.deviationReason ?? '').includes('Shortfall')) || showShortfall) && (
+                            {((record.isDeviation && (record.deviationReason ?? '').includes('Shortfall')) || showShortfall || forceShortfallFromWorkedLeave) && (
                               <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800">
                                 {record.isDeviation && (record.deviationReason ?? '').includes('Shortfall') && ((record.lateMinutes ?? 0) + (record.earlyMinutes ?? 0)) > 0
                                   ? `Shortfall: ${(record.lateMinutes ?? 0) + (record.earlyMinutes ?? 0)} min`
-                                  : `Shortfall: ${shortfallMinutes} min`}
+                                  : `Shortfall: ${shortfallMinutes > 0 ? shortfallMinutes : (record.earlyMinutes ?? earlyM ?? 0)} min`}
                               </span>
                             )}
                             {showOt && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title="Overtime">OT {formatWorkHoursAsHHMM(otMinutes / 60)}</span>}

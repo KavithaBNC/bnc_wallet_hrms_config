@@ -17,6 +17,10 @@ import {
   getApplicableExcessTimeRule,
   isExcessTimeConversionEnabled,
 } from '../utils/excess-time-rule';
+import {
+  canPerformAttendanceEventAction,
+  resolveRightsAllocationForEmployee,
+} from '../utils/rights-allocation';
 
 export class AttendanceService {
   private static readonly DEFAULT_TIMEZONE = 'Asia/Kolkata';
@@ -2159,6 +2163,9 @@ export class AttendanceService {
               checkOut: true,
               workHours: true,
               overtimeHours: true,
+              isLate: true,
+              lateMinutes: true,
+              earlyMinutes: true,
               shift: { select: { name: true, startTime: true, endTime: true } },
             },
           });
@@ -2196,6 +2203,7 @@ export class AttendanceService {
     if (!employee) {
       throw new AppError('Employee not found', 404);
     }
+    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId);
 
     const entitlementFromAutoCreditByLeaveTypeId = new Map<string, number>(); // only settings that match employee's department & paygroup
 
@@ -2302,7 +2310,6 @@ export class AttendanceService {
       const recordDateKey = this.toDateKey(new Date(r.date));
       const shiftName = String((r.shift as { name?: string | null } | null)?.name ?? '').trim().toLowerCase();
       const isWeekOffLike =
-        r.status === AttendanceStatus.WEEKEND ||
         r.status === AttendanceStatus.HOLIDAY ||
         shiftName === 'weekoff' ||
         shiftName === 'week off' ||
@@ -2329,7 +2336,29 @@ export class AttendanceService {
         const ot = r.overtimeHours ? Number(r.overtimeHours) : 0;
         if (ot > 0) excessStayMinutes += Math.round(ot * 60);
       }
-      if (r.shift?.startTime && r.checkIn) {
+      const isHalfDayLeaveDate = approvedHalfDayLeaveDateKeys.has(recordDateKey);
+      const shouldTrackLateEarly = !isWeekOffLike && !isHalfDayLeaveDate;
+      if (!shouldTrackLateEarly) {
+        continue;
+      }
+
+      const recordWithPolicy = r as {
+        isLate?: boolean | null;
+        lateMinutes?: number | null;
+        earlyMinutes?: number | null;
+      };
+      const storedLateMinutes = Number(recordWithPolicy.lateMinutes ?? 0);
+      const storedEarlyMinutes = Number(recordWithPolicy.earlyMinutes ?? 0);
+      const hasStoredPolicyFields =
+        recordWithPolicy.isLate != null ||
+        recordWithPolicy.lateMinutes != null ||
+        recordWithPolicy.earlyMinutes != null;
+
+      // Prefer persisted policy-aware late values (grace/permission already applied during sync).
+      if (recordWithPolicy.isLate === true || storedLateMinutes > 0) {
+        lateCount += 1;
+        lateMinutes += Math.max(0, Math.round(storedLateMinutes));
+      } else if (!hasStoredPolicyFields && r.shift?.startTime && r.checkIn) {
         const [sh, sm] = (r.shift.startTime as string).split(':').map(Number);
         const shiftStart = new Date(r.date);
         shiftStart.setHours(sh, sm || 0, 0, 0);
@@ -2338,11 +2367,16 @@ export class AttendanceService {
           lateMinutes += Math.round((new Date(r.checkIn).getTime() - shiftStart.getTime()) / 60000);
         }
       }
-      if (r.shift?.endTime && r.checkOut) {
+
+      // Prefer persisted policy-aware early-going values (grace already applied during sync).
+      if (storedEarlyMinutes > 0) {
+        earlyGoingCount += 1;
+        earlyGoingMinutes += Math.max(0, Math.round(storedEarlyMinutes));
+      } else if (!hasStoredPolicyFields && r.shift?.endTime && r.checkOut) {
         const [eh, em] = (r.shift.endTime as string).split(':').map(Number);
         const shiftEnd = new Date(r.date);
         shiftEnd.setHours(eh, em || 0, 0, 0);
-        if (!approvedHalfDayLeaveDateKeys.has(recordDateKey) && new Date(r.checkOut) < shiftEnd) {
+        if (new Date(r.checkOut) < shiftEnd) {
           earlyGoingCount += 1;
           earlyGoingMinutes += Math.round((shiftEnd.getTime() - new Date(r.checkOut).getTime()) / 60000);
         }
@@ -2357,10 +2391,22 @@ export class AttendanceService {
 
     const oneDayMs = 24 * 60 * 60 * 1000;
 
-    const usageBeforeMonth = new Map<string, number>(); // leaveTypeId -> days used before monthStart
     const usageThisMonth = new Map<string, number>(); // leaveTypeId -> days used in [monthStart, monthEnd]
 
+    const ondutyReasonRegex = /^\[Onduty(?:\s+([^\]]+))?\]/i;
+    const parseOndutyReasonLabel = (reason: string | null | undefined): string | null => {
+      if (!reason) return null;
+      const m = reason.match(ondutyReasonRegex);
+      if (!m) return null;
+      return (m[1] || '').trim() || 'Onduty';
+    };
+
     for (const lr of leaveRequests) {
+      // Keep Onduty-marked requests out of Leave usage so they don't inflate Leave/CompOff cards.
+      if (parseOndutyReasonLabel(lr.reason)) {
+        continue;
+      }
+
       const leaveTypeId = lr.leaveTypeId;
       const totalDays = Number(lr.totalDays);
 
@@ -2373,8 +2419,6 @@ export class AttendanceService {
         Math.max(1, Math.round((end.getTime() - start.getTime()) / oneDayMs) + 1);
       const perDay = totalDays / totalCalendarDays;
 
-      const prevEnd = new Date(monthStart.getTime() - oneDayMs);
-
       const overlap = (rangeStart: Date, rangeEnd: Date) => {
         const s = new Date(Math.max(start.getTime(), rangeStart.getTime()));
         const e = new Date(Math.min(end.getTime(), rangeEnd.getTime()));
@@ -2382,17 +2426,6 @@ export class AttendanceService {
         const days = Math.round((e.getTime() - s.getTime()) / oneDayMs) + 1;
         return days * perDay;
       };
-
-      // Usage before this month (from yearStart to day before monthStart)
-      if (yearStart < monthStart) {
-        const usedBefore = overlap(yearStart, prevEnd);
-        if (usedBefore > 0) {
-          usageBeforeMonth.set(
-            leaveTypeId,
-            (usageBeforeMonth.get(leaveTypeId) ?? 0) + usedBefore
-          );
-        }
-      }
 
       // Usage in this month
       const usedThis = overlap(monthStart, monthEnd);
@@ -2440,12 +2473,23 @@ export class AttendanceService {
       return fuzzy;
     };
 
+    const isOndutyOrWfhName = (value: string | null | undefined): boolean => {
+      const key = normalizeKey(value);
+      return (
+        key.includes('onduty') ||
+        key.includes('ondutyleave') ||
+        key.includes('workfromhome') ||
+        key === 'wfh'
+      );
+    };
+
+    type LeaveRowSource = 'attendance_component' | 'default_leave_module';
+
     const computeMonthlyLeaveRow = (
       bal: (typeof leaveBalances)[0],
-      opts?: { yearEntitlementOverride?: number | null }
+      opts?: { yearEntitlementOverride?: number | null; source?: LeaveRowSource }
     ) => {
       const leaveTypeId = bal.leaveTypeId;
-      const isJanuary = month === 1;
       const carryForward =
         Number(bal.carriedForward ?? 0) > 0
           ? Number(bal.carriedForward ?? 0)
@@ -2464,30 +2508,34 @@ export class AttendanceService {
         ? Number(bal.leaveType.defaultDaysPerYear)
         : null;
 
-      // Priority: (a) employee_leave_balance, (b) Auto Credit, (c) Leave Type defaultDaysPerYear
+      // Priority for sidebar view: prefer employee leave balance values first,
+      // then fall back to configured entitlement (Auto Credit / Leave Type default).
+      // This keeps monthly panel aligned with current employee ledger.
       const yearEntitlement =
         entitlementFromBalance ??
         entitlementFromAutoCredit ??
         entitlementFromLeaveType ??
         0;
 
-      const usedBefore = usageBeforeMonth.get(leaveTypeId) ?? 0;
       const usedThis = usageThisMonth.get(leaveTypeId) ?? 0;
 
-      const opening = isJanuary
-        ? Math.max(0, carryForward)
-        : Math.max(0, yearEntitlement - usedBefore);
-      const credit = isJanuary
-        ? Math.max(
-            0,
-            entitlementFromAutoCredit ??
-              entitlementFromLeaveType ??
-              (Number(bal.openingBalance ?? 0) > 0 ? Number(bal.openingBalance ?? 0) : 0)
-          )
-        : 0;
-      const closing = isJanuary
-        ? Math.max(0, opening + credit - usedThis)
-        : Math.max(0, opening - usedThis);
+      const opening = Math.max(
+        0,
+        Number(bal.openingBalance ?? 0) > 0
+          ? Number(bal.openingBalance ?? 0)
+          : yearEntitlement
+      );
+      const fallbackCarryFromAutoCredit =
+        Number(bal.openingBalance ?? 0) > 0 &&
+        (entitlementFromAutoCredit ?? 0) > 0 &&
+        Number(entitlementFromAutoCredit ?? 0) < opening
+          ? Number(entitlementFromAutoCredit ?? 0)
+          : 0;
+      const credit = Math.max(
+        0,
+        carryForward > 0 ? carryForward : fallbackCarryFromAutoCredit
+      );
+      const closing = Math.max(0, opening + credit - usedThis);
 
       return {
         name: bal.leaveType.name,
@@ -2495,6 +2543,7 @@ export class AttendanceService {
         credit,
         used: usedThis,
         balance: closing,
+        source: opts?.source ?? 'default_leave_module',
         entitlementConfigured: entitlementFromBalance != null || entitlementFromAutoCredit != null || entitlementFromLeaveType != null,
       };
     };
@@ -2528,10 +2577,11 @@ export class AttendanceService {
       );
 
       if (bal) {
-        const base = computeMonthlyLeaveRow(bal);
+        const base = computeMonthlyLeaveRow(bal, { source: 'attendance_component' });
         return {
           ...base,
           name: comp.eventName || comp.shortName || base.name,
+          source: 'attendance_component' as const,
         };
       }
 
@@ -2547,27 +2597,23 @@ export class AttendanceService {
 
       if (leaveType) {
         // Priority: (b) Auto Credit, (c) Leave Type defaultDaysPerYear – no balance when bal not found
-        const isJanuary = month === 1;
         const entitlementFromAutoCredit = entitlementFromAutoCreditByLeaveTypeId.get(leaveType.id) ?? null;
         const entitlementFromLeaveType = leaveType.defaultDaysPerYear ? Number(leaveType.defaultDaysPerYear) : null;
         const yearEntitlement = entitlementFromAutoCredit ?? entitlementFromLeaveType ?? 0;
         const entitlementConfigured = !comp.hasBalance || entitlementFromAutoCredit != null || entitlementFromLeaveType != null;
 
-        const usedBefore = usageBeforeMonth.get(leaveType.id) ?? 0;
         const usedThis = usageThisMonth.get(leaveType.id) ?? 0;
-        const opening = isJanuary
-          ? Math.max(0, Number(previousYearBalanceByLeaveTypeId.get(leaveType.id) ?? 0))
-          : Math.max(0, yearEntitlement - usedBefore);
-        const credit = isJanuary ? Math.max(0, yearEntitlement) : 0;
-        const closing = isJanuary
-          ? Math.max(0, opening + credit - usedThis)
-          : Math.max(0, opening - usedThis);
+        const carryFromPrev = Math.max(0, Number(previousYearBalanceByLeaveTypeId.get(leaveType.id) ?? 0));
+        const opening = Math.max(0, yearEntitlement);
+        const credit = carryFromPrev;
+        const closing = Math.max(0, opening + credit - usedThis);
         return {
           name: comp.eventName || comp.shortName,
           opening,
           credit,
           used: usedThis,
           balance: closing,
+          source: 'attendance_component' as const,
           entitlementConfigured,
         };
       }
@@ -2578,12 +2624,28 @@ export class AttendanceService {
         entitlementByNormalizedKey.get(normalizeEntitlementKey(comp.eventName || '')) ??
         entitlementByNormalizedKey.get(normalizeEntitlementKey(comp.shortName || ''));
       if (directEntitlement != null && directEntitlement > 0) {
+        const matchedPreviousYearBalance =
+          previousYearLeaveBalances.find((pb) =>
+            componentMatchesLeaveType(
+              { eventName: comp.eventName, shortName: comp.shortName },
+              { name: pb.leaveType.name, code: pb.leaveType.code }
+            )
+          ) ?? null;
+        const matchedLeaveTypeId = matchedPreviousYearBalance?.leaveTypeId ?? null;
+        const previousCarry = matchedPreviousYearBalance
+          ? Math.max(0, Number(matchedPreviousYearBalance.available ?? 0))
+          : 0;
+        const usedThis = matchedLeaveTypeId ? usageThisMonth.get(matchedLeaveTypeId) ?? 0 : 0;
+        const opening = Math.max(0, Number(directEntitlement));
+        const credit = previousCarry;
+        const balance = Math.max(0, opening + credit - usedThis);
         return {
           name: comp.eventName || comp.shortName,
-          opening: directEntitlement,
-          credit: 0,
-          used: 0,
-          balance: directEntitlement,
+          opening,
+          credit,
+          used: usedThis,
+          balance,
+          source: 'attendance_component' as const,
           entitlementConfigured: true,
         };
       }
@@ -2596,6 +2658,7 @@ export class AttendanceService {
           credit: 0,
           used: 0,
           balance: 0,
+          source: 'attendance_component' as const,
           entitlementConfigured: true,
         };
       }
@@ -2606,6 +2669,7 @@ export class AttendanceService {
         credit: 0,
         used: 0,
         balance: 0,
+        source: 'attendance_component' as const,
         entitlementConfigured: false,
       };
     };
@@ -2620,7 +2684,43 @@ export class AttendanceService {
       balance: 0,
     });
 
-    const ondutyRows = (byCategory.get('Onduty') || byCategory.get('On Duty') || []).map(balanceRow);
+    const ondutyRequestsInMonth = leaveRequests.filter((lr) => {
+      const s = new Date(lr.startDate);
+      const e = new Date(lr.endDate);
+      if (s > monthEnd || e < monthStart) return false;
+      return !!parseOndutyReasonLabel(lr.reason);
+    });
+    const normalizeNameKey = (value: string | null | undefined) =>
+      normalizeKey(value);
+    const ondutyRows = (byCategory.get('Onduty') || byCategory.get('On Duty') || []).map((comp) => {
+      const matchedLeaveType =
+        leaveTypes.find((lt) =>
+          componentMatchesLeaveType(
+            { eventName: comp.eventName, shortName: comp.shortName },
+            { name: lt.name, code: lt.code }
+          )
+        ) ?? null;
+      const componentKeyA = normalizeNameKey(comp.eventName);
+      const componentKeyB = normalizeNameKey(comp.shortName);
+      const usedFromOndutyMarker = ondutyRequestsInMonth.reduce((acc, lr) => {
+        const label = parseOndutyReasonLabel(lr.reason);
+        if (!label) return acc;
+        const labelKey = normalizeNameKey(label);
+        const matched =
+          (componentKeyA && labelKey && (componentKeyA === labelKey || componentKeyA.includes(labelKey) || labelKey.includes(componentKeyA))) ||
+          (componentKeyB && labelKey && (componentKeyB === labelKey || componentKeyB.includes(labelKey) || labelKey.includes(componentKeyB)));
+        return acc + (matched ? Number(lr.totalDays || 1) : 0);
+      }, 0);
+      const usedThis = usedFromOndutyMarker > 0
+        ? usedFromOndutyMarker
+        : matchedLeaveType
+          ? usageThisMonth.get(matchedLeaveType.id) ?? 0
+          : 0;
+      return {
+        ...balanceRow(comp),
+        used: usedThis,
+      };
+    });
 
     const permissionReasonRegex = /^\[Permission\s+\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}\]/i;
     const isPermissionRequest = (lr: { leaveTypeId: string; reason: string; status: string }) =>
@@ -2670,7 +2770,15 @@ export class AttendanceService {
 
     // Build final leave rows: start with component-based rows, then append any
     // EmployeeLeaveBalance entries that aren't already matched (e.g. "Comp Off")
-    let finalLeaveRows: Array<{ name: string; opening: number; credit: number; used: number; balance: number; entitlementConfigured?: boolean }>;
+    let finalLeaveRows: Array<{
+      name: string;
+      opening: number;
+      credit: number;
+      used: number;
+      balance: number;
+      source?: LeaveRowSource;
+      entitlementConfigured?: boolean;
+    }>;
     if (leaveRows.length > 0) {
       // Collect names already present (lowered) to avoid duplicates
       const coveredNames = new Set(leaveRows.map((r) => r.name?.toLowerCase().trim()));
@@ -2687,14 +2795,15 @@ export class AttendanceService {
         const yearEntitlement = entitlementFromAutoCredit ?? entitlementFromLeaveType ?? 0;
         const entitlementConfigured = entitlementFromAutoCredit != null || entitlementFromLeaveType != null;
 
-        const usedBefore = usageBeforeMonth.get(lt.id) ?? 0;
         const usedThis = usageThisMonth.get(lt.id) ?? 0;
-        const opening = Math.max(0, yearEntitlement - usedBefore);
-        const closing = Math.max(0, opening - usedThis);
+        const carryFromPrev = Math.max(0, Number(previousYearBalanceByLeaveTypeId.get(lt.id) ?? 0));
+        const opening = Math.max(0, yearEntitlement);
+        const credit = carryFromPrev;
+        const closing = Math.max(0, opening + credit - usedThis);
         return {
           name: lt.name,
           opening,
-          credit: 0,
+          credit,
           used: usedThis,
           balance: closing,
           entitlementConfigured,
@@ -2702,7 +2811,18 @@ export class AttendanceService {
       });
     }
 
-    const entitlementWarnings = (finalLeaveRows as Array<{ name: string; entitlementConfigured?: boolean }>)
+    if (rightsAllocation) {
+      finalLeaveRows = finalLeaveRows.filter((row) =>
+        canPerformAttendanceEventAction(rightsAllocation, 'view', { eventName: row.name })
+      );
+    }
+
+    // Onduty/WFH should appear only in Onduty card, never in Leave card.
+    finalLeaveRows = finalLeaveRows.filter((row) => !isOndutyOrWfhName(row.name));
+
+    const entitlementWarnings = (
+      finalLeaveRows as Array<{ name: string; source?: LeaveRowSource; entitlementConfigured?: boolean }>
+    )
       .filter((r) => r.entitlementConfigured === false)
       .map((r) => r.name);
 

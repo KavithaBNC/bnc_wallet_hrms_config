@@ -397,15 +397,15 @@ export default function AutoCreditSettingFormPage() {
       };
       const associateIdsArr =
         selectedAssociates.length === 0 || selectedAssociates.some((a) => a.id === '__ALL__')
-          ? undefined
+          ? null
           : selectedAssociates.map((a) => a.id).filter((id) => id !== '__ALL__');
       const paygroupIdsArr =
         selectedPaygroups.length === 0 || selectedPaygroups.some((p) => p.id === '__ALL__')
-          ? undefined
+          ? null
           : selectedPaygroups.map((p) => p.id).filter((id) => id !== '__ALL__');
       const departmentIdsArr =
         selectedDepartments.length === 0 || selectedDepartments.some((d) => d.id === '__ALL__')
-          ? undefined
+          ? null
           : selectedDepartments.map((d) => d.id).filter((id) => id !== '__ALL__');
 
       const payload = {

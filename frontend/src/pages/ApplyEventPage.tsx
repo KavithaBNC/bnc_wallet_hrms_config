@@ -1,5 +1,5 @@
 /**
- * Apply Event page – supports Leave and Permission event types.
+ * Apply Event page – supports Leave, Onduty and Permission event types.
  * Both flows create a LeaveRequest via /leaves/requests so manager approval,
  * calendar badges, and monthly details stay aligned in one pipeline.
  */
@@ -10,6 +10,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import attendanceComponentService from '../services/attendanceComponent.service';
 import type { AttendanceComponent } from '../services/attendanceComponent.service';
+import shiftService from '../services/shift.service';
 import AppHeader from '../components/layout/AppHeader';
 
 type DurationOption = 'FULL_DAY' | 'FIRST_HALF' | 'SECOND_HALF';
@@ -26,9 +27,15 @@ interface LeaveType {
   code: string;
 }
 
-/** Leave/Permission attendance components for the Type dropdown */
+function normalizeKey(value: string | null | undefined): string {
+  return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Leave/Onduty/Permission attendance components for the Type dropdown */
 function getEventComponents(components: AttendanceComponent[]): AttendanceComponent[] {
-  return components.filter((c) => c.eventCategory === 'Leave' || c.eventCategory === 'Permission');
+  return components.filter((c) =>
+    c.eventCategory === 'Leave' || c.eventCategory === 'Permission' || c.eventCategory === 'Onduty'
+  );
 }
 
 /** Filter to only components that appear in monthly details leave rows (by name match) */
@@ -51,16 +58,24 @@ function resolveLeaveTypeIdFromComponent(
   component: AttendanceComponent | null
 ): string | null {
   if (!component) return null;
-  const eventNameKey = component.eventName?.toLowerCase().trim() ?? '';
-  const shortNameKey = component.shortName?.toLowerCase().trim() ?? '';
+  const eventNameKey = normalizeKey(component.eventName);
+  const shortNameKey = normalizeKey(component.shortName);
   if (!eventNameKey && !shortNameKey) return null;
 
   const match = leaveTypes.find((lt) => {
-    const n = lt.name?.toLowerCase().trim() ?? '';
-    const c = lt.code?.toLowerCase().trim() ?? '';
-    return (
+    const n = normalizeKey(lt.name);
+    const c = normalizeKey(lt.code);
+    const exact =
       (eventNameKey && (n === eventNameKey || c === eventNameKey)) ||
-      (shortNameKey && (c === shortNameKey || n === shortNameKey))
+      (shortNameKey && (c === shortNameKey || n === shortNameKey));
+    if (exact) return true;
+
+    // Fuzzy support for naming differences: "Onduty" vs "On Duty", etc.
+    return (
+      (eventNameKey && n && (eventNameKey.includes(n) || n.includes(eventNameKey))) ||
+      (eventNameKey && c && (eventNameKey.includes(c) || c.includes(eventNameKey))) ||
+      (shortNameKey && n && (shortNameKey.includes(n) || n.includes(shortNameKey))) ||
+      (shortNameKey && c && (shortNameKey.includes(c) || c.includes(shortNameKey)))
     );
   });
   return match?.id ?? null;
@@ -73,6 +88,62 @@ interface MonthlyDetailsState {
   applyTab?: 'Leave' | 'Permission' | 'Onduty';
 }
 
+function isOndutyLikeComponent(component: AttendanceComponent | null): boolean {
+  if (!component) return false;
+  const categoryKey = (component.eventCategory || '').toLowerCase().replace(/\s+/g, '');
+  if (categoryKey === 'onduty') return true;
+  const label = `${component.eventName || ''} ${component.shortName || ''}`.toLowerCase();
+  return (
+    label.includes('on duty') ||
+    label.includes('onduty') ||
+    label.includes('work from home') ||
+    /\bwfh\b/.test(label)
+  );
+}
+
+function isWfhLikeComponent(component: AttendanceComponent | null): boolean {
+  if (!component) return false;
+  const key = normalizeKey(`${component.eventName || ''}${component.shortName || ''}`);
+  return key.includes('workfromhome') || key.includes('wfh');
+}
+
+function isWfhLikeLeaveType(leaveType: LeaveType | undefined | null): boolean {
+  if (!leaveType) return false;
+  const key = normalizeKey(`${leaveType.name || ''}${leaveType.code || ''}`);
+  return key.includes('workfromhome') || key === 'wfh';
+}
+
+function isOndutyLikeLeaveType(leaveType: LeaveType | undefined | null): boolean {
+  if (!leaveType) return false;
+  const key = normalizeKey(`${leaveType.name || ''}${leaveType.code || ''}`);
+  return key.includes('onduty') || key.includes('ondutyleave');
+}
+
+type PermissionWindow = {
+  startMinutes: number;
+  endMinutes: number;
+};
+
+const DEFAULT_PERMISSION_WINDOW: PermissionWindow = {
+  startMinutes: 9 * 60,
+  endMinutes: 18 * 60,
+};
+
+const parseHHMMToMinutes = (value: string | null | undefined): number | null => {
+  if (!value) return null;
+  const parts = value.split(':').map(Number);
+  if (parts.length < 2) return null;
+  const [h, m] = parts;
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+};
+
+const formatMinutesToHHMM = (totalMinutes: number): string => {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
 export default function ApplyEventPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -81,7 +152,8 @@ export default function ApplyEventPage() {
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
 
   const state = (location.state as MonthlyDetailsState | null) || {};
-  const pageMode: 'Leave' | 'Permission' = state.applyTab === 'Leave' ? 'Leave' : 'Permission';
+  const pageMode: 'Leave' | 'Permission' | 'Onduty' =
+    state.applyTab === 'Permission' ? 'Permission' : state.applyTab === 'Onduty' ? 'Onduty' : 'Leave';
   const now = new Date();
   const contextEmployeeId = state.employeeId || user?.employee?.id;
   const contextYear = state.year ?? now.getFullYear();
@@ -93,6 +165,7 @@ export default function ApplyEventPage() {
   const [componentToLeaveTypeId, setComponentToLeaveTypeId] = useState<Record<string, string>>({});
   /** Leave/Permission names from monthly details – used to filter Type dropdown */
   const [monthlyDetailsLeaveNames, setMonthlyDetailsLeaveNames] = useState<string[]>([]);
+  const [monthlyDetailsOndutyNames, setMonthlyDetailsOndutyNames] = useState<string[]>([]);
   const [monthlyDetailsPermissionNames, setMonthlyDetailsPermissionNames] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
@@ -106,8 +179,15 @@ export default function ApplyEventPage() {
   const [toTime, setToTime] = useState('');
   const [reason, setReason] = useState('');
   const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
+  const [ondutyHourlyEnabled, setOndutyHourlyEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [defaultPermissionWindow, setDefaultPermissionWindow] = useState<PermissionWindow>(
+    DEFAULT_PERMISSION_WINDOW
+  );
+  const [permissionWindow, setPermissionWindow] = useState<PermissionWindow>(
+    DEFAULT_PERMISSION_WINDOW
+  );
 
   const typeSelected = !!selectedComponentId;
 
@@ -119,17 +199,25 @@ export default function ApplyEventPage() {
         monthlyDetailsLeaveNames
       );
     }
+    if (pageMode === 'Onduty') {
+      return filterByMonthlyDetailsLeaves(
+        all.filter((c) => isOndutyLikeComponent(c)),
+        monthlyDetailsOndutyNames
+      );
+    }
     return filterByMonthlyDetailsLeaves(
       all.filter((c) => c.eventCategory === 'Permission'),
       monthlyDetailsPermissionNames
     );
-  }, [componentsRaw, monthlyDetailsLeaveNames, monthlyDetailsPermissionNames, pageMode]);
+  }, [componentsRaw, monthlyDetailsLeaveNames, monthlyDetailsOndutyNames, monthlyDetailsPermissionNames, pageMode]);
 
   const selectedComponent = useMemo(
     () => eventComponents.find((c) => c.id === selectedComponentId) ?? null,
     [eventComponents, selectedComponentId]
   );
   const isPermissionType = selectedComponent?.eventCategory === 'Permission' || pageMode === 'Permission';
+  const isOndutyType = isOndutyLikeComponent(selectedComponent) || pageMode === 'Onduty';
+  const requiresTimeWindow = isPermissionType || (isOndutyType && ondutyHourlyEnabled);
 
   const handleLogout = async () => {
     await logout();
@@ -153,13 +241,33 @@ export default function ApplyEventPage() {
       api.get<{ data: { mapping?: Record<string, string> } }>('/attendance-components/leave-type-mapping', {
         params: { organizationId },
       }),
+      shiftService.getAll({
+        organizationId,
+        page: 1,
+        limit: 1000,
+        isActive: true,
+      }),
     ])
-      .then(([componentsRes, leaveTypesRes, mappingRes]) => {
+      .then(([componentsRes, leaveTypesRes, mappingRes, shiftsRes]) => {
         if (cancelled) return;
         const comps = componentsRes.components ?? [];
         setComponentsRaw(comps);
         setLeaveTypes(leaveTypesRes.data?.data?.leaveTypes ?? []);
         setComponentToLeaveTypeId(mappingRes.data?.data?.mapping ?? {});
+
+        const shifts = shiftsRes?.shifts ?? [];
+        const preferredShift =
+          shifts.find((s) => (s.name || '').toLowerCase().includes('general morning')) ||
+          shifts.find((s) => (s.name || '').toLowerCase().includes('general')) ||
+          shifts[0];
+        const start = parseHHMMToMinutes(preferredShift?.startTime);
+        const end = parseHHMMToMinutes(preferredShift?.endTime);
+        const resolvedWindow =
+          start != null && end != null && end > start
+            ? { startMinutes: start, endMinutes: end }
+            : DEFAULT_PERMISSION_WINDOW;
+        setDefaultPermissionWindow(resolvedWindow);
+        setPermissionWindow(resolvedWindow);
       })
       .catch((err: any) => {
         if (!cancelled) {
@@ -179,24 +287,71 @@ export default function ApplyEventPage() {
   }, [organizationId]);
 
   useEffect(() => {
+    if (!requiresTimeWindow || !organizationId || !contextEmployeeId || !entryDate) {
+      setPermissionWindow(defaultPermissionWindow);
+      return;
+    }
+
+    let cancelled = false;
+    api
+      .get('/attendance/records', {
+        params: {
+          page: 1,
+          limit: 50,
+          organizationId,
+          employeeId: contextEmployeeId,
+          startDate: entryDate,
+          endDate: entryDate,
+        },
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const records = res?.data?.data?.records ?? [];
+        const withShift = records.find(
+          (r: any) =>
+            r?.shift?.startTime &&
+            r?.shift?.endTime
+        );
+        const start = parseHHMMToMinutes(withShift?.shift?.startTime);
+        const end = parseHHMMToMinutes(withShift?.shift?.endTime);
+        if (start != null && end != null && end > start) {
+          setPermissionWindow({ startMinutes: start, endMinutes: end });
+        } else {
+          setPermissionWindow(defaultPermissionWindow);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPermissionWindow(defaultPermissionWindow);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [requiresTimeWindow, organizationId, contextEmployeeId, entryDate, defaultPermissionWindow]);
+
+  useEffect(() => {
     if (!organizationId || !contextEmployeeId) {
       setMonthlyDetailsLeaveNames([]);
+      setMonthlyDetailsOndutyNames([]);
+      setMonthlyDetailsPermissionNames([]);
       return;
     }
     let cancelled = false;
     api
-      .get<{ data: { leave?: Array<{ name: string }>; permission?: Array<{ name: string }> } }>('/attendance/monthly-details', {
+      .get<{ data: { leave?: Array<{ name: string }>; onduty?: Array<{ name: string }>; permission?: Array<{ name: string }> } }>('/attendance/monthly-details', {
         params: { organizationId, employeeId: contextEmployeeId, year: contextYear, month: contextMonth },
       })
       .then((res) => {
         if (!cancelled && res.data?.data) {
           setMonthlyDetailsLeaveNames((res.data.data.leave || []).map((r) => r.name).filter(Boolean));
+          setMonthlyDetailsOndutyNames((res.data.data.onduty || []).map((r) => r.name).filter(Boolean));
           setMonthlyDetailsPermissionNames((res.data.data.permission || []).map((r) => r.name).filter(Boolean));
         }
       })
       .catch(() => {
         if (!cancelled) {
           setMonthlyDetailsLeaveNames([]);
+          setMonthlyDetailsOndutyNames([]);
           setMonthlyDetailsPermissionNames([]);
         }
       });
@@ -210,6 +365,24 @@ export default function ApplyEventPage() {
     setSelectedComponentId(eventComponents[0].id);
   }, [selectedComponentId, eventComponents]);
 
+  useEffect(() => {
+    setSelectedLeaveTypeId('');
+  }, [selectedComponentId]);
+
+  useEffect(() => {
+    if (!typeSelected || isPermissionType || isOndutyType || selectedLeaveTypeId || leaveTypes.length === 0) return;
+    setSelectedLeaveTypeId(leaveTypes[0].id);
+  }, [typeSelected, isPermissionType, isOndutyType, selectedComponent, selectedLeaveTypeId, leaveTypes]);
+
+  useEffect(() => {
+    if (!isOndutyType) {
+      setOndutyHourlyEnabled(false);
+      return;
+    }
+    // Default hourly mode from selected component config; user can change it.
+    setOndutyHourlyEnabled(!!selectedComponent?.allowHourly);
+  }, [isOndutyType, selectedComponent?.id, selectedComponent?.allowHourly]);
+
   const handleCancel = () => {
     navigate('/attendance', { replace: true });
   };
@@ -222,7 +395,7 @@ export default function ApplyEventPage() {
       setError('Please select a Type.');
       return;
     }
-    if (isPermissionType) {
+    if (requiresTimeWindow) {
       if (typeSelected && (!entryDate || !fromTime || !toTime || !reason.trim())) {
         setError('Entry Date, From Time, To Time and Reason are required.');
         return;
@@ -238,22 +411,70 @@ export default function ApplyEventPage() {
       const key = `${lt.name || ''} ${lt.code || ''}`.toLowerCase();
       return key.includes('permission');
     })?.id;
+    const selectedIsWfh = isWfhLikeComponent(selectedComponent);
+    const mappedOndutyFallback = isOndutyType
+      ? eventComponents
+          .filter((c) => isOndutyLikeComponent(c))
+          .map((c) => componentToLeaveTypeId[c.id])
+          .filter((id): id is string => !!id)
+          .find((id) => {
+            const lt = leaveTypes.find((x) => x.id === id);
+            const key = normalizeKey(`${lt?.name || ''} ${lt?.code || ''}`);
+            if (!key) return false;
+            if (selectedIsWfh) return key.includes('workfromhome') || key === 'wfh';
+            return (
+              (key.includes('onduty') || key.includes('ondutyleave')) &&
+              !key.includes('workfromhome') &&
+              key !== 'wfh'
+            );
+          })
+      : undefined;
+    const ondutyFallback = isOndutyType
+      ? leaveTypes.find((lt) => {
+          const key = normalizeKey(`${lt.name || ''} ${lt.code || ''}`);
+          if (selectedIsWfh) {
+            return key.includes('workfromhome') || key === 'wfh';
+          }
+          return (
+            (key.includes('onduty') || key.includes('ondutyleave')) &&
+            !key.includes('workfromhome') &&
+            key !== 'wfh'
+          );
+        })?.id
+      : undefined;
 
     // Resolve leave type id:
     // 1) explicit mapping (preferred)
-    // 2) manual selection from Leave Type dropdown (leave mode only)
-    // 3) fallback name/code match for older data
-    // 4) permission fallback (permission mode only)
-    const fromMapping = componentToLeaveTypeId[selectedComponentId];
-    const fromManual = isPermissionType ? undefined : (selectedLeaveTypeId || undefined);
-    const fromNameMatch = resolveLeaveTypeIdFromComponent(leaveTypes, selectedComponent);
-    const leaveTypeIdForSubmit = fromMapping || fromManual || fromNameMatch || (isPermissionType ? permissionFallback : undefined);
+    // 2) fallback name/code match for older data
+    // 3) permission fallback (permission mode only)
+    const fromMappingRaw = componentToLeaveTypeId[selectedComponentId];
+    const fromNameMatchRaw = resolveLeaveTypeIdFromComponent(leaveTypes, selectedComponent);
+    const fromMappingLeaveType = fromMappingRaw ? leaveTypes.find((lt) => lt.id === fromMappingRaw) : undefined;
+    const fromNameMatchLeaveType = fromNameMatchRaw ? leaveTypes.find((lt) => lt.id === fromNameMatchRaw) : undefined;
+    const fromMapping = isOndutyType
+      ? (selectedIsWfh ? isWfhLikeLeaveType(fromMappingLeaveType) : isOndutyLikeLeaveType(fromMappingLeaveType))
+        ? fromMappingRaw
+        : undefined
+      : fromMappingRaw;
+    const fromNameMatch = isOndutyType
+      ? (selectedIsWfh ? isWfhLikeLeaveType(fromNameMatchLeaveType) : isOndutyLikeLeaveType(fromNameMatchLeaveType))
+        ? fromNameMatchRaw
+        : undefined
+      : fromNameMatchRaw;
+    const leaveTypeIdForSubmit = isPermissionType
+      ? fromMapping || fromNameMatch || permissionFallback
+      : isOndutyType
+        // Strict: Onduty must map only to Onduty/WFH leave type; never generic fallback like Comp Off.
+        ? fromMapping || fromNameMatch || mappedOndutyFallback || ondutyFallback || leaveTypes[0]?.id
+        : fromMapping || fromNameMatch || (selectedLeaveTypeId || undefined) || leaveTypes[0]?.id;
 
     if (!leaveTypeIdForSubmit) {
       setError(
         isPermissionType
           ? 'Permission event is not mapped to a Leave Type. Please configure Event Mapping for Permission.'
-          : 'This event type is not linked to any leave type. Please either map it in Event Configuration or select a Leave Type below.'
+          : isOndutyType
+            ? 'On Duty type is not linked to an On Duty leave type. Map it in Event Configuration.'
+            : 'This event type is not linked to any leave type. Select Leave Type below or map it in Event Configuration.'
       );
       return;
     }
@@ -266,13 +487,13 @@ export default function ApplyEventPage() {
       let totalDays: number | undefined;
       let submitReason = reason.trim();
 
-      if (isPermissionType) {
+      if (requiresTimeWindow) {
         const [fromH, fromM] = fromTime.split(':').map(Number);
         const [toH, toM] = toTime.split(':').map(Number);
         const startMinutes = fromH * 60 + fromM;
         const endMinutes = toH * 60 + toM;
-        const allowedStart = 8 * 60 + 30; // 08:30
-        const allowedEnd = 17 * 60 + 30; // 17:30
+        const allowedStart = permissionWindow.startMinutes;
+        const allowedEnd = permissionWindow.endMinutes;
 
         if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
           setError('Please provide valid From/To time.');
@@ -283,19 +504,31 @@ export default function ApplyEventPage() {
           return;
         }
         if (startMinutes < allowedStart || endMinutes > allowedEnd) {
-          setError('Permission can be applied only between 08:30 and 17:30.');
+          setError(
+            `Permission can be applied only between ${formatMinutesToHHMM(allowedStart)} and ${formatMinutesToHHMM(allowedEnd)}.`
+          );
           return;
         }
 
         const durationMinutes = endMinutes - startMinutes;
-        totalDays = Number((durationMinutes / 540).toFixed(4)); // 9-hour office window basis
+        const shiftWindowMinutes = Math.max(1, allowedEnd - allowedStart);
+        totalDays = Number((durationMinutes / shiftWindowMinutes).toFixed(4));
         startDate = entryDate;
         endDate = entryDate;
-        submitReason = `[Permission ${fromTime}-${toTime}] ${submitReason}`;
+        submitReason = isPermissionType
+          ? `[Permission ${fromTime}-${toTime}] ${submitReason}`
+          : submitReason;
       } else {
         const isSingleDay = fromDate === toDate;
         const isHalfDaySelection = fromDuration !== 'FULL_DAY' || toDuration !== 'FULL_DAY';
         totalDays = isSingleDay && isHalfDaySelection ? 0.5 : undefined;
+      }
+
+      if (isOndutyType) {
+        const ondutyLabel = selectedComponent?.eventName || selectedComponent?.shortName || 'Onduty';
+        if (!/^\[Onduty(?:\s+[^\]]+)?\]/i.test(submitReason)) {
+          submitReason = `[Onduty ${ondutyLabel}] ${submitReason}`;
+        }
       }
 
       const payload = {
@@ -332,7 +565,7 @@ export default function ApplyEventPage() {
   const canSubmit =
     !!selectedComponentId &&
     (!typeSelected ||
-      (isPermissionType
+      (requiresTimeWindow
         ? (entryDate && fromTime && toTime && reason.trim())
         : (fromDate && toDate && reason.trim())));
 
@@ -340,7 +573,7 @@ export default function ApplyEventPage() {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
         <AppHeader
-          title={pageMode === 'Permission' ? 'Apply Permission' : 'Apply Event'}
+          title={pageMode === 'Permission' ? 'Apply Permission' : pageMode === 'Onduty' ? 'Apply On Duty' : 'Apply Event'}
           subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
           onLogout={handleLogout}
         />
@@ -357,7 +590,7 @@ export default function ApplyEventPage() {
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
-        title={pageMode === 'Permission' ? 'Apply Permission' : 'Apply Event'}
+        title={pageMode === 'Permission' ? 'Apply Permission' : pageMode === 'Onduty' ? 'Apply On Duty' : 'Apply Event'}
         subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
@@ -413,19 +646,18 @@ export default function ApplyEventPage() {
           {/* From Date, To Date, Reason, Leave Type – only after Type is selected */}
           {typeSelected && (
             <>
-              {/* Optional explicit Leave Type selector when no mapping exists (leave mode only) */}
-              {!isPermissionType && leaveTypes.length > 0 && !componentToLeaveTypeId[selectedComponentId] && (
+              {!isPermissionType && !isOndutyType && leaveTypes.length > 0 && (
                 <div className="mb-6">
-                  <label htmlFor="leaveType" className="block text-sm font-medium text-gray-700 mb-1">
-                    Leave Type <span className="text-red-500">*</span>
+                  <label htmlFor="leaveTypeFallback" className="block text-sm font-medium text-gray-700 mb-1">
+                    Leave Type (Fallback)
                   </label>
                   <select
-                    id="leaveType"
+                    id="leaveTypeFallback"
                     value={selectedLeaveTypeId}
                     onChange={(e) => setSelectedLeaveTypeId(e.target.value)}
                     className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
-                    <option value="">Select leave type</option>
+                    <option value="">Auto resolve</option>
                     {leaveTypes.map((lt) => (
                       <option key={lt.id} value={lt.id}>
                         {lt.name} {lt.code ? `(${lt.code})` : ''}
@@ -433,15 +665,46 @@ export default function ApplyEventPage() {
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-gray-500">
-                    This event is not explicitly mapped. Choose the correct leave type to continue.
+                    Use this only when auto mapping is unavailable.
                   </p>
                 </div>
               )}
 
-              {isPermissionType ? (
+              {isOndutyType && !isPermissionType && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Hourly <span className="text-red-500">*</span>
+                  </label>
+                  <div className="mt-1 inline-flex rounded-md border border-gray-300 bg-white p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setOndutyHourlyEnabled(true)}
+                      className={`px-3 py-1 text-xs font-medium rounded ${
+                        ondutyHourlyEnabled ? 'bg-green-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      YES
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOndutyHourlyEnabled(false)}
+                      className={`px-3 py-1 text-xs font-medium rounded ${
+                        !ondutyHourlyEnabled ? 'bg-red-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      NO
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {requiresTimeWindow ? (
                 <>
                   <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                    Event can be applied from <span className="font-semibold">08:30</span> to <span className="font-semibold">17:30</span>
+                    Event can be applied from{' '}
+                    <span className="font-semibold">{formatMinutesToHHMM(permissionWindow.startMinutes)}</span>{' '}
+                    to{' '}
+                    <span className="font-semibold">{formatMinutesToHHMM(permissionWindow.endMinutes)}</span>
                   </div>
                   <div className="mb-6">
                     <label htmlFor="entryDate" className="block text-sm font-medium text-gray-700 mb-1">

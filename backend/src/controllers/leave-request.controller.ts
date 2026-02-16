@@ -30,7 +30,11 @@ export class LeaveRequestController {
         });
       }
 
-      const leaveRequest = await leaveRequestService.create(employee.id, req.body);
+      const leaveRequest = await leaveRequestService.create(
+        employee.id,
+        req.body,
+        req.user?.role
+      );
 
       return res.status(201).json({
         status: 'success',

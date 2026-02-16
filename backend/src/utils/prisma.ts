@@ -10,8 +10,8 @@ const hasConnectionLimit = Boolean(databaseUrl && /[?&]connection_limit=/.test(d
 const prismaUrl =
   databaseUrl && !hasConnectionLimit
     ? `${databaseUrl}${databaseUrl.includes('?') ? '&' : '?'}connection_limit=${
-        process.env.PRISMA_CONNECTION_LIMIT ?? '5'
-      }&pool_timeout=${process.env.PRISMA_POOL_TIMEOUT ?? '20'}`
+        process.env.PRISMA_CONNECTION_LIMIT ?? '10'
+      }&pool_timeout=${process.env.PRISMA_POOL_TIMEOUT ?? '60'}`
     : databaseUrl;
 
 export const prisma =
