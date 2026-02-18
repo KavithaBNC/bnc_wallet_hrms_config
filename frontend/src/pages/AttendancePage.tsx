@@ -255,7 +255,7 @@ function getExcessStayMinutes(record: AttendanceRecord, shiftOverride: ShiftLike
   if (record.excessStayMinutes != null) {
     return Math.max(0, Number(record.excessStayMinutes));
   }
-  if (isWeekOffLike) {
+  if (isWeekOffLike && (!shift?.startTime || !shift?.endTime)) {
     if (!record.checkIn || !record.checkOut) return 0;
     const workHours = Number(record.workHours ?? 0);
     if (Number.isFinite(workHours) && workHours > 0) {
@@ -723,6 +723,11 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                     const lastOut = record.checkOut || (dayPunches.filter((p) => (p.status?.toUpperCase() || '') === 'OUT').pop()?.punchTime);
                     const lastPunchOfDay = dayPunches.length > 0 ? dayPunches[dayPunches.length - 1] : null;
                     const isCurrentlyIn = firstIn && !lastOut && lastPunchOfDay && (lastPunchOfDay.status?.toUpperCase() || '') === 'IN';
+                    const isSingleInPunchNoOut =
+                      dayPunches.length === 1 &&
+                      (dayPunches[0]?.status?.toUpperCase() || '') === 'IN' &&
+                      !!firstIn &&
+                      !lastOut;
                     const lastInTime = dayPunches.filter((p) => (p.status?.toUpperCase() || '') === 'IN').pop()?.punchTime;
                     const formatTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
                     // Prefer a shift that has startTime/endTime so Late/Early fallback can compute; use Shift Master by name when record.shift lacks times
@@ -867,14 +872,6 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
 
                           const excessStayMins = getExcessStayMinutes(record, effectiveShiftForRecord, lateEarlyPolicy);
                           const earlyComingMins = getEarlyComingMinutes(record, effectiveShiftForRecord);
-                          const recordStatusKey = (record.status || '').toUpperCase();
-                          const shiftNameKey = (shiftName || '').toLowerCase();
-                          const isWeekOffLikeDay =
-                            recordStatusKey === 'WEEKEND' ||
-                            recordStatusKey === 'HOLIDAY' ||
-                            shiftNameKey === 'weekoff' ||
-                            shiftNameKey === 'week off' ||
-                            shiftNameKey === 'w';
                           const showLate = !permissionCoversLate && (((record.lateMinutes ?? 0) > 0) || record.isLate || (lateMin ?? 0) > 0);
                           const showEarly =
                             !hasApprovedHalfDayLeave &&
@@ -889,10 +886,8 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                             forceShortfallFromWorkedLeave;
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const showOt = record.otMinutes != null && record.otMinutes > 0 && record.otMinutes >= minOtMins;
-                          // Keep calendar indicators aligned with monthly-details summary:
-                          // weekend/holiday rows are excluded from early/excess aggregation.
-                          const showExcessStay = !isWeekOffLikeDay && excessStayMins > 0;
-                          const showEarlyComing = !isWeekOffLikeDay && earlyComingMins > 0;
+                          const showExcessStay = excessStayMins > 0;
+                          const showEarlyComing = earlyComingMins > 0;
                           const showFullDayPermissionBadge = isPermissionFullDayPresent || isOndutyOrWfhFullDayPresent;
                           const showIndicators =
                             showFullDayPermissionBadge ||
@@ -961,12 +956,16 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                           ) : null;
                         })()}
                         {/* Total Net Work Time in HH:mm right below PRESENT */}
-                        {record.workHours !== null && record.workHours !== undefined && (
+                        {record.workHours !== null && record.workHours !== undefined && !isSingleInPunchNoOut && (
                           <div className="text-gray-800 font-medium">
                             Total Net Work Time: {formatWorkHoursAsHHMM(Number(record.workHours))}
                           </div>
                         )}
-                        {Number(record.workHours ?? 0) >= 9 && (
+                        {isSingleInPunchNoOut ? (
+                          <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">
+                            Single Punch
+                          </div>
+                        ) : Number(record.workHours ?? 0) >= 9 && !!lastOut && (
                           <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">
                             Validation Completed
                           </div>
@@ -2111,16 +2110,6 @@ const AttendancePage = () => {
                           const shiftT = record.shift ?? null;
                           const recordDateKey = format(new Date(record.date), 'yyyy-MM-dd');
                           const hasApprovedHalfDayLeave = approvedHalfDayLeaveDateSet.has(recordDateKey);
-                          const shiftNameKey = String((shiftT as { name?: string | null } | null)?.name ?? '')
-                            .trim()
-                            .toLowerCase();
-                          const recordStatusKey = String(record.status || '').toUpperCase();
-                          const isWeekOffLikeDay =
-                            recordStatusKey === 'WEEKEND' ||
-                            recordStatusKey === 'HOLIDAY' ||
-                            shiftNameKey === 'weekoff' ||
-                            shiftNameKey === 'week off' ||
-                            shiftNameKey === 'w';
                           const lateM = getLateMinutesFallback(record, shiftT, lateEarlyPolicy);
                           const earlyMRaw = getEarlyMinutes(record, shiftT, lateEarlyPolicy);
                           const earlyM = hasApprovedHalfDayLeave ? 0 : earlyMRaw;
@@ -2139,8 +2128,8 @@ const AttendancePage = () => {
                           const minOtMins = getMinOTMinutes(lateEarlyPolicy);
                           const otMinutes = record.otMinutes ?? 0;
                           const showOt = otMinutes > 0 && otMinutes >= minOtMins;
-                          const showExcessStay = !isWeekOffLikeDay && excessStayMins > 0;
-                          const showEarlyComing = !isWeekOffLikeDay && earlyComingMins > 0;
+                          const showExcessStay = excessStayMins > 0;
+                          const showEarlyComing = earlyComingMins > 0;
                           const showIndicators =
                             showLate || showEarly || showDeviation || showOt || showExcessStay || showEarlyComing || forceShortfallFromWorkedLeave;
                           return showIndicators ? (
