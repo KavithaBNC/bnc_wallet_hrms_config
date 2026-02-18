@@ -22,6 +22,7 @@ import {
   resolveRightsAllocationForEmployee,
 } from '../utils/rights-allocation';
 import { readEntitlementDaysForEmployeeYear } from '../utils/auto-credit-entitlement';
+import { leaveBalanceService } from './leave-balance.service';
 
 export class AttendanceService {
   private static readonly DEFAULT_TIMEZONE = 'Asia/Kolkata';
@@ -2089,12 +2090,23 @@ export class AttendanceService {
 
     const yearStart = new Date(year, 0, 1);
 
-    const [employee, components, leaveTypes, autoCreditSettings, leaveBalances, previousYearLeaveBalances, records, leaveRequests, ruleSettings] =
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, employeeCode: true, paygroupId: true, departmentId: true, dateOfJoining: true },
+    });
+    if (!employee) {
+      throw new AppError('Employee not found', 404);
+    }
+
+    // Keep calendar sidebar consistent with Leave Balance policy:
+    // if yearly balances are missing, initialize them lazily before monthly read.
+    await leaveBalanceService.getBalance({
+      employeeId,
+      year: String(year),
+    });
+
+    const [components, leaveTypes, autoCreditSettings, leaveBalances, previousYearLeaveBalances, records, leaveRequests, ruleSettings] =
       await Promise.all([
-        prisma.employee.findUnique({
-          where: { id: employeeId },
-          select: { id: true, employeeCode: true, paygroupId: true, departmentId: true, dateOfJoining: true },
-        }),
       prisma.attendanceComponent.findMany({
         where: { organizationId },
         orderBy: [{ eventCategory: 'asc' }, { priority: 'asc' }, { shortName: 'asc' }],
@@ -2200,11 +2212,9 @@ export class AttendanceService {
         },
       }),
     ]);
-
-    if (!employee) {
-      throw new AppError('Employee not found', 404);
-    }
-    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId);
+    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId, {
+      effectiveDate: monthStart,
+    });
 
     const entitlementFromAutoCreditByLeaveTypeId = new Map<string, number>(); // only settings that match employee's department & paygroup
 

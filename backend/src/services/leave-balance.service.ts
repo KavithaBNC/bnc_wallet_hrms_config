@@ -255,57 +255,58 @@ export class LeaveBalanceService {
       where.leaveTypeId = leaveTypeId;
     }
 
-    const balances = await prisma.employeeLeaveBalance.findMany({
-      where,
-      include: {
-        leaveType: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-            isPaid: true,
-            defaultDaysPerYear: true,
-            maxCarryForward: true,
-            accrualType: true,
+    const [leaveTypes, autoCreditSettings, leaveTypeIdsWithBalance, leaveTypeIdsWithAutoCreditAllowed, existingYearBalances] =
+      await Promise.all([
+        prisma.leaveType.findMany({
+          where: { organizationId: employee.organizationId, isActive: true },
+        }),
+        prisma.autoCreditSetting.findMany({
+          where: {
+            organizationId: employee.organizationId,
+            effectiveDate: { lte: new Date(currentYear, 11, 31) },
+            OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(currentYear, 0, 1) } }],
           },
-        },
-      },
-      orderBy: {
-        leaveType: {
-          name: 'asc',
-        },
-      },
-    });
-
-    if (balances.length === 0) {
-      const [leaveTypes, autoCreditSettings, leaveTypeIdsWithBalance, leaveTypeIdsWithAutoCreditAllowed] =
-        await Promise.all([
-          prisma.leaveType.findMany({
-            where: { organizationId: employee.organizationId, isActive: true },
-          }),
-          prisma.autoCreditSetting.findMany({
-            where: {
-              organizationId: employee.organizationId,
-              effectiveDate: { lte: new Date(currentYear, 11, 31) },
-              OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(currentYear, 0, 1) } }],
+          orderBy: [{ priority: 'asc' }, { effectiveDate: 'desc' }, { createdAt: 'desc' }],
+          select: {
+            eventType: true,
+            displayName: true,
+            paygroupId: true,
+            departmentId: true,
+            associate: true,
+            autoCreditRule: true,
+          },
+        }),
+        getLeaveTypeIdsWithBalance(employee.organizationId),
+        getLeaveTypeIdsWithAutoCreditAllowed(employee.organizationId),
+        prisma.employeeLeaveBalance.findMany({
+          where: { employeeId, year: currentYear },
+          include: {
+            leaveType: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                isPaid: true,
+                defaultDaysPerYear: true,
+                maxCarryForward: true,
+                accrualType: true,
+              },
             },
-            orderBy: [{ priority: 'asc' }, { effectiveDate: 'desc' }, { createdAt: 'desc' }],
-            select: {
-              eventType: true,
-              displayName: true,
-              paygroupId: true,
-              departmentId: true,
-              associate: true,
-              autoCreditRule: true,
+          },
+          orderBy: {
+            leaveType: {
+              name: 'asc',
             },
-          }),
-          getLeaveTypeIdsWithBalance(employee.organizationId),
-          getLeaveTypeIdsWithAutoCreditAllowed(employee.organizationId),
-        ]);
+          },
+        }),
+      ]);
 
-      // Only maintain balance for leave types whose event config has hasBalance = true
-      const leaveTypesToCreateBalance = leaveTypes.filter((lt) => leaveTypeIdsWithBalance.has(lt.id));
+    // Maintain balance only for leave types mapped to Leave components with hasBalance = true.
+    const leaveTypesToCreateBalance = leaveTypes.filter((lt) => leaveTypeIdsWithBalance.has(lt.id));
+    const existingLeaveTypeIds = new Set(existingYearBalances.map((b) => b.leaveTypeId));
+    const missingLeaveTypes = leaveTypesToCreateBalance.filter((lt) => !existingLeaveTypeIds.has(lt.id));
 
+    if (missingLeaveTypes.length > 0) {
       const applicableSettings = autoCreditSettings.filter((s) =>
         isAutoCreditApplicableToEmployee(s, employee)
       );
@@ -321,9 +322,8 @@ export class LeaveBalanceService {
 
       // Only use auto credit entitlement for leave types whose event config has allowAutoCreditRule = true
       const entitlementByLeaveTypeId = new Map<string, number>();
-      for (const lt of leaveTypesToCreateBalance) {
+      for (const lt of missingLeaveTypes) {
         if (!leaveTypeIdsWithAutoCreditAllowed.has(lt.id)) {
-          // No auto credit for this type; use defaultDaysPerYear if any
           const defaultDays = lt.defaultDaysPerYear ? Number(lt.defaultDaysPerYear) : 0;
           entitlementByLeaveTypeId.set(lt.id, defaultDays);
           continue;
@@ -342,8 +342,8 @@ export class LeaveBalanceService {
         }
       }
 
-      const newBalances = await Promise.all(
-        leaveTypesToCreateBalance.map(async (leaveType) => {
+      await Promise.all(
+        missingLeaveTypes.map(async (leaveType) => {
           const entitlement = entitlementByLeaveTypeId.get(leaveType.id);
           const hasAutoCreditInOrg = leaveTypeIdsWithAutoCreditInOrg.has(leaveType.id);
           const forceZeroOpening = this.isForcedZeroOpeningLeaveType(leaveType);
@@ -380,7 +380,7 @@ export class LeaveBalanceService {
             : 0;
           const available = Math.max(0, days + carryForward);
           const dec = (n: number) => new Prisma.Decimal(n);
-          return await prisma.employeeLeaveBalance.create({
+          await prisma.employeeLeaveBalance.create({
             data: {
               employeeId,
               leaveTypeId: leaveType.id,
@@ -390,29 +390,32 @@ export class LeaveBalanceService {
               carriedForward: dec(carryForward),
               available: dec(available),
             },
-            include: {
-              leaveType: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  isPaid: true,
-                  defaultDaysPerYear: true,
-                  maxCarryForward: true,
-                  accrualType: true,
-                },
-              },
-            },
           });
         })
       );
-
-      return {
-        year: currentYear,
-        employeeId,
-        balances: newBalances,
-      };
     }
+
+    const balances = await prisma.employeeLeaveBalance.findMany({
+      where,
+      include: {
+        leaveType: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            isPaid: true,
+            defaultDaysPerYear: true,
+            maxCarryForward: true,
+            accrualType: true,
+          },
+        },
+      },
+      orderBy: {
+        leaveType: {
+          name: 'asc',
+        },
+      },
+    });
 
     const syncedBalances = await this.syncExistingAutoCreditBalances({
       employee,

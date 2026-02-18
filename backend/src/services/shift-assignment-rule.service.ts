@@ -462,8 +462,13 @@ export class ShiftAssignmentRuleService {
     for (const rule of rules) {
       if (!rule.shift) continue; // skip policy-only rules with no shift
       const employeeIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];
-      if (employeeIds.length > 0 && employeeIds.includes(employeeId)) {
-        return rule.shift;
+      if (employeeIds.length > 0) {
+        // Associate-specific rules are strict: if employeeIds is provided and employee
+        // is not listed, do not fallback to paygroup/department for the same rule.
+        if (employeeIds.includes(employeeId)) {
+          return rule.shift;
+        }
+        continue;
       }
       if (rule.paygroupId && rule.departmentId) {
         if (rule.paygroupId === employee.paygroupId && rule.departmentId === employee.departmentId) {

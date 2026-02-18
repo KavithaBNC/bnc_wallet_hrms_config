@@ -14,7 +14,7 @@ import { getEntitlementForEmployeeAndLeaveType } from '../utils/auto-credit-enti
 import { getAttendanceComponentForLeaveType } from '../utils/event-config';
 import {
   canPerformAttendanceEventAction,
-  resolveRightsAllocationForEmployee,
+  resolveRightsAllocationContextForEmployee,
 } from '../utils/rights-allocation';
 import { resolveWorkflowForEmployeeOrNull } from './workflow-resolution.service';
 import {
@@ -803,10 +803,15 @@ export class LeaveRequestService {
 
     // Event config: resolve AttendanceComponent for this leave type (by name/code)
     const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
-    const rightsAllocation = await resolveRightsAllocationForEmployee(
+    const rightsContext = await resolveRightsAllocationContextForEmployee(
       employeeId,
-      employee.organizationId
+      employee.organizationId,
+      { effectiveDate: startDate }
     );
+    if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
+      throw new AppError('You do not have permission to apply this event.', 403);
+    }
+    const rightsAllocation = rightsContext.rights;
     const canAddEvent = canPerformAttendanceEventAction(rightsAllocation, 'add', {
       eventId: component?.id,
       leaveTypeName: leaveType.name,
@@ -1696,10 +1701,15 @@ export class LeaveRequestService {
     ]);
     if (employee && leaveType) {
       const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
-      const rightsAllocation = await resolveRightsAllocationForEmployee(
+      const rightsContext = await resolveRightsAllocationContextForEmployee(
         employee.id,
-        employee.organizationId
+        employee.organizationId,
+        { effectiveDate: leaveRequest.startDate }
       );
+      if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
+        throw new AppError('You do not have permission to cancel this event.', 403);
+      }
+      const rightsAllocation = rightsContext.rights;
       const canCancelEvent = canPerformAttendanceEventAction(rightsAllocation, 'cancel', {
         eventId: component?.id,
         leaveTypeName: leaveType.name,

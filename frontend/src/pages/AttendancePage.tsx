@@ -407,12 +407,13 @@ interface AttendanceCalendarViewProps {
   onMonthChange: (date: Date) => void;
   employeeId?: string;
   organizationId?: string;
+  hideEmployeeName?: boolean;
   lateEarlyPolicy?: LateEarlyPolicy;
   approvedCompOffs?: CompOffRequestItem[];
   leaveRequests?: CalendarLeaveRequestItem[];
 }
 
-const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, lateEarlyPolicy = null, approvedCompOffs = [], leaveRequests = [] }: AttendanceCalendarViewProps) => {
+const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange, employeeId, organizationId, hideEmployeeName = false, lateEarlyPolicy = null, approvedCompOffs = [], leaveRequests = [] }: AttendanceCalendarViewProps) => {
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth]);
   const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth]);
   const daysInMonth = useMemo(
@@ -739,9 +740,11 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                         key={record.id}
                         className="text-xs space-y-1"
                       >
-                        <div className="font-medium text-gray-900 truncate">
-                          {record.employee.firstName} {record.employee.lastName}
-                        </div>
+                        {!hideEmployeeName && (
+                          <div className="font-medium text-gray-900 truncate">
+                            {record.employee.firstName} {record.employee.lastName}
+                          </div>
+                        )}
                         {/* First In and Last Out (or Currently In if still clocked in) */}
                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 font-semibold">
                           {firstIn && (
@@ -961,6 +964,11 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                         {record.workHours !== null && record.workHours !== undefined && (
                           <div className="text-gray-800 font-medium">
                             Total Net Work Time: {formatWorkHoursAsHHMM(Number(record.workHours))}
+                          </div>
+                        )}
+                        {Number(record.workHours ?? 0) >= 9 && (
+                          <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">
+                            Validation Completed
                           </div>
                         )}
                       </div>
@@ -2004,6 +2012,7 @@ const AttendancePage = () => {
                   onMonthChange={setCurrentMonth}
                   employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : (selectedEmployeeId || user?.employee?.id)}
                   organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
+                  hideEmployeeName={viewMode === 'my' || !canViewTeamAttendance}
                   lateEarlyPolicy={lateEarlyPolicy}
                   approvedCompOffs={approvedCompOffs}
                   leaveRequests={calendarLeaveRequests}
