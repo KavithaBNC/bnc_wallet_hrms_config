@@ -801,6 +801,70 @@ export class AttendanceController {
   }
 
   /**
+   * Get validation process calendar summary from stored results.
+   * GET /api/v1/attendance/validation-process/calendar-summary
+   */
+  async getValidationProcessCalendarSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, paygroupId, employeeId, fromDate, toDate } = req.query as {
+        organizationId: string;
+        paygroupId?: string | null;
+        employeeId?: string | null;
+        fromDate: string;
+        toDate: string;
+      };
+      if (!organizationId || !fromDate || !toDate) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'organizationId, fromDate, and toDate are required',
+        });
+      }
+      const result = await attendanceService.getValidationProcessCalendarSummary({
+        organizationId,
+        paygroupId: paygroupId ?? undefined,
+        employeeId: employeeId ?? undefined,
+        fromDate,
+        toDate,
+      });
+      return res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Run validation process: process attendance, store in validation_results, return aggregated.
+   * POST /api/v1/attendance/validation-process/run
+   */
+  async runValidationProcess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, paygroupId, employeeId, fromDate, toDate } = req.body as {
+        organizationId: string;
+        paygroupId?: string | null;
+        employeeId?: string | null;
+        fromDate: string;
+        toDate: string;
+      };
+      if (!organizationId || !fromDate || !toDate) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'organizationId, fromDate, and toDate are required',
+        });
+      }
+      const result = await attendanceService.runValidationProcess({
+        organizationId,
+        paygroupId: paygroupId ?? undefined,
+        employeeId: employeeId ?? undefined,
+        fromDate,
+        toDate,
+      });
+      return res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Bulk update shift assignments
    * POST /api/v1/attendance/shift-assignments/bulk
    */

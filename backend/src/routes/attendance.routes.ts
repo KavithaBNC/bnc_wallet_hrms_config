@@ -27,6 +27,8 @@ import {
   queryCompOffRequestDetailsSchema,
   approveCompOffRequestSchema,
   rejectCompOffRequestSchema,
+  queryValidationProcessCalendarSchema,
+  runValidationProcessSchema,
 } from '../utils/attendance.validation';
 
 const router = Router();
@@ -121,6 +123,30 @@ router.get(
   '/monthly-details',
   validateQuery(queryMonthlyDetailsSchema),
   attendanceController.getMonthlyDetails.bind(attendanceController)
+);
+
+/**
+ * @route   GET /api/v1/attendance/validation-process/calendar-summary
+ * @desc    Get validation process calendar summary from stored results (daily counts)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.get(
+  '/validation-process/calendar-summary',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validateQuery(queryValidationProcessCalendarSchema),
+  attendanceController.getValidationProcessCalendarSummary.bind(attendanceController)
+);
+
+/**
+ * @route   POST /api/v1/attendance/validation-process/run
+ * @desc    Run validation process: fetch employees, attendance, apply rules, store results, return aggregated
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/validation-process/run',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validate(runValidationProcessSchema),
+  attendanceController.runValidationProcess.bind(attendanceController)
 );
 
 /**

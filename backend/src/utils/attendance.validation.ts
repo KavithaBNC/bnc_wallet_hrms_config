@@ -167,6 +167,26 @@ export const queryMonthlyDetailsSchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
 });
 
+export const queryValidationProcessCalendarSchema = z
+  .object({
+    organizationId: z.string().uuid('Invalid organization ID'),
+    paygroupId: z.string().uuid().optional().nullable(),
+    employeeId: z.string().uuid().optional().nullable(),
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })
+  .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
+
+export const runValidationProcessSchema = z
+  .object({
+    organizationId: z.string().uuid('Invalid organization ID'),
+    paygroupId: z.string().uuid().optional().nullable(),
+    employeeId: z.string().uuid().optional().nullable(),
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })
+  .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
+
 // Types
 export type CheckInInput = z.infer<typeof checkInSchema>;
 export type QueryMonthlyDetailsInput = z.infer<typeof queryMonthlyDetailsSchema>;
@@ -183,3 +203,5 @@ export type CreateCompOffRequestInput = z.infer<typeof createCompOffRequestSchem
 export type QueryCompOffRequestsInput = z.infer<typeof queryCompOffRequestsSchema>;
 export type CreateCompOffConvertRequestInput = z.infer<typeof createCompOffConvertRequestSchema>;
 export type QueryCompOffRequestDetailsInput = z.infer<typeof queryCompOffRequestDetailsSchema>;
+export type QueryValidationProcessCalendarInput = z.infer<typeof queryValidationProcessCalendarSchema>;
+export type RunValidationProcessInput = z.infer<typeof runValidationProcessSchema>;

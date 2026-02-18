@@ -183,6 +183,7 @@ export default function ApplyEventPage() {
 
   const [loading, setLoading] = useState(true);
   const [selectedComponentId, setSelectedComponentId] = useState('');
+  const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [fromDuration, setFromDuration] = useState<DurationOption>('FULL_DAY');
@@ -191,7 +192,6 @@ export default function ApplyEventPage() {
   const [fromTime, setFromTime] = useState('');
   const [toTime, setToTime] = useState('');
   const [reason, setReason] = useState('');
-  const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
   const [ondutyHourlyEnabled, setOndutyHourlyEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -528,7 +528,7 @@ export default function ApplyEventPage() {
       : isOndutyType
         // Strict: Onduty must map only to Onduty/WFH leave type; never generic fallback like Comp Off.
         ? fromMapping || fromNameMatch || mappedOndutyFallback || ondutyFallback || leaveTypes[0]?.id
-        : fromMapping || fromNameMatch || (selectedLeaveTypeId || undefined) || leaveTypes[0]?.id;
+        : fromMapping || fromNameMatch;
 
     if (!leaveTypeIdForSubmit) {
       setError(
@@ -536,7 +536,7 @@ export default function ApplyEventPage() {
           ? 'Permission event is not mapped to a Leave Type. Please configure Event Mapping for Permission.'
           : isOndutyType
             ? 'On Duty type is not linked to an On Duty leave type. Map it in Event Configuration.'
-            : 'This event type is not linked to any leave type. Select Leave Type below or map it in Event Configuration.'
+            : 'This event type is not linked to any leave type. Map it in Event Configuration.'
       );
       return;
     }
@@ -709,7 +709,7 @@ export default function ApplyEventPage() {
             </div>
           </div>
 
-          {/* From Date, To Date, Reason, Leave Type – only after Type is selected */}
+          {/* From Date, To Date, Reason – only after Type is selected */}
           {typeSelected && (
             <>
               {!isPermissionType && !isOndutyType && leaveTypes.length > 0 && (
@@ -748,7 +748,6 @@ export default function ApplyEventPage() {
                   )}
                 </div>
               )}
-
               {isOndutyType && !isPermissionType && (
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-1">

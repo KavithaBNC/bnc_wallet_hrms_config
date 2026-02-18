@@ -90,7 +90,11 @@ export default function OrganizationsPage() {
       );
       setOrgDevices(devicesMap);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to fetch organizations');
+      const msg =
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to fetch organizations';
+      setError(msg);
       console.error('Error fetching organizations:', err);
     } finally {
       setLoading(false);
@@ -252,8 +256,25 @@ export default function OrganizationsPage() {
           </button>
         </div>
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-800 text-sm">{error}</p>
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-red-800 text-sm">{error}</p>
+              {error.toLowerCase().includes('connect') && (
+                <p className="text-red-700 text-xs mt-2">
+                  Tip: Run <code className="bg-red-100 px-1 rounded">npm run dev</code> from project root to start both backend and frontend.
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                fetchOrganizations();
+              }}
+              className="shrink-0 px-4 py-2 bg-red-100 hover:bg-red-200 text-red-800 rounded-lg text-sm font-medium"
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -812,6 +833,11 @@ export default function OrganizationsPage() {
         <p className="text-sm text-gray-600 mb-4">
           Select which modules this organization can use. Org Admin will only see and use these modules.
         </p>
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-800 text-sm">{error}</p>
+          </div>
+        )}
         {loadingModules ? (
           <p className="text-gray-500">Loading modules...</p>
         ) : (

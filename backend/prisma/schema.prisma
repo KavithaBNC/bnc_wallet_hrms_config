@@ -1,3 +1,4 @@
+
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
@@ -66,7 +67,9 @@ model Organization {
   transferPromotionEntries     TransferPromotionEntry[]
   transferPromotions           TransferPromotion[]
   users                        User[]
+  validationProcessRules       ValidationProcessRule[]
   workflowMappings             WorkflowMapping[]
+  attendanceValidationResults  AttendanceValidationResult[]
 
   @@map("organizations")
 }
@@ -424,6 +427,7 @@ model Employee {
   payslips                     Payslip[]
   transferPromotionEntries     TransferPromotionEntry[]
   transferPromotions           TransferPromotion[]
+  attendanceValidationResults  AttendanceValidationResult[]
 
   @@map("employees")
 }
@@ -523,6 +527,31 @@ model AttendanceRecord {
   @@map("attendance_records")
 }
 
+// Per-employee-per-day validation run results (late, early going, absent, etc.). Aggregated day-wise for calendar.
+model AttendanceValidationResult {
+  id                 String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId     String       @map("organization_id") @db.Uuid
+  employeeId         String       @map("employee_id") @db.Uuid
+  date               DateTime     @db.Date
+  isCompleted        Boolean      @map("is_completed")
+  isApprovalPending   Boolean      @map("is_approval_pending")
+  isLate             Boolean      @map("is_late")
+  isEarlyGoing       Boolean      @map("is_early_going")
+  isAbsent           Boolean      @map("is_absent")
+  isNoOutPunch       Boolean      @map("is_no_out_punch")
+  isShiftChange      Boolean      @map("is_shift_change")
+  isOvertime         Boolean      @map("is_overtime")
+  isShortfall        Boolean      @map("is_shortfall")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee           Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, employeeId, date])
+  @@index([organizationId, date])
+  @@map("attendance_validation_results")
+}
+
 model Shift {
   id                String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   organizationId    String                @map("organization_id") @db.Uuid
@@ -614,6 +643,7 @@ model AttendanceComponent {
   updatedAt                   DateTime     @updatedAt @map("updated_at")
   organization                Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   ruleSettings                RuleSetting[]
+  validationProcessActions    ValidationProcessAction[]
 
   @@map("attendance_components")
 }
@@ -1769,6 +1799,68 @@ enum InterviewRecommendation {
   STRONG_NO
 
   @@map("interview_recommendation")
+}
+
+// Validation Process Rule - for late/early punch correction flow (Apply Event, LOP, etc.)
+model ValidationProcessRule {
+  id               String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId   String                     @map("organization_id") @db.Uuid
+  displayName      String                     @map("display_name") @db.VarChar(255)
+  effectiveDate    DateTime                   @map("effective_date") @db.Date
+  priority         Int?
+  remarks          String?
+  autoCorrect      Boolean                    @default(false) @map("auto_correct")
+  correctAfterDays Decimal?                   @map("correct_after_days") @db.Decimal(5, 2)
+  primaryAction    Boolean                    @default(false) @map("primary_action")
+  hasLimit         Boolean                    @default(false) @map("has_limit")
+  validationGrouping String?                  @map("validation_grouping") @db.VarChar(50)
+  employeeIds      Json?                      @map("employee_ids")
+  shiftIds         Json?                      @map("shift_ids")
+  paygroupIds      Json?                      @map("paygroup_ids")
+  departmentIds    Json?                      @map("department_ids")
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  limits           ValidationRuleLimit[]
+  actions          ValidationProcessAction[]
+
+  @@map("validation_process_rules")
+}
+
+model ValidationRuleLimit {
+  id                    String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  validationProcessRuleId String             @map("validation_process_rule_id") @db.Uuid
+  periodicity           String               @db.VarChar(20)
+  maxMinutes            Int?                 @map("max_minutes")
+  count                 Int?
+  applyAfterEveryCount  Boolean              @default(false) @map("apply_after_every_count")
+  deductPriority        String?              @map("deduct_priority") @db.VarChar(50)
+  sortOrder             Int                  @default(0) @map("sort_order")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  rule                  ValidationProcessRule @relation(fields: [validationProcessRuleId], references: [id], onDelete: Cascade)
+
+  @@map("validation_rule_limits")
+}
+
+model ValidationProcessAction {
+  id                    String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  validationProcessRuleId String             @map("validation_process_rule_id") @db.Uuid
+  name                  String               @db.VarChar(100)
+  sortOrder             Int                  @default(0) @map("sort_order")
+  condition             String               @db.VarChar(50)
+  correctionMethod      String               @map("correction_method") @db.VarChar(50)
+  attendanceComponentId String?              @map("attendance_component_id") @db.Uuid
+  autoApply             String               @map("auto_apply") @db.VarChar(10)
+  dayType               String               @map("day_type") @db.VarChar(20)
+  days                  String               @db.VarChar(20)
+  daysValue             Decimal?             @map("days_value") @db.Decimal(5, 2)
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  rule                  ValidationProcessRule @relation(fields: [validationProcessRuleId], references: [id], onDelete: Cascade)
+  attendanceComponent   AttendanceComponent? @relation(fields: [attendanceComponentId], references: [id], onDelete: SetNull)
+
+  @@map("validation_process_actions")
 }
 
 enum OfferStatus {

@@ -143,6 +143,7 @@ import ruleSettingRoutes from './routes/rule-setting.routes';
 import autoCreditSettingRoutes from './routes/auto-credit-setting.routes';
 import monthlyAttendanceSummaryRoutes from './routes/monthly-attendance-summary.routes';
 import configRoutes from './routes/config.routes';
+import validationProcessRuleRoutes from './routes/validation-process-rule.routes';
 
 // Mount routes (iclock at root so device can hit /iclock/cdata)
 app.use('/iclock', iclockRoutes);
@@ -171,6 +172,7 @@ app.use('/api/v1/rule-settings', ruleSettingRoutes);
 app.use('/api/v1/auto-credit-settings', autoCreditSettingRoutes);
 app.use('/api/v1/monthly-attendance-summary', monthlyAttendanceSummaryRoutes);
 app.use('/api/v1/config', configRoutes);
+app.use('/api/v1/validation-process-rules', validationProcessRuleRoutes);
 app.use('/api/v1/permissions', permissionRoutes);
 app.use('/api/v1/payroll', payrollRoutes);
 app.use('/api/v1/employee-separations', employeeSeparationRoutes);

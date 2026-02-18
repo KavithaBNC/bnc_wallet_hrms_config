@@ -105,14 +105,22 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user, isAuthenticated: true, isLoading: false, error: null });
     } catch (error: any) {
       console.error('Error loading user:', error);
+      const status = error.response?.status;
       const errorMessage = error.response?.data?.message || error.message || 'Failed to load user data';
-      set({ 
-        user: null, 
-        isAuthenticated: false, 
-        isLoading: false,
-        error: errorMessage 
-      });
-      throw error; // Re-throw so calling code can handle it
+      // Only clear auth on 401 (token invalid/expired). For other errors (network, 500, etc.) keep user so they stay logged in.
+      if (status === 401) {
+        set({
+          user: null,
+          isAuthenticated: false,
+          isLoading: false,
+          error: errorMessage,
+        });
+      } else {
+        // Keep existing user from storage so login is not lost (e.g. SUPER_ADMIN with no employee, or transient API errors)
+        const storedUser = authService.getStoredUser();
+        set({ user: storedUser, isAuthenticated: !!storedUser, isLoading: false, error: null });
+      }
+      throw error;
     }
   },
 

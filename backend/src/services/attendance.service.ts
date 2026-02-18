@@ -4,6 +4,7 @@ import { AttendanceStatus, CheckInMethod, LeaveStatus, Prisma } from '@prisma/cl
 import { prisma } from '../utils/prisma';
 import { shiftService } from './shift.service';
 import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
+import { ValidationProcessRuleService } from './validation-process-rule.service';
 import {
   CheckInInput,
   CheckOutInput,
@@ -23,6 +24,8 @@ import {
 } from '../utils/rights-allocation';
 import { readEntitlementDaysForEmployeeYear } from '../utils/auto-credit-entitlement';
 import { leaveBalanceService } from './leave-balance.service';
+
+const validationProcessRuleService = new ValidationProcessRuleService();
 
 export class AttendanceService {
   private static readonly DEFAULT_TIMEZONE = 'Asia/Kolkata';
@@ -507,6 +510,63 @@ export class AttendanceService {
             deviationReason: computed.deviationReason ?? null,
           },
         });
+
+        // -------------------------------------------------------------------
+        // Validation Process Rule – Late handling (Phase 4 – read-only)
+        // -------------------------------------------------------------------
+        // NOTE: This block is intentionally conservative:
+        // - It NEVER throws (all helpers fail soft)
+        // - It does not change attendance or leave data yet
+        // - It only logs which rule/action would be applied
+        try {
+          if (
+            computed.isLate &&
+            computed.lateMinutes != null &&
+            computed.lateMinutes > 0 &&
+            status === AttendanceStatus.PRESENT
+          ) {
+            const applicableRule = await validationProcessRuleService.getApplicableRuleForLate({
+              organizationId: employee.organizationId,
+              employeeId: employee.id,
+              paygroupId: employee.paygroupId,
+              departmentId: employee.departmentId,
+              shiftId: effectiveShiftId ?? null,
+              attendanceDate: dayStart,
+            });
+
+            if (applicableRule) {
+              const withinLimits = await validationProcessRuleService.isLateWithinLimits({
+                rule: applicableRule as any,
+                employeeId: employee.id,
+                attendanceDate: dayStart,
+                lateMinutesToday: computed.lateMinutes!,
+              });
+
+              if (withinLimits) {
+                const action =
+                  (applicableRule.actions || []).find((a: any) => a.condition === 'ALL') ||
+                  (applicableRule.actions || [])[0];
+
+                if (action) {
+                  // For now, just log the decision; Phase 5 will actually create
+                  // tasks / apply events based on autoApply.
+                  // eslint-disable-next-line no-console
+                  console.log('[ValidationProcessRule] Late detected', {
+                    employeeId,
+                    date: dayStart.toISOString().slice(0, 10),
+                    lateMinutes: computed.lateMinutes,
+                    ruleId: applicableRule.id,
+                    actionName: action.name,
+                    correctionMethod: action.correctionMethod,
+                    autoApply: action.autoApply,
+                  });
+                }
+              }
+            }
+          }
+        } catch {
+          // Swallow any unexpected error to avoid impacting attendance flow
+        }
       } else {
         // Only check-in so far ("Currently In"): compute and persist late; use permission end as effective shift start when applicable
         let isLate = false;
@@ -2755,6 +2815,413 @@ export class AttendanceService {
       earlyGoing: { count: earlyGoingCount, hours: toHHMM(earlyGoingMinutes) },
     };
   }
+
+  /**
+   * Get Validation Process calendar summary from stored results (attendance_validation_results).
+   * Returns aggregated day-wise counts for the given filters. Call after runValidationProcess or to show last run.
+   */
+  async getValidationProcessCalendarSummary(params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ daily: Record<string, ValidationDaySummary> }> {
+    const { organizationId, paygroupId, employeeId, fromDate, toDate } = params;
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      organizationId,
+      deletedAt: null,
+      employeeStatus: 'ACTIVE',
+    };
+    if (employeeId) {
+      employeeWhere.id = employeeId;
+    } else if (paygroupId) {
+      employeeWhere.paygroupId = paygroupId;
+    }
+    const employees = await prisma.employee.findMany({
+      where: employeeWhere,
+      select: { id: true },
+    });
+    const employeeIds = employees.map((e) => e.id);
+    const daily = await this.getValidationProcessAggregatedFromStore({
+      organizationId,
+      employeeIds,
+      fromDate,
+      toDate,
+    });
+    return { daily };
+  }
+
+  /**
+   * Run validation process: fetch employees by paygroup/associate, fetch attendance + regularizations,
+   * apply validation rules per employee per date, store in attendance_validation_results, then aggregate day-wise and return.
+   * Called when user clicks Process button.
+   */
+  async runValidationProcess(params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ daily: Record<string, ValidationDaySummary> }> {
+    const { organizationId, paygroupId, employeeId, fromDate, toDate } = params;
+    const from = new Date(fromDate + 'T00:00:00.000Z');
+    const to = new Date(toDate + 'T23:59:59.999Z');
+
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      organizationId,
+      deletedAt: null,
+      employeeStatus: 'ACTIVE',
+    };
+    if (employeeId) {
+      employeeWhere.id = employeeId;
+    } else if (paygroupId) {
+      employeeWhere.paygroupId = paygroupId;
+    }
+
+    const employees = await prisma.employee.findMany({
+      where: employeeWhere,
+      select: { id: true, shiftId: true },
+    });
+    const employeeIds = employees.map((e) => e.id);
+    const employeeShiftMap = new Map(employees.map((e) => [e.id, e.shiftId]));
+
+    if (employeeIds.length === 0) {
+      const daily: Record<string, ValidationDaySummary> = {};
+      for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+        daily[this.toDateKey(d)] = this.emptyValidationDaySummary();
+      }
+      return { daily };
+    }
+
+    const [records, pendingRegularizations] = await Promise.all([
+      prisma.attendanceRecord.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          date: { gte: from, lte: to },
+        },
+        select: {
+          id: true,
+          employeeId: true,
+          date: true,
+          status: true,
+          checkIn: true,
+          checkOut: true,
+          breakHours: true,
+          isLate: true,
+          isEarly: true,
+          isDeviation: true,
+          lateMinutes: true,
+          earlyMinutes: true,
+          otMinutes: true,
+          overtimeHours: true,
+          shiftId: true,
+          shift: {
+            select: { startTime: true, endTime: true, breakDuration: true },
+          },
+        },
+      }),
+      prisma.attendanceRegularization.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          status: 'PENDING',
+          date: { gte: from, lte: to },
+        },
+        select: { employeeId: true, date: true },
+      }),
+    ]);
+
+    const pendingSet = new Set(
+      pendingRegularizations.map((r) => `${r.employeeId}-${this.toDateKey(r.date)}`)
+    );
+
+    const logPrefix = '[ValidationProcess]';
+    console.log(`${logPrefix} run: fromDate=${fromDate} toDate=${toDate} employeeIds=${employeeIds.length} records=${records.length}`);
+    const recordDateKeys = [...new Set(records.map((r) => this.toDateKey(r.date)))].sort();
+    console.log(`${logPrefix} record dates in range: ${recordDateKeys.join(', ')}`);
+
+    const rows: Prisma.AttendanceValidationResultCreateManyInput[] = [];
+    for (const r of records) {
+      const dateKey = this.toDateKey(r.date);
+      let row: Prisma.AttendanceValidationResultCreateManyInput;
+      try {
+        const hasPendingReg = pendingSet.has(`${r.employeeId}-${dateKey}`);
+        const status = (r.status || '') as AttendanceStatus;
+        const hasCheckIn = !!r.checkIn;
+        const hasCheckOut = !!r.checkOut;
+        const breakHours = r.breakHours != null ? Number(r.breakHours) : 0;
+        const defaultShiftId = employeeShiftMap.get(r.employeeId) ?? null;
+        const recordShiftId = r.shiftId ?? null;
+        const isShiftChange =
+          defaultShiftId != null && recordShiftId != null && defaultShiftId !== recordShiftId;
+        const isNoOutPunch = status === AttendanceStatus.PRESENT && hasCheckIn && !hasCheckOut;
+        const isAbsent = status === AttendanceStatus.ABSENT;
+        const otMinutes = Number(r.otMinutes ?? 0);
+        const otHours = Number(r.overtimeHours ?? 0);
+        const hasOvertime = otMinutes > 0 || otHours > 0;
+
+        let isLate = r.isLate === true;
+        let isEarly = r.isEarly === true;
+        let isShortfall = r.isDeviation === true;
+        let policyFound = false;
+
+        if (
+          status === AttendanceStatus.PRESENT &&
+          hasCheckIn &&
+          hasCheckOut &&
+          r.checkIn &&
+          r.checkOut
+        ) {
+          const shiftIdForPolicy = recordShiftId ?? defaultShiftId;
+          let shiftForCompute = (r as { shift?: { startTime: string | null; endTime: string | null; breakDuration?: number | null } | null }).shift ?? null;
+          if (shiftIdForPolicy && !shiftForCompute) {
+            const shiftRow = await prisma.shift.findUnique({
+              where: { id: shiftIdForPolicy },
+              select: { startTime: true, endTime: true, breakDuration: true },
+            });
+            shiftForCompute = shiftRow;
+          }
+          if (shiftIdForPolicy && shiftForCompute?.startTime != null && shiftForCompute?.endTime != null) {
+            const shiftStartTime = shiftForCompute.startTime as string;
+            const shiftEndTime = shiftForCompute.endTime as string;
+            try {
+              const policyRules = await shiftAssignmentRuleService.getApplicablePolicyRules(
+                shiftIdForPolicy,
+                r.employeeId,
+                new Date(r.date),
+                organizationId
+              );
+              policyFound = policyRules != null;
+              const dayStart = new Date(r.date);
+              dayStart.setUTCHours(0, 0, 0, 0);
+              const permissionEnd = await this.getApprovedPermissionEndForDay(r.employeeId, dayStart);
+              const computed = await this.computePolicyFieldsForDay(
+                new Date(r.checkIn),
+                new Date(r.checkOut),
+                breakHours,
+                {
+                  startTime: shiftForCompute.startTime,
+                  endTime: shiftForCompute.endTime,
+                  breakDuration: shiftForCompute.breakDuration ?? null,
+                },
+                policyRules,
+                new Date(r.date),
+                status,
+                undefined,
+                permissionEnd
+              );
+              isLate = computed.isLate;
+              isEarly = computed.isEarly;
+              isShortfall = computed.isDeviation;
+
+              if (!policyFound && (isLate || isEarly || computed.isDeviation)) {
+                console.log(`${logPrefix} policy null but compute returned flags date=${dateKey} (will apply shift-only fallback)`);
+              }
+
+              if (!policyFound) {
+                const checkInDate = new Date(r.checkIn);
+                const checkOutDate = new Date(r.checkOut);
+                const dayStartLocal = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate(), 0, 0, 0, 0);
+                const [startH, startM] = shiftStartTime.split(':').map(Number);
+                const [endH, endM] = shiftEndTime.split(':').map(Number);
+                const shiftStart = new Date(dayStartLocal.getTime());
+                shiftStart.setHours(startH, startM || 0, 0, 0);
+                const shiftEnd = new Date(dayStartLocal.getTime());
+                shiftEnd.setHours(endH, endM || 0, 0, 0);
+                if (checkInDate.getTime() > shiftStart.getTime()) isLate = true;
+                if (checkOutDate.getTime() < shiftEnd.getTime()) isEarly = true;
+                if (isLate || isEarly) {
+                  isShortfall = isShortfall || isLate || isEarly;
+                }
+              }
+              console.log(`${logPrefix} BEFORE INSERT date=${dateKey} shiftStart=${shiftStartTime} shiftEnd=${shiftEndTime} policyFound=${policyFound} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
+            } catch (err) {
+              console.warn(`${logPrefix} compute failed employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} error=${err instanceof Error ? err.message : String(err)}`);
+              const checkInDate = new Date(r.checkIn);
+              const checkOutDate = new Date(r.checkOut);
+              const dayStartLocal = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate(), 0, 0, 0, 0);
+              const [startH, startM] = (shiftForCompute!.startTime as string).split(':').map(Number);
+              const [endH, endM] = (shiftForCompute!.endTime as string).split(':').map(Number);
+              const shiftStart = new Date(dayStartLocal.getTime());
+              shiftStart.setHours(startH, startM || 0, 0, 0);
+              const shiftEnd = new Date(dayStartLocal.getTime());
+              shiftEnd.setHours(endH, endM || 0, 0, 0);
+              isLate = checkInDate.getTime() > shiftStart.getTime();
+              isEarly = checkOutDate.getTime() < shiftEnd.getTime();
+              if (isLate || isEarly) isShortfall = true;
+              console.log(`${logPrefix} AFTER FALLBACK date=${dateKey} shiftStart=${shiftForCompute!.startTime} shiftEnd=${shiftForCompute!.endTime} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
+            }
+          } else {
+            console.log(`${logPrefix} skip compute employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} shiftForCompute=${!!shiftForCompute} startTime=${!!shiftForCompute?.startTime} endTime=${!!shiftForCompute?.endTime}`);
+          }
+        }
+
+        const isCompleted =
+          status === AttendanceStatus.PRESENT &&
+          hasCheckIn &&
+          hasCheckOut &&
+          !hasPendingReg &&
+          !isLate &&
+          !isEarly &&
+          !isShortfall;
+
+        row = {
+          organizationId,
+          employeeId: r.employeeId,
+          date: new Date(dateKey + 'T00:00:00.000Z'),
+          isCompleted,
+          isApprovalPending: hasPendingReg,
+          isLate,
+          isEarlyGoing: isEarly,
+          isAbsent,
+          isNoOutPunch,
+          isShiftChange,
+          isOvertime: hasOvertime,
+          isShortfall,
+        };
+      } catch (err) {
+        console.error(`${logPrefix} record failed employeeId=${r.employeeId} date=${dateKey} error=${err instanceof Error ? err.message : String(err)}`, err);
+        const hasPendingReg = pendingSet.has(`${r.employeeId}-${dateKey}`);
+        const status = (r.status || '') as AttendanceStatus;
+        const hasCheckIn = !!r.checkIn;
+        const hasCheckOut = !!r.checkOut;
+        const isNoOutPunch = status === AttendanceStatus.PRESENT && hasCheckIn && !hasCheckOut;
+        const isAbsent = status === AttendanceStatus.ABSENT;
+        const otMinutes = Number(r.otMinutes ?? 0);
+        const otHours = Number(r.overtimeHours ?? 0);
+        const hasOvertime = otMinutes > 0 || otHours > 0;
+        row = {
+          organizationId,
+          employeeId: r.employeeId,
+          date: new Date(dateKey + 'T00:00:00.000Z'),
+          isCompleted: false,
+          isApprovalPending: hasPendingReg,
+          isLate: r.isLate === true,
+          isEarlyGoing: r.isEarly === true,
+          isAbsent,
+          isNoOutPunch,
+          isShiftChange: false,
+          isOvertime: hasOvertime,
+          isShortfall: r.isDeviation === true,
+        };
+      }
+      rows.push(row);
+    }
+
+    const rowDateKeys = [...new Set(rows.map((r) => this.toDateKey(r.date)))].sort();
+    console.log(`${logPrefix} before insert: rows=${rows.length} dates=${rowDateKeys.join(', ')}`);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.attendanceValidationResult.deleteMany({
+        where: {
+          organizationId,
+          employeeId: { in: employeeIds },
+          date: { gte: from, lte: to },
+        },
+      });
+      if (rows.length > 0) {
+        await tx.attendanceValidationResult.createMany({ data: rows });
+      }
+    });
+
+    const daily = await this.getValidationProcessAggregatedFromStore({
+      organizationId,
+      employeeIds,
+      fromDate,
+      toDate,
+    });
+    return { daily };
+  }
+
+  /**
+   * Read stored validation results for given employees and date range, aggregate by date. Used after run and for GET summary.
+   */
+  async getValidationProcessAggregatedFromStore(params: {
+    organizationId: string;
+    employeeIds: string[];
+    fromDate: string;
+    toDate: string;
+  }): Promise<Record<string, ValidationDaySummary>> {
+    const { organizationId, employeeIds, fromDate, toDate } = params;
+    const from = new Date(fromDate + 'T00:00:00.000Z');
+    const to = new Date(toDate + 'T23:59:59.999Z');
+
+    if (employeeIds.length === 0) {
+      const daily: Record<string, ValidationDaySummary> = {};
+      for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+        daily[this.toDateKey(d)] = this.emptyValidationDaySummary();
+      }
+      return daily;
+    }
+
+    const stored = await prisma.attendanceValidationResult.findMany({
+      where: {
+        organizationId,
+        employeeId: { in: employeeIds },
+        date: { gte: from, lte: to },
+      },
+      select: {
+        date: true,
+        isCompleted: true,
+        isApprovalPending: true,
+        isLate: true,
+        isEarlyGoing: true,
+        isAbsent: true,
+        isNoOutPunch: true,
+        isShiftChange: true,
+        isOvertime: true,
+        isShortfall: true,
+      },
+    });
+
+    const daily: Record<string, ValidationDaySummary> = {};
+    const ensureDay = (dateKey: string) => {
+      if (!daily[dateKey]) daily[dateKey] = this.emptyValidationDaySummary();
+    };
+    for (const row of stored) {
+      const dateKey = this.toDateKey(row.date);
+      ensureDay(dateKey);
+      if (row.isCompleted) daily[dateKey].completed += 1;
+      if (row.isApprovalPending) daily[dateKey].approvalPending += 1;
+      if (row.isLate) daily[dateKey].late += 1;
+      if (row.isEarlyGoing) daily[dateKey].earlyGoing += 1;
+      if (row.isAbsent) daily[dateKey].absent += 1;
+      if (row.isNoOutPunch) daily[dateKey].noOutPunch += 1;
+      if (row.isShiftChange) daily[dateKey].shiftChange += 1;
+      if (row.isOvertime) daily[dateKey].overtime += 1;
+      if (row.isShortfall) daily[dateKey].shortfall += 1;
+    }
+    for (let d = new Date(from); d <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+      ensureDay(this.toDateKey(d));
+    }
+    return daily;
+  }
+
+  private emptyValidationDaySummary(): ValidationDaySummary {
+    return {
+      completed: 0,
+      approvalPending: 0,
+      late: 0,
+      earlyGoing: 0,
+      noOutPunch: 0,
+      shiftChange: 0,
+      absent: 0,
+      shortfall: 0,
+      overtime: 0,
+    };
+  }
 }
+
+export type ValidationDaySummary = {
+  completed: number;
+  approvalPending: number;
+  late: number;
+  earlyGoing: number;
+  noOutPunch: number;
+  shiftChange: number;
+  absent: number;
+  shortfall: number;
+  overtime: number;
+};
 
 export const attendanceService = new AttendanceService();

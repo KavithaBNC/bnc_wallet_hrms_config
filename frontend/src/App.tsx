@@ -13,6 +13,12 @@ import DepartmentsPage from './pages/DepartmentsPage';
 import EmployeesPage from './pages/EmployeesPage';
 import PositionsPage from './pages/PositionsPage';
 import EventConfigurationPage from './pages/EventConfigurationPage';
+import OthersConfigurationPage from './pages/OthersConfigurationPage';
+import ValidationProcessPage from './pages/ValidationProcessPage';
+import ValidationProcessRulePage from './pages/ValidationProcessRulePage';
+import ValidationProcessRuleFormPage from './pages/ValidationProcessRuleFormPage';
+import AttendanceLockPage from './pages/AttendanceLockPage';
+import PostToPayrollPage from './pages/PostToPayrollPage';
 import AttendanceComponentsPage from './pages/AttendanceComponentsPage';
 import AttendanceComponentFormPage from './pages/AttendanceComponentFormPage';
 import EncashmentCarryForwardPage from './pages/EncashmentCarryForwardPage';
@@ -168,6 +174,77 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <EventConfigurationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/hr-activities" element={<Navigate to="/hr-activities/validation-process" replace />} />
+          <Route
+            path="/hr-activities/validation-process"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ValidationProcessPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/others-configuration"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <OthersConfigurationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/others-configuration/validation-process-rule"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ValidationProcessRulePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/others-configuration/validation-process-rule/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ValidationProcessRuleFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/others-configuration/validation-process-rule/:id/edit"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ValidationProcessRuleFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/others-configuration/attendance-lock"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <AttendanceLockPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/others-configuration/post-to-payroll"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PostToPayrollPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

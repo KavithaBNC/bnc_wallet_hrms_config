@@ -101,6 +101,19 @@ export interface CompOffRequestDetails {
   }>;
 }
 
+/** Daily summary for Validation Process calendar (system-calculated counts). */
+export interface ValidationDaySummary {
+  completed: number;
+  approvalPending: number;
+  late: number;
+  earlyGoing: number;
+  noOutPunch: number;
+  shiftChange: number;
+  absent: number;
+  shortfall: number;
+  overtime: number;
+}
+
 export const attendanceService = {
   /**
    * Get attendance records for an employee in a date range (merged with shift rules).
@@ -229,5 +242,40 @@ export const attendanceService = {
       reason,
     });
     return data.data.request;
+  },
+
+  /**
+   * Get validation process calendar summary from stored results.
+   */
+  getValidationProcessCalendarSummary: async (params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ daily: Record<string, ValidationDaySummary> }> => {
+    const { data } = await api.get<{ data: { daily: Record<string, ValidationDaySummary> } }>(
+      '/attendance/validation-process/calendar-summary',
+      { params }
+    );
+    return data.data;
+  },
+
+  /**
+   * Run validation process: process attendance, store results, return aggregated day-wise counts.
+   * Call when user clicks Process button.
+   */
+  runValidationProcess: async (params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ daily: Record<string, ValidationDaySummary> }> => {
+    const { data } = await api.post<{ data: { daily: Record<string, ValidationDaySummary> } }>(
+      '/attendance/validation-process/run',
+      params
+    );
+    return data.data;
   },
 };

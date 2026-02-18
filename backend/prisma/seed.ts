@@ -353,6 +353,46 @@ async function main() {
   });
   console.log(`✅ Test employee created: ${testEmployee.email} (${testEmployee.employeeCode})`);
 
+  // 10. Create SaravananSara@test.hrms.com (EMPLOYEE)
+  console.log('👤 Creating SaravananSara user...');
+  const saravananUser = await prisma.user.create({
+    data: {
+      email: 'SaravananSara@test.hrms.com',
+      passwordHash,
+      role: UserRole.EMPLOYEE,
+      organizationId: organization.id,
+      isActive: true,
+      isEmailVerified: true,
+    },
+  });
+  const saravananEmployee = await prisma.employee.create({
+    data: {
+      organizationId: organization.id,
+      userId: saravananUser.id,
+      employeeCode: 'EMP006',
+      firstName: 'Saravanan',
+      lastName: 'Sara',
+      email: 'SaravananSara@test.hrms.com',
+      phone: '+1234567806',
+      dateOfJoining: new Date('2024-05-01'),
+      dateOfBirth: new Date('1993-01-10'),
+      gender: 'MALE',
+      maritalStatus: 'SINGLE',
+      departmentId: itDepartment.id,
+      positionId: developerPosition.id,
+      reportingManagerId: managerEmployee.id,
+      employeeStatus: 'ACTIVE',
+      address: {
+        street: '100 Dev Street',
+        city: 'Test City',
+        state: 'Test State',
+        country: 'USA',
+        postalCode: '12346',
+      },
+    },
+  });
+  console.log(`✅ SaravananSara created: ${saravananUser.email} (Employee: ${saravananEmployee.employeeCode})`);
+
   console.log('\n🎉 Seeding completed successfully!\n');
   console.log('═══════════════════════════════════════════════════════════');
   console.log('📋 TEST USER CREDENTIALS');
@@ -392,13 +432,21 @@ async function main() {
   console.log('   Reports To: IT Manager (EMP003)');
   console.log('   Access: Can view employees only\n');
 
+  console.log('6️⃣  EMPLOYEE (Saravanan Sara)');
+  console.log('   Email: SaravananSara@test.hrms.com');
+  console.log('   Role: EMPLOYEE');
+  console.log('   Employee Code: EMP006');
+  console.log('   Department: Information Technology');
+  console.log('   Reports To: IT Manager (EMP003)');
+  console.log('   Access: Can view employees only\n');
+
   console.log('═══════════════════════════════════════════════════════════');
   console.log('🏢 TEST DATA CREATED');
   console.log('═══════════════════════════════════════════════════════════');
   console.log(`Organization: ${organization.name} (${organization.id})`);
   console.log('Departments: HR, IT, Sales');
   console.log('Positions: HR Manager, IT Manager, Developer, Sales Rep');
-  console.log('Employees: 5 total (4 with user accounts, 1 without)\n');
+  console.log('Employees: 6 total (5 with user accounts, 1 without)\n');
 
   console.log('🚀 You can now test role-based access control!');
   console.log('═══════════════════════════════════════════════════════════\n');
