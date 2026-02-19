@@ -278,4 +278,40 @@ export const attendanceService = {
     );
     return data.data;
   },
+
+  getValidationLateDeductions: async (params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<LateDeductionResult> => {
+    const { data } = await api.post<{ data: LateDeductionResult }>(
+      '/attendance/validation-process/late-deductions',
+      params
+    );
+    return data.data;
+  },
 };
+
+export interface LateDeductionEmployee {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  lateCount: number;
+  totalLateMinutes: number;
+  totalLateHours: number;
+  actionName: string;
+  deductionType: string;
+  deductionDays: number;
+  permissionExhausted: boolean;
+}
+
+export interface LateDeductionResult {
+  employees: LateDeductionEmployee[];
+  totals: {
+    totalEmployees: number;
+    totalLateCount: number;
+    totalLateMinutes: number;
+  };
+}

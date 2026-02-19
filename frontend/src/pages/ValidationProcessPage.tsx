@@ -4,9 +4,9 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import paygroupService from '../services/paygroup.service';
 import employeeService from '../services/employee.service';
-import { attendanceService, type ValidationDaySummary } from '../services/attendance.service';
+import { attendanceService, type ValidationDaySummary, type LateDeductionEmployee, type LateDeductionResult } from '../services/attendance.service';
 
-type TabKey = 'process' | 'status';
+type TabKey = 'process' | 'status' | 'lateDeductions';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -120,6 +120,10 @@ export default function ValidationProcessPage() {
   const [selectedDateForModal, setSelectedDateForModal] = useState<string | null>(null);
   const hasUserTriggeredProcess = useRef(false);
 
+  const [lateDeductions, setLateDeductions] = useState<LateDeductionResult | null>(null);
+  const [loadingLateDeductions, setLoadingLateDeductions] = useState(false);
+  const [lateDeductionError, setLateDeductionError] = useState<string | null>(null);
+
   const runProcess = useCallback(async () => {
     if (!organizationId) return;
     setLoadingProcess(true);
@@ -155,6 +159,28 @@ export default function ValidationProcessPage() {
       setDailySummary(res.daily ?? {});
     } catch {
       setDailySummary({});
+    }
+  }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate]);
+
+  const fetchLateDeductions = useCallback(async () => {
+    if (!organizationId) return;
+    setLoadingLateDeductions(true);
+    setLateDeductionError(null);
+    try {
+      const res = await attendanceService.getValidationLateDeductions({
+        organizationId,
+        paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
+        employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
+        fromDate,
+        toDate,
+      });
+      setLateDeductions(res);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch late deductions';
+      setLateDeductionError(msg);
+      setLateDeductions(null);
+    } finally {
+      setLoadingLateDeductions(false);
     }
   }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate]);
 
@@ -407,6 +433,17 @@ export default function ValidationProcessPage() {
                     }`}
                   >
                     Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('lateDeductions')}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
+                      activeTab === 'lateDeductions'
+                        ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    Late Deductions
                   </button>
                 </div>
               </div>
@@ -763,6 +800,114 @@ export default function ValidationProcessPage() {
                   <p className="font-medium text-gray-900 mb-1">Status view</p>
                   <p className="text-sm">Pay Group: {selectedPaygroupLabel} · Associate: {selectedAssociateLabel}</p>
                   <p className="text-sm mt-2">Status content will be shown here.</p>
+                </div>
+              )}
+              {activeTab === 'lateDeductions' && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div className="flex flex-col min-w-[140px]">
+                      <label className="text-sm font-medium text-gray-500 mb-1.5">From Date</label>
+                      <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+                        className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <div className="flex flex-col min-w-[140px]">
+                      <label className="text-sm font-medium text-gray-500 mb-1.5">To Date</label>
+                      <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+                        className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <button type="button" onClick={fetchLateDeductions} disabled={loadingLateDeductions || !organizationId}
+                      className="inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                      {loadingLateDeductions ? 'Calculating...' : 'Calculate Late Deductions'}
+                    </button>
+                  </div>
+
+                  {lateDeductionError && (
+                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{lateDeductionError}</div>
+                  )}
+
+                  {lateDeductions && (
+                    <>
+                      <div className="flex flex-wrap gap-4">
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex flex-col">
+                          <span className="text-xs text-blue-600 font-medium">Employees with Late</span>
+                          <span className="text-2xl font-bold text-blue-900">{lateDeductions.totals.totalEmployees}</span>
+                        </div>
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 flex flex-col">
+                          <span className="text-xs text-orange-600 font-medium">Total Late Count</span>
+                          <span className="text-2xl font-bold text-orange-900">{lateDeductions.totals.totalLateCount}</span>
+                        </div>
+                        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex flex-col">
+                          <span className="text-xs text-red-600 font-medium">Total Late Hours</span>
+                          <span className="text-2xl font-bold text-red-900">{(lateDeductions.totals.totalLateMinutes / 60).toFixed(1)} hr</span>
+                        </div>
+                      </div>
+
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">#</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Employee Code</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Employee Name</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Late Count</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Total Late Hours</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Tier / Action</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Deduction Type</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Deduction Days</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Note</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 bg-white">
+                              {lateDeductions.employees.length === 0 ? (
+                                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No late records found for the selected period</td></tr>
+                              ) : (
+                                lateDeductions.employees.map((emp: LateDeductionEmployee, idx: number) => (
+                                  <tr key={emp.employeeId} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
+                                    <td className="px-4 py-3 text-gray-900 font-medium">{emp.employeeCode}</td>
+                                    <td className="px-4 py-3 text-gray-900">{emp.employeeName}</td>
+                                    <td className="px-4 py-3 text-right text-gray-700">{emp.lateCount}</td>
+                                    <td className="px-4 py-3 text-right font-medium text-gray-900">{emp.totalLateHours} hr</td>
+                                    <td className="px-4 py-3">
+                                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                        {emp.actionName || '—'}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                        emp.deductionType === 'Permission' ? 'bg-green-100 text-green-800' :
+                                        emp.deductionType === 'Leave' ? 'bg-yellow-100 text-yellow-800' :
+                                        emp.deductionType === 'LOP' ? 'bg-red-100 text-red-800' :
+                                        'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {emp.deductionType || '—'}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right font-semibold text-gray-900">{emp.deductionDays}</td>
+                                    <td className="px-4 py-3 text-xs text-gray-500">
+                                      {emp.permissionExhausted && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+                                          Permission exhausted → fallback
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {!lateDeductions && !loadingLateDeductions && !lateDeductionError && (
+                    <div className="text-center py-12 text-gray-500">
+                      <p className="text-lg font-medium mb-1">Select date range and click "Calculate Late Deductions"</p>
+                      <p className="text-sm">System will aggregate total late hours per employee and apply tier rules</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

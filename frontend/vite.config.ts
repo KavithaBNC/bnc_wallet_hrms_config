@@ -6,7 +6,7 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    include: ['react-webcam'],
+    include: ['react-webcam', 'xlsx'],
   },
   resolve: {
     alias: {

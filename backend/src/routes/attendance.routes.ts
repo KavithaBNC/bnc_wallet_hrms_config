@@ -150,6 +150,18 @@ router.post(
 );
 
 /**
+ * @route   POST /api/v1/attendance/validation-process/late-deductions
+ * @desc    Get aggregated late deductions per employee for a date range (total late hours → tier → deduction)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/validation-process/late-deductions',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validate(runValidationProcessSchema),
+  attendanceController.getValidationLateDeductions.bind(attendanceController)
+);
+
+/**
  * @route   GET /api/v1/attendance/summary/:employeeId/work-hours
  * @desc    Get total work hours for a day from IN/OUT punches (pairs IN with next OUT; last IN counts until now)
  * @access  Private (All authenticated users)

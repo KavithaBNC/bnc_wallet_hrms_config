@@ -865,6 +865,38 @@ export class AttendanceController {
   }
 
   /**
+   * Get aggregated late deductions per employee for a date range.
+   * POST /api/v1/attendance/validation-process/late-deductions
+   */
+  async getValidationLateDeductions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, paygroupId, employeeId, fromDate, toDate } = req.body as {
+        organizationId: string;
+        paygroupId?: string | null;
+        employeeId?: string | null;
+        fromDate: string;
+        toDate: string;
+      };
+      if (!organizationId || !fromDate || !toDate) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'organizationId, fromDate, and toDate are required',
+        });
+      }
+      const result = await attendanceService.getValidationLateDeductions({
+        organizationId,
+        paygroupId: paygroupId ?? undefined,
+        employeeId: employeeId ?? undefined,
+        fromDate,
+        toDate,
+      });
+      return res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Bulk update shift assignments
    * POST /api/v1/attendance/shift-assignments/bulk
    */

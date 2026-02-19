@@ -3197,6 +3197,22 @@ export class AttendanceService {
     return daily;
   }
 
+  /**
+   * When daysValue is set (Manual mode) → use the fixed value.
+   * When daysValue is null/undefined (Auto mode) → dynamic: totalMinutes / 480, rounded up to nearest 0.5 day.
+   *   8 hr (480 min) = 1 day, round unit = 0.5 day
+   *   e.g. 15 hr (900 min) → 900/480 = 1.875 → ceil to 2.0 days
+   *        24 hr (1440 min) → 1440/480 = 3.0 days
+   *        6 hr  (360 min) → 360/480 = 0.75 → ceil to 1.0 day
+   */
+  private computeDeductionDays(daysValue: unknown, totalLateMinutes: number): number {
+    const fixed = Number(daysValue ?? 0);
+    if (fixed > 0) return fixed;
+    if (totalLateMinutes <= 0) return 0;
+    const raw = totalLateMinutes / 480;
+    return Math.ceil(raw * 2) / 2;
+  }
+
   private emptyValidationDaySummary(): ValidationDaySummary {
     return {
       completed: 0,
@@ -3208,6 +3224,170 @@ export class AttendanceService {
       absent: 0,
       shortfall: 0,
       overtime: 0,
+    };
+  }
+
+  /**
+   * Aggregated Late Deductions for a date range.
+   * For each employee: sums all lateMinutes → applies tier rule → returns deduction.
+   *
+   * Flow:
+   *   1. Fetch employees by paygroup/associate filter
+   *   2. Fetch attendance_records with isLate=true in date range
+   *   3. Group by employee, sum lateMinutes and count
+   *   4. Fetch the matching validation rule for each employee
+   *   5. Apply tier (getActionForLateMinutes on TOTAL minutes)
+   *   6. Handle Permission limit → Leave → LOP fallback
+   *   7. Return per-employee summary
+   */
+  async getValidationLateDeductions(params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<LateDeductionResult> {
+    const { organizationId, paygroupId, employeeId, fromDate, toDate } = params;
+    const from = new Date(fromDate + 'T00:00:00.000Z');
+    const to = new Date(toDate + 'T23:59:59.999Z');
+
+    const employeeWhere: Prisma.EmployeeWhereInput = {
+      organizationId,
+      deletedAt: null,
+      employeeStatus: 'ACTIVE',
+    };
+    if (employeeId) {
+      employeeWhere.id = employeeId;
+    } else if (paygroupId) {
+      employeeWhere.paygroupId = paygroupId;
+    }
+
+    const employees = await prisma.employee.findMany({
+      where: employeeWhere,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        paygroupId: true,
+        departmentId: true,
+        shiftId: true,
+      },
+    });
+    if (!employees.length) return { employees: [], totals: { totalEmployees: 0, totalLateCount: 0, totalLateMinutes: 0 } };
+
+    const empIds = employees.map((e) => e.id);
+
+    const lateRecords = await prisma.attendanceRecord.findMany({
+      where: {
+        employeeId: { in: empIds },
+        date: { gte: from, lte: to },
+        isLate: true,
+      },
+      select: {
+        employeeId: true,
+        lateMinutes: true,
+        date: true,
+        validationAction: true,
+      },
+    });
+
+    const byEmployee = new Map<string, { count: number; totalMinutes: number; permissionUsed: number }>();
+    for (const rec of lateRecords) {
+      const entry = byEmployee.get(rec.employeeId) ?? { count: 0, totalMinutes: 0, permissionUsed: 0 };
+      entry.count += 1;
+      entry.totalMinutes += rec.lateMinutes ?? 0;
+      if (rec.validationAction && /permission/i.test(rec.validationAction)) {
+        entry.permissionUsed += 1;
+      }
+      byEmployee.set(rec.employeeId, entry);
+    }
+
+    const ruleService = new ValidationProcessRuleService();
+
+    const results: LateDeductionEmployee[] = [];
+    let grandTotalCount = 0;
+    let grandTotalMinutes = 0;
+
+    for (const emp of employees) {
+      const stats = byEmployee.get(emp.id);
+      if (!stats || stats.count === 0) continue;
+
+      grandTotalCount += stats.count;
+      grandTotalMinutes += stats.totalMinutes;
+
+      const rule = await ruleService.getApplicableRuleForLate({
+        organizationId,
+        employeeId: emp.id,
+        paygroupId: emp.paygroupId ?? undefined,
+        departmentId: emp.departmentId ?? undefined,
+        shiftId: emp.shiftId ?? undefined,
+        attendanceDate: to,
+      });
+
+      let deductionType = 'None';
+      let deductionDays = 0;
+      let actionName = '';
+      let permissionExhausted = false;
+
+      if (rule) {
+        const matched = ruleService.getActionForLateMinutes(
+          rule as Parameters<typeof ruleService.getActionForLateMinutes>[0],
+          stats.totalMinutes,
+        );
+
+        if (matched) {
+          actionName = matched.name;
+          deductionType = matched.correctionMethod;
+          deductionDays = this.computeDeductionDays(matched.daysValue, stats.totalMinutes);
+
+          // Check Permission monthly limit
+          if (matched.correctionMethod === 'Permission' && rule.hasLimit) {
+            const limits = (rule.limits ?? []) as { periodicity: string; count: number | null; deductPriority: string | null }[];
+            const monthly = limits.find((l) => l.periodicity === 'Monthly');
+            if (monthly?.count != null && stats.permissionUsed >= monthly.count) {
+              permissionExhausted = true;
+              const fallbackName = monthly.deductPriority;
+              const actions = [...(rule.actions ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+              const fallback = fallbackName
+                ? actions.find((a) => a.name === fallbackName)
+                : actions.find((a) => a.correctionMethod !== 'Permission' && a.correctionMethod !== 'LOP');
+
+              if (fallback) {
+                actionName = fallback.name;
+                deductionType = fallback.correctionMethod;
+                deductionDays = this.computeDeductionDays(fallback.daysValue, stats.totalMinutes);
+              }
+            }
+          }
+        }
+      }
+
+      const empName = [emp.firstName, emp.lastName].filter(Boolean).join(' ') || emp.employeeCode || emp.id;
+
+      results.push({
+        employeeId: emp.id,
+        employeeCode: emp.employeeCode ?? '',
+        employeeName: empName,
+        lateCount: stats.count,
+        totalLateMinutes: stats.totalMinutes,
+        totalLateHours: +(stats.totalMinutes / 60).toFixed(2),
+        actionName,
+        deductionType,
+        deductionDays,
+        permissionExhausted,
+      });
+    }
+
+    results.sort((a, b) => b.totalLateMinutes - a.totalLateMinutes);
+
+    return {
+      employees: results,
+      totals: {
+        totalEmployees: results.length,
+        totalLateCount: grandTotalCount,
+        totalLateMinutes: grandTotalMinutes,
+      },
     };
   }
 }
@@ -3223,5 +3403,27 @@ export type ValidationDaySummary = {
   shortfall: number;
   overtime: number;
 };
+
+export interface LateDeductionEmployee {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  lateCount: number;
+  totalLateMinutes: number;
+  totalLateHours: number;
+  actionName: string;
+  deductionType: string;
+  deductionDays: number;
+  permissionExhausted: boolean;
+}
+
+export interface LateDeductionResult {
+  employees: LateDeductionEmployee[];
+  totals: {
+    totalEmployees: number;
+    totalLateCount: number;
+    totalLateMinutes: number;
+  };
+}
 
 export const attendanceService = new AttendanceService();

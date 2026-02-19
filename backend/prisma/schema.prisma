@@ -519,6 +519,8 @@ model AttendanceRecord {
   lateMinutes     Int?                       @map("late_minutes")
   otMinutes       Int?                       @map("ot_minutes")
   excessStayMinutes Int?                     @map("excess_stay_minutes")
+  validationAction  String?                  @map("validation_action") @db.VarChar(100)
+  validationMethod  String?                  @map("validation_method") @db.VarChar(50)
   employee        Employee                   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   shift           Shift?                     @relation(fields: [shiftId], references: [id])
   regularizations AttendanceRegularization[]
@@ -1855,6 +1857,8 @@ model ValidationProcessAction {
   dayType               String               @map("day_type") @db.VarChar(20)
   days                  String               @db.VarChar(20)
   daysValue             Decimal?             @map("days_value") @db.Decimal(5, 2)
+  minMinutes            Int?                 @map("min_minutes")
+  maxMinutes            Int?                 @map("max_minutes")
   createdAt             DateTime             @default(now()) @map("created_at")
   updatedAt             DateTime             @updatedAt @map("updated_at")
   rule                  ValidationProcessRule @relation(fields: [validationProcessRuleId], references: [id], onDelete: Cascade)
