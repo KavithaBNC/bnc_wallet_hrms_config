@@ -187,6 +187,17 @@ export const runValidationProcessSchema = z
   })
   .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
 
+const validationGroupingTypeEnum = z.enum([
+  'absent', 'approvalPending', 'earlyGoing', 'late', 'noOutPunch', 'overtime', 'shiftChange', 'shortfall', 'completed',
+]);
+
+export const queryValidationProcessEmployeeListSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  type: validationGroupingTypeEnum,
+}).refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
+
 // Types
 export type CheckInInput = z.infer<typeof checkInSchema>;
 export type QueryMonthlyDetailsInput = z.infer<typeof queryMonthlyDetailsSchema>;
@@ -205,3 +216,4 @@ export type CreateCompOffConvertRequestInput = z.infer<typeof createCompOffConve
 export type QueryCompOffRequestDetailsInput = z.infer<typeof queryCompOffRequestDetailsSchema>;
 export type QueryValidationProcessCalendarInput = z.infer<typeof queryValidationProcessCalendarSchema>;
 export type RunValidationProcessInput = z.infer<typeof runValidationProcessSchema>;
+export type QueryValidationProcessEmployeeListInput = z.infer<typeof queryValidationProcessEmployeeListSchema>;

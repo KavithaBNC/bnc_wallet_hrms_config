@@ -865,6 +865,30 @@ export class AttendanceController {
   }
 
   /**
+   * Get validation process employee list by type and date range.
+   * GET /api/v1/attendance/validation-process/employee-list
+   */
+  async getValidationProcessEmployeeList(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, fromDate, toDate, type } = req.query as {
+        organizationId: string;
+        fromDate: string;
+        toDate: string;
+        type: string;
+      };
+      const result = await attendanceService.getValidationProcessEmployeeList({
+        organizationId,
+        fromDate,
+        toDate,
+        type,
+      });
+      return res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Bulk update shift assignments
    * POST /api/v1/attendance/shift-assignments/bulk
    */

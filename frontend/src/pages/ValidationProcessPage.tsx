@@ -22,6 +22,25 @@ const EMPTY_DAY: ValidationDaySummary = {
   overtime: 0,
 };
 
+/** Aggregate daily summaries into one (sum counts across dates). */
+function aggregateDailySummaries(
+  dailySummary: Record<string, ValidationDaySummary>,
+  dateKeys: string[]
+): ValidationDaySummary {
+  const keys: (keyof ValidationDaySummary)[] = [
+    'completed', 'approvalPending', 'late', 'earlyGoing', 'noOutPunch',
+    'shiftChange', 'absent', 'shortfall', 'overtime',
+  ];
+  const agg = { ...EMPTY_DAY };
+  for (const dateKey of dateKeys) {
+    const day = dailySummary[dateKey] ?? EMPTY_DAY;
+    for (const k of keys) {
+      (agg as Record<string, number>)[k] += day[k];
+    }
+  }
+  return agg;
+}
+
 /** Table rows for Validation Grouping modal: label + count key */
 const VALIDATION_GROUPING_ROWS: { label: string; key: keyof ValidationDaySummary }[] = [
   { label: 'Absent', key: 'absent' },
@@ -86,6 +105,34 @@ function getCalendarWeeks(year: number, month: number): (number | null)[][] {
   return weeks;
 }
 
+/** Returns all date keys (YYYY-MM-DD) between fromDate and toDate (inclusive). */
+function getDateKeysInRange(fromDate: string, toDate: string): string[] {
+  const from = new Date(fromDate + 'T12:00:00');
+  const to = new Date(toDate + 'T12:00:00');
+  const keys: string[] = [];
+  const current = new Date(from);
+  while (current <= to) {
+    const y = current.getFullYear();
+    const m = String(current.getMonth() + 1).padStart(2, '0');
+    const d = String(current.getDate()).padStart(2, '0');
+    keys.push(`${y}-${m}-${d}`);
+    current.setDate(current.getDate() + 1);
+  }
+  return keys;
+}
+
+/** Default date range: first day of current month to last day of current month. */
+function getDefaultDateRange(): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return {
+    from: `${y}-${m}-01`,
+    to: `${y}-${m}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
 export default function ValidationProcessPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
@@ -106,12 +153,8 @@ export default function ValidationProcessPage() {
   // Process tab filters and calendar
   const [processFilter, setProcessFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [fromDate, setFromDate] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().slice(0, 10);
-  });
-  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set());
   const [dailySummary, setDailySummary] = useState<Record<string, ValidationDaySummary>>({});
@@ -120,37 +163,46 @@ export default function ValidationProcessPage() {
   const [selectedDateForModal, setSelectedDateForModal] = useState<string | null>(null);
   const hasUserTriggeredProcess = useRef(false);
 
-  const runProcess = useCallback(async () => {
-    if (!organizationId) return;
-    setLoadingProcess(true);
-    setProcessError(null);
-    try {
-      const res = await attendanceService.runValidationProcess({
-        organizationId,
-        paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
-        employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
-        fromDate,
-        toDate,
-      });
-      setDailySummary(res.daily ?? {});
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to run validation process';
-      setProcessError(message);
-      setDailySummary({});
-    } finally {
-      setLoadingProcess(false);
-    }
-  }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate]);
+  const runProcess = useCallback(
+    async (dateOverride?: { fromDate: string; toDate: string }) => {
+      if (!organizationId) return;
+      const defaultRange = getDefaultDateRange();
+      const effectiveFrom = dateOverride?.fromDate ?? (fromDate || defaultRange.from);
+      const effectiveTo = dateOverride?.toDate ?? (toDate || defaultRange.to);
+      setLoadingProcess(true);
+      setProcessError(null);
+      try {
+        const res = await attendanceService.runValidationProcess({
+          organizationId,
+          paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
+          employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
+          fromDate: effectiveFrom,
+          toDate: effectiveTo,
+        });
+        setDailySummary(res.daily ?? {});
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to run validation process';
+        setProcessError(message);
+        setDailySummary({});
+      } finally {
+        setLoadingProcess(false);
+      }
+    },
+    [organizationId, paygroupFilter, associateFilter, fromDate, toDate]
+  );
 
   const loadStoredSummary = useCallback(async () => {
     if (!organizationId) return;
+    const defaultRange = getDefaultDateRange();
+    const effectiveFrom = fromDate || defaultRange.from;
+    const effectiveTo = toDate || defaultRange.to;
     try {
       const res = await attendanceService.getValidationProcessCalendarSummary({
         organizationId,
         paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
         employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
-        fromDate,
-        toDate,
+        fromDate: effectiveFrom,
+        toDate: effectiveTo,
       });
       setDailySummary(res.daily ?? {});
     } catch {
@@ -262,11 +314,46 @@ export default function ValidationProcessPage() {
     setToDate(last.toISOString().slice(0, 10));
   };
 
+  const getEffectiveDateRange = (): { from: string; to: string } => {
+    const defaultRange = getDefaultDateRange();
+    return {
+      from: fromDate || defaultRange.from,
+      to: toDate || defaultRange.to,
+    };
+  };
+
   const handleProcessOrView = () => {
     hasUserTriggeredProcess.current = true;
-    const from = new Date(fromDate + 'T12:00:00');
-    setCalendarMonth(from);
-    runProcess();
+    const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
+    if (!fromDate || !toDate) {
+      setFromDate(effectiveFrom);
+      setToDate(effectiveTo);
+    }
+    setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
+    runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
+    // Select checkboxes only when user explicitly chose From Date and To Date
+    if (fromDate && toDate) {
+      setSelectedDays(new Set(getDateKeysInRange(effectiveFrom, effectiveTo)));
+    } else {
+      setSelectedDays(new Set());
+    }
+  };
+
+  const handleFilter = () => {
+    hasUserTriggeredProcess.current = true;
+    const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
+    if (!fromDate || !toDate) {
+      setFromDate(effectiveFrom);
+      setToDate(effectiveTo);
+    }
+    setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
+    runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
+    // Select checkboxes only when user explicitly chose From Date and To Date
+    if (fromDate && toDate) {
+      setSelectedDays(new Set(getDateKeysInRange(effectiveFrom, effectiveTo)));
+    } else {
+      setSelectedDays(new Set());
+    }
   };
 
   const toggleDay = (year: number, month: number, day: number) => {
@@ -505,7 +592,9 @@ export default function ValidationProcessPage() {
                     </button>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      onClick={handleFilter}
+                      disabled={loadingProcess || !organizationId}
+                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V20l-4-4v-4.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -660,10 +749,26 @@ export default function ValidationProcessPage() {
                         </div>
                         <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 text-sm text-gray-600">
                           {(() => {
-                            const [y, m, d] = selectedDateForModal.split('-').map(Number);
-                            const dObj = new Date(y, m - 1, d);
-                            const dateLabel = dObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-                            return <>Date: {dateLabel}</>;
+                            const { from: effFrom, to: effTo } = getEffectiveDateRange();
+                            const datesToAggregate =
+                              selectedDays.size > 0
+                                ? Array.from(selectedDays)
+                                : getDateKeysInRange(effFrom, effTo);
+                            if (datesToAggregate.length === 0) {
+                              return <>Date range: —</>;
+                            }
+                            const sorted = [...datesToAggregate].sort();
+                            const first = sorted[0];
+                            const last = sorted[sorted.length - 1];
+                            const firstObj = new Date(first + 'T12:00:00');
+                            const lastObj = new Date(last + 'T12:00:00');
+                            const fromLabel = firstObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                            const toLabel = lastObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+                            const rangeLabel =
+                              selectedDays.size > 0
+                                ? `Selected: ${datesToAggregate.length} dates (${fromLabel} – ${toLabel})`
+                                : `All data: ${fromLabel} – ${toLabel}`;
+                            return <>Date range: {rangeLabel}</>;
                           })()}
                         </div>
                         <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-gray-200 bg-white">
@@ -716,16 +821,38 @@ export default function ValidationProcessPage() {
                               </tr>
                             </thead>
                             <tbody>
-                              {VALIDATION_GROUPING_ROWS.map(({ label, key }) => {
-                                const count = (dailySummary[selectedDateForModal] ?? EMPTY_DAY)[key];
-                                return (
-                                  <tr key={key} className="border-b border-gray-200 hover:bg-gray-50">
-                                    <td className="border border-gray-200 px-4 py-2 text-gray-900">{label}</td>
-                                    <td className="border border-gray-200 px-4 py-2 text-gray-700">{count}</td>
-                                    <td className="border border-gray-200 px-4 py-2">
-                                      <button
-                                        type="button"
-                                        className="p-1.5 rounded text-gray-500 hover:bg-gray-100 focus:ring-2 focus:ring-blue-500"
+                              {(() => {
+                                const { from: effFrom, to: effTo } = getEffectiveDateRange();
+                                const datesToAggregate =
+                                  selectedDays.size > 0
+                                    ? Array.from(selectedDays)
+                                    : getDateKeysInRange(effFrom, effTo);
+                                const aggregatedSummary = aggregateDailySummaries(dailySummary, datesToAggregate);
+                                const sortedDates = [...datesToAggregate].sort();
+                                const dateFrom = sortedDates[0] ?? '';
+                                const dateTo = sortedDates[sortedDates.length - 1] ?? '';
+                                return VALIDATION_GROUPING_ROWS.map(({ label, key }) => {
+                                  const count = aggregatedSummary[key];
+                                  return (
+                                    <tr key={key} className="border-b border-gray-200 hover:bg-gray-50">
+                                      <td className="border border-gray-200 px-4 py-2 text-gray-900">{label}</td>
+                                      <td className="border border-gray-200 px-4 py-2 text-gray-700">{count}</td>
+                                      <td className="border border-gray-200 px-4 py-2">
+                                        <button
+                                          type="button"
+                                          className="p-1.5 rounded text-gray-500 hover:bg-gray-100 focus:ring-2 focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                                          disabled={count === 0}
+                                          onClick={() => {
+                                            const params: Record<string, string> = { type: key };
+                                            if (dateFrom) params.date = dateFrom;
+                                            if (dateFrom && dateTo) {
+                                              params.fromDate = dateFrom;
+                                              params.toDate = dateTo;
+                                            }
+                                            const search = new URLSearchParams(params).toString();
+                                            setSelectedDateForModal(null);
+                                            navigate(`/hr-activities/validation-process/employees?${search}`);
+                                          }}
                                         aria-label={`View ${label} list`}
                                         title="View list"
                                       >
@@ -735,8 +862,9 @@ export default function ValidationProcessPage() {
                                       </button>
                                     </td>
                                   </tr>
-                                );
-                              })}
+                                  );
+                                });
+                              })()}
                             </tbody>
                           </table>
                         </div>

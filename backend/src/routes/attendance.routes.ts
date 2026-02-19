@@ -29,6 +29,7 @@ import {
   rejectCompOffRequestSchema,
   queryValidationProcessCalendarSchema,
   runValidationProcessSchema,
+  queryValidationProcessEmployeeListSchema,
 } from '../utils/attendance.validation';
 
 const router = Router();
@@ -147,6 +148,18 @@ router.post(
   authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
   validate(runValidationProcessSchema),
   attendanceController.runValidationProcess.bind(attendanceController)
+);
+
+/**
+ * @route   GET /api/v1/attendance/validation-process/employee-list
+ * @desc    Get validation process employee list by type and date range (for Employee Grid)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.get(
+  '/validation-process/employee-list',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validateQuery(queryValidationProcessEmployeeListSchema),
+  attendanceController.getValidationProcessEmployeeList.bind(attendanceController)
 );
 
 /**

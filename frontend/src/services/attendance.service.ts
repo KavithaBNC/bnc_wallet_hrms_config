@@ -278,4 +278,34 @@ export const attendanceService = {
     );
     return data.data;
   },
+
+  /** Get validation process employee list for the grid (by type and date range). */
+  getValidationProcessEmployeeList: async (params: {
+    organizationId: string;
+    fromDate: string;
+    toDate: string;
+    type: string;
+  }): Promise<{ rows: ValidationProcessEmployeeRow[] }> => {
+    const { data } = await api.get<{ data: { rows: ValidationProcessEmployeeRow[] } }>(
+      '/attendance/validation-process/employee-list',
+      { params }
+    );
+    return data.data;
+  },
 };
+
+export interface ValidationProcessEmployeeRow {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  date: string;
+  shiftName: string | null;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+  firstInPunch: string | null;
+  lastOutPunch: string | null;
+  presentFirstHalf: string | null;
+  presentSecondHalf: string | null;
+  leaveFirstHalf: string | null;
+  leaveSecondHalf: string | null;
+}

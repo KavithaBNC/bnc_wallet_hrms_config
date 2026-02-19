@@ -3279,6 +3279,116 @@ export class AttendanceService {
     return daily;
   }
 
+  /** Map frontend validation grouping type to AttendanceValidationResult boolean field name */
+  private validationTypeToField(type: string): keyof Pick<Prisma.AttendanceValidationResultWhereInput, 'isCompleted' | 'isApprovalPending' | 'isLate' | 'isEarlyGoing' | 'isAbsent' | 'isNoOutPunch' | 'isShiftChange' | 'isOvertime' | 'isShortfall'> {
+    const map: Record<string, keyof Prisma.AttendanceValidationResultWhereInput> = {
+      completed: 'isCompleted',
+      approvalPending: 'isApprovalPending',
+      late: 'isLate',
+      earlyGoing: 'isEarlyGoing',
+      absent: 'isAbsent',
+      noOutPunch: 'isNoOutPunch',
+      shiftChange: 'isShiftChange',
+      overtime: 'isOvertime',
+      shortfall: 'isShortfall',
+    };
+    return (map[type] ?? 'isCompleted') as keyof Pick<Prisma.AttendanceValidationResultWhereInput, 'isCompleted' | 'isApprovalPending' | 'isLate' | 'isEarlyGoing' | 'isAbsent' | 'isNoOutPunch' | 'isShiftChange' | 'isOvertime' | 'isShortfall'>;
+  }
+
+  /**
+   * Get validation process employee list: records from attendance_validation_results for the given type and date range,
+   * with employee and attendance record details for the grid.
+   */
+  async getValidationProcessEmployeeList(params: {
+    organizationId: string;
+    fromDate: string;
+    toDate: string;
+    type: string;
+  }): Promise<{
+    rows: Array<{
+      employeeId: string;
+      employeeCode: string;
+      employeeName: string;
+      date: string;
+      shiftName: string | null;
+      shiftStart: string | null;
+      shiftEnd: string | null;
+      firstInPunch: string | null;
+      lastOutPunch: string | null;
+      presentFirstHalf: string | null;
+      presentSecondHalf: string | null;
+      leaveFirstHalf: string | null;
+      leaveSecondHalf: string | null;
+    }>;
+  }> {
+    const { organizationId, fromDate, toDate, type } = params;
+    const from = new Date(fromDate + 'T00:00:00.000Z');
+    const to = new Date(toDate + 'T23:59:59.999Z');
+    const field = this.validationTypeToField(type);
+    const validationRows = await prisma.attendanceValidationResult.findMany({
+      where: {
+        organizationId,
+        date: { gte: from, lte: to },
+        [field]: true,
+      },
+      select: {
+        employeeId: true,
+        date: true,
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            middleName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: [{ date: 'asc' }, { employee: { firstName: 'asc' } }],
+    });
+    const employeeIds = [...new Set(validationRows.map((r) => r.employeeId))];
+    const attendanceRecords = await prisma.attendanceRecord.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        date: { gte: from, lte: to },
+      },
+      select: {
+        employeeId: true,
+        date: true,
+        checkIn: true,
+        checkOut: true,
+        shift: { select: { name: true, startTime: true, endTime: true } },
+      },
+    });
+    const recordByKey = new Map(
+      attendanceRecords.map((r) => [`${r.employeeId}:${this.toDateKey(r.date)}`, r])
+    );
+    const formatTime = (d: Date | null) =>
+      d ? new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : null;
+    const rows = validationRows.map((v) => {
+      const key = `${v.employeeId}:${this.toDateKey(v.date)}`;
+      const rec = recordByKey.get(key);
+      const parts = [v.employee.firstName, v.employee.middleName, v.employee.lastName].filter(Boolean);
+      const employeeName = parts.join(' ').trim() || (v.employee.employeeCode ?? '');
+      return {
+        employeeId: v.employeeId,
+        employeeCode: v.employee.employeeCode ?? '',
+        employeeName,
+        date: this.toDateKey(v.date),
+        shiftName: rec?.shift?.name ?? null,
+        shiftStart: rec?.shift?.startTime ?? null,
+        shiftEnd: rec?.shift?.endTime ?? null,
+        firstInPunch: rec?.checkIn ? formatTime(rec.checkIn) : null,
+        lastOutPunch: rec?.checkOut ? formatTime(rec.checkOut) : null,
+        presentFirstHalf: null,
+        presentSecondHalf: null,
+        leaveFirstHalf: null,
+        leaveSecondHalf: null,
+      };
+    });
+    return { rows };
+  }
+
   private emptyValidationDaySummary(): ValidationDaySummary {
     return {
       completed: 0,

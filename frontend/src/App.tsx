@@ -15,6 +15,7 @@ import PositionsPage from './pages/PositionsPage';
 import EventConfigurationPage from './pages/EventConfigurationPage';
 import OthersConfigurationPage from './pages/OthersConfigurationPage';
 import ValidationProcessPage from './pages/ValidationProcessPage';
+import ValidationProcessEmployeeGridPage from './pages/ValidationProcessEmployeeGridPage';
 import ValidationProcessRulePage from './pages/ValidationProcessRulePage';
 import ValidationProcessRuleFormPage from './pages/ValidationProcessRuleFormPage';
 import AttendanceLockPage from './pages/AttendanceLockPage';
@@ -184,6 +185,16 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <ValidationProcessPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hr-activities/validation-process/employees"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ValidationProcessEmployeeGridPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
