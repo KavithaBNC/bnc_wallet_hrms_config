@@ -51,7 +51,7 @@ const VALIDATION_GROUPING_ROWS: { label: string; key: keyof ValidationDaySummary
   { label: 'OverTime', key: 'overtime' },
   { label: 'Shift Change', key: 'shiftChange' },
   { label: 'Shortfall', key: 'shortfall' },
-  { label: 'Completed', key: 'completed' },
+  { label: 'Validation Completed', key: 'completed' },
 ];
 
 function getDayCellBgClass(dayStats: ValidationDaySummary): string {
@@ -160,19 +160,31 @@ export default function ValidationProcessPage() {
   const [dailySummary, setDailySummary] = useState<Record<string, ValidationDaySummary>>({});
   const [loadingProcess, setLoadingProcess] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
+  const [hasProcessed, setHasProcessed] = useState(false);
   const [selectedDateForModal, setSelectedDateForModal] = useState<string | null>(null);
-  const hasUserTriggeredProcess = useRef(false);
 
   const [lateDeductions, setLateDeductions] = useState<LateDeductionResult | null>(null);
   const [loadingLateDeductions, setLoadingLateDeductions] = useState(false);
   const [lateDeductionError, setLateDeductionError] = useState<string | null>(null);
 
+  const resetProcessResults = useCallback(() => {
+    setHasProcessed(false);
+    setProcessError(null);
+    setDailySummary({});
+    setSelectedDays(new Set());
+    setSelectedDateForModal(null);
+  }, []);
+
   const runProcess = useCallback(
     async (dateOverride?: { fromDate: string; toDate: string }) => {
       if (!organizationId) return;
-      const defaultRange = getDefaultDateRange();
-      const effectiveFrom = dateOverride?.fromDate ?? (fromDate || defaultRange.from);
-      const effectiveTo = dateOverride?.toDate ?? (toDate || defaultRange.to);
+      const effectiveFrom = dateOverride?.fromDate ?? fromDate;
+      const effectiveTo = dateOverride?.toDate ?? toDate;
+      if (!effectiveFrom || !effectiveTo) {
+        setProcessError('Select From Date and To Date, then click Process.');
+        setDailySummary({});
+        return;
+      }
       setLoadingProcess(true);
       setProcessError(null);
       try {
@@ -184,9 +196,11 @@ export default function ValidationProcessPage() {
           toDate: effectiveTo,
         });
         setDailySummary(res.daily ?? {});
+        setHasProcessed(true);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to run validation process';
         setProcessError(message);
+        setHasProcessed(false);
         setDailySummary({});
       } finally {
         setLoadingProcess(false);
@@ -194,25 +208,6 @@ export default function ValidationProcessPage() {
     },
     [organizationId, paygroupFilter, associateFilter, fromDate, toDate]
   );
-
-  const loadStoredSummary = useCallback(async () => {
-    if (!organizationId) return;
-    const defaultRange = getDefaultDateRange();
-    const effectiveFrom = fromDate || defaultRange.from;
-    const effectiveTo = toDate || defaultRange.to;
-    try {
-      const res = await attendanceService.getValidationProcessCalendarSummary({
-        organizationId,
-        paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
-        employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
-        fromDate: effectiveFrom,
-        toDate: effectiveTo,
-      });
-      setDailySummary(res.daily ?? {});
-    } catch {
-      setDailySummary({});
-    }
-  }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate]);
 
   const fetchLateDeductions = useCallback(async () => {
     if (!organizationId) return;
@@ -235,11 +230,6 @@ export default function ValidationProcessPage() {
       setLoadingLateDeductions(false);
     }
   }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate]);
-
-  useEffect(() => {
-    if (!hasUserTriggeredProcess.current) return;
-    loadStoredSummary();
-  }, [paygroupFilter, associateFilter, loadStoredSummary]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -310,6 +300,7 @@ export default function ValidationProcessPage() {
   const calendarWeeks = getCalendarWeeks(calendarYear, calendarMonthNum);
 
   const goPrevMonth = () => {
+    resetProcessResults();
     setCalendarMonth((d) => {
       const next = new Date(d);
       next.setMonth(next.getMonth() - 1);
@@ -321,6 +312,7 @@ export default function ValidationProcessPage() {
     });
   };
   const goNextMonth = () => {
+    resetProcessResults();
     setCalendarMonth((d) => {
       const next = new Date(d);
       next.setMonth(next.getMonth() + 1);
@@ -332,6 +324,7 @@ export default function ValidationProcessPage() {
     });
   };
   const goToday = () => {
+    resetProcessResults();
     const d = new Date();
     setCalendarMonth(d);
     const first = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -348,13 +341,34 @@ export default function ValidationProcessPage() {
     };
   };
 
+  const getModalAggregationDates = (): {
+    datesToAggregate: string[];
+    dateFrom: string;
+    dateTo: string;
+  } => {
+    // Consolidated mode: always aggregate for the full visible calendar month.
+    // This guarantees that clicking any individual date does not change totals.
+    const y = calendarMonth.getFullYear();
+    const m = calendarMonth.getMonth();
+    const first = new Date(y, m, 1).toISOString().slice(0, 10);
+    const last = new Date(y, m + 1, 0).toISOString().slice(0, 10);
+    const datesToAggregate = getDateKeysInRange(first, last);
+    const sorted = [...datesToAggregate].sort();
+    return {
+      datesToAggregate,
+      dateFrom: sorted[0] ?? '',
+      dateTo: sorted[sorted.length - 1] ?? '',
+    };
+  };
+
   const handleProcessOrView = () => {
-    hasUserTriggeredProcess.current = true;
-    const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
     if (!fromDate || !toDate) {
-      setFromDate(effectiveFrom);
-      setToDate(effectiveTo);
+      setProcessError('Select From Date and To Date, then click Process.');
+      setDailySummary({});
+      return;
     }
+    const effectiveFrom = fromDate;
+    const effectiveTo = toDate;
     setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
     runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
     // Select checkboxes only when user explicitly chose From Date and To Date
@@ -366,12 +380,13 @@ export default function ValidationProcessPage() {
   };
 
   const handleFilter = () => {
-    hasUserTriggeredProcess.current = true;
-    const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
     if (!fromDate || !toDate) {
-      setFromDate(effectiveFrom);
-      setToDate(effectiveTo);
+      setProcessError('Select From Date and To Date, then click Filter.');
+      setDailySummary({});
+      return;
     }
+    const effectiveFrom = fromDate;
+    const effectiveTo = toDate;
     setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
     runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
     // Select checkboxes only when user explicitly chose From Date and To Date
@@ -447,6 +462,7 @@ export default function ValidationProcessPage() {
                             type="button"
                             onClick={() => {
                               setPaygroupFilter(opt.id);
+                              resetProcessResults();
                               setShowPaygroupDropdown(false);
                             }}
                             className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${
@@ -484,6 +500,7 @@ export default function ValidationProcessPage() {
                             type="button"
                             onClick={() => {
                               setAssociateFilter(opt.id);
+                              resetProcessResults();
                               setShowAssociateDropdown(false);
                             }}
                             className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${
@@ -567,7 +584,10 @@ export default function ValidationProcessPage() {
                       <input
                         type="date"
                         value={fromDate}
-                        onChange={(e) => setFromDate(e.target.value)}
+                        onChange={(e) => {
+                          setFromDate(e.target.value);
+                          resetProcessResults();
+                        }}
                         className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
@@ -576,7 +596,10 @@ export default function ValidationProcessPage() {
                       <input
                         type="date"
                         value={toDate}
-                        onChange={(e) => setToDate(e.target.value)}
+                        onChange={(e) => {
+                          setToDate(e.target.value);
+                          resetProcessResults();
+                        }}
                         className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
@@ -737,7 +760,7 @@ export default function ValidationProcessPage() {
                                       <span className="text-xs font-medium text-gray-500">{day}</span>
                                     </div>
                                     {dayStats.completed > 0 && (
-                                      <div className="text-xs font-medium text-green-700 mb-1">Completed: {dayStats.completed}</div>
+                                      <div className="text-xs font-medium text-green-700 mb-1">Validation Completed: {dayStats.completed}</div>
                                     )}
                                     {dayStats.approvalPending > 0 && (
                                       <div className="text-xs text-red-700">Approval Pending: {dayStats.approvalPending}</div>
@@ -760,7 +783,7 @@ export default function ValidationProcessPage() {
                   </div>
 
                   {/* Validation Grouping modal - opens when a date is clicked */}
-                  {selectedDateForModal && (
+                  {hasProcessed && selectedDateForModal && (
                     <div
                       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
                       aria-modal="true"
@@ -786,13 +809,9 @@ export default function ValidationProcessPage() {
                         </div>
                         <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 text-sm text-gray-600">
                           {(() => {
-                            const { from: effFrom, to: effTo } = getEffectiveDateRange();
-                            const datesToAggregate =
-                              selectedDays.size > 0
-                                ? Array.from(selectedDays)
-                                : getDateKeysInRange(effFrom, effTo);
+                            const { datesToAggregate } = getModalAggregationDates();
                             if (datesToAggregate.length === 0) {
-                              return <>Date range: —</>;
+                              return <>Overall range: —</>;
                             }
                             const sorted = [...datesToAggregate].sort();
                             const first = sorted[0];
@@ -801,11 +820,7 @@ export default function ValidationProcessPage() {
                             const lastObj = new Date(last + 'T12:00:00');
                             const fromLabel = firstObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
                             const toLabel = lastObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-                            const rangeLabel =
-                              selectedDays.size > 0
-                                ? `Selected: ${datesToAggregate.length} dates (${fromLabel} – ${toLabel})`
-                                : `All data: ${fromLabel} – ${toLabel}`;
-                            return <>Date range: {rangeLabel}</>;
+                            return <>Overall range: {fromLabel} – {toLabel}</>;
                           })()}
                         </div>
                         <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-gray-200 bg-white">
@@ -859,15 +874,8 @@ export default function ValidationProcessPage() {
                             </thead>
                             <tbody>
                               {(() => {
-                                const { from: effFrom, to: effTo } = getEffectiveDateRange();
-                                const datesToAggregate =
-                                  selectedDays.size > 0
-                                    ? Array.from(selectedDays)
-                                    : getDateKeysInRange(effFrom, effTo);
+                                const { datesToAggregate, dateFrom, dateTo } = getModalAggregationDates();
                                 const aggregatedSummary = aggregateDailySummaries(dailySummary, datesToAggregate);
-                                const sortedDates = [...datesToAggregate].sort();
-                                const dateFrom = sortedDates[0] ?? '';
-                                const dateTo = sortedDates[sortedDates.length - 1] ?? '';
                                 return VALIDATION_GROUPING_ROWS.map(({ label, key }) => {
                                   const count = aggregatedSummary[key];
                                   return (
@@ -881,7 +889,6 @@ export default function ValidationProcessPage() {
                                           disabled={count === 0}
                                           onClick={() => {
                                             const params: Record<string, string> = { type: key };
-                                            if (dateFrom) params.date = dateFrom;
                                             if (dateFrom && dateTo) {
                                               params.fromDate = dateFrom;
                                               params.toDate = dateTo;

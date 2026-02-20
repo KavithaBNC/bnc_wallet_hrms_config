@@ -177,7 +177,12 @@ export default function ValidationProcessEmployeeGridPage() {
           .sort((a, b) => a.name.localeCompare(b.name));
         setCorrectionOptions((prev) => {
           const base = prev.find((p) => p.id === 'AS_PER_RULE') ?? { id: 'AS_PER_RULE', name: 'As Per Rule' };
-          return [base, ...dynamicOptions];
+          // Avoid duplicate labels like "As Per Rule" vs "As per rule".
+          const baseKey = base.name.trim().toLowerCase();
+          const uniqueDynamic = dynamicOptions.filter(
+            (opt) => opt.name.trim().toLowerCase() !== baseKey
+          );
+          return [base, ...uniqueDynamic];
         });
       } catch {
         // Keep default As Per Rule only on error.
@@ -337,8 +342,14 @@ export default function ValidationProcessEmployeeGridPage() {
                         .filter((r) => selectedRowKeys.has(getRowKey(r)))
                         .map((r) => ({ employeeId: r.employeeId, date: r.date }));
                       const ruleId = selectedCorrectionId === 'AS_PER_RULE' ? undefined : selectedCorrectionId;
-                      const correctionType: 'late' | 'earlyGoing' | undefined =
-                        type === 'earlyGoing' ? 'earlyGoing' : type === 'late' ? 'late' : undefined;
+                      const correctionType: 'late' | 'earlyGoing' | 'noOutPunch' | undefined =
+                        type === 'earlyGoing'
+                          ? 'earlyGoing'
+                          : type === 'late'
+                            ? 'late'
+                            : type === 'noOutPunch'
+                              ? 'noOutPunch'
+                              : undefined;
                       const result = await attendanceService.applyValidationCorrection({
                         organizationId,
                         ruleId,
@@ -352,10 +363,18 @@ export default function ValidationProcessEmployeeGridPage() {
                       const skipText = result.skipped && result.skipped.length > 0
                         ? ` ${result.skipped.length} skipped (already applied).`
                         : '';
+                      const selectedCorrectionName =
+                        (selectedCorrection?.name || '').trim().toLowerCase();
+                      const isNoCorrectionMode =
+                        selectedCorrectionName === 'no correction' ||
+                        correctionType === 'noOutPunch';
+                      const successSuffix = isNoCorrectionMode
+                        ? 'No leave deduction.'
+                        : 'Leave deducted as per rule.';
                       setSubmitMessage({
                         type: result.applied > 0 ? 'success' : 'error',
                         text: result.applied > 0
-                          ? `Correction applied for ${result.applied} record(s). Leave deducted as per rule.${skipText}${errText}`
+                          ? `Correction applied for ${result.applied} record(s). ${successSuffix}${skipText}${errText}`
                           : `No records applied.${skipText}${errText}`,
                       });
                       setSelectedRowKeys(new Set());
@@ -369,7 +388,7 @@ export default function ValidationProcessEmployeeGridPage() {
                   }}
                   className="inline-flex items-center justify-center w-full h-9 px-3 rounded-lg border border-green-600 bg-green-600 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {submitting ? 'Submitting...' : 'Submit'}
+                  {submitting ? 'Proceeding...' : 'Proceed'}
                 </button>
               </div>
 
@@ -485,7 +504,7 @@ export default function ValidationProcessEmployeeGridPage() {
                       {!loading && !loadError && rows.length > 0 && filteredRows.length === 0 && (
                         <tr>
                           <td colSpan={13} className="px-4 py-6 text-center text-sm text-gray-500">
-                            No matching records for &quot;{gridSearch}&quot;
+                            No matching records for &quot;{gridSearch}&quot;. Clear search to view {rows.length} entries.
                           </td>
                         </tr>
                       )}

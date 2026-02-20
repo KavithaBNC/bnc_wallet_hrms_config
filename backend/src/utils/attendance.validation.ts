@@ -203,7 +203,7 @@ export const queryValidationProcessEmployeeListSchema = z.object({
 export const applyValidationCorrectionSchema = z.object({
   organizationId: z.string().uuid('Invalid organization ID'),
   ruleId: z.string().uuid().optional(),
-  type: z.enum(['late', 'earlyGoing']).optional(),
+  type: z.enum(['late', 'earlyGoing', 'noOutPunch']).optional(),
   selectedRows: z.array(z.object({
     employeeId: z.string().uuid('Invalid employee ID'),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),

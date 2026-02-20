@@ -313,7 +313,7 @@ export const attendanceService = {
   applyValidationCorrection: async (params: {
     organizationId: string;
     ruleId?: string;
-    type?: 'late' | 'earlyGoing';
+    type?: 'late' | 'earlyGoing' | 'noOutPunch';
     selectedRows: { employeeId: string; date: string }[];
     remarks?: string;
   }): Promise<{ applied: number; errors: { employeeId: string; date: string; message: string }[]; skipped?: { employeeId: string; date: string; message: string }[] }> => {

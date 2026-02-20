@@ -166,6 +166,7 @@ const DAYS_OPTIONS = [{ id: 'Auto', label: 'Auto', isGreen: true }, { id: 'Manua
 const CORRECTION_METHOD_OPTIONS = [
   { id: 'Apply Event', name: 'Apply Event' },
   { id: 'Permission', name: 'Permission' },
+  { id: 'No Correction', name: 'No Correction' },
   { id: 'Auto', name: 'Auto' },
   { id: 'Leave', name: 'Leave' },
   { id: 'LOP', name: 'LOP' },
