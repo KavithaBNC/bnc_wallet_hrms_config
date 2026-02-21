@@ -577,7 +577,15 @@ export default function ValidationProcessPage() {
                     </button>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
+                        const params = new URLSearchParams();
+                        if (associateFilter !== 'ALL') params.set('associateId', associateFilter);
+                        params.set('fromDate', effectiveFrom);
+                        params.set('toDate', effectiveTo);
+                        navigate(`/hr-activities/validation-process/revert?${params.toString()}`);
+                      }}
+                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />

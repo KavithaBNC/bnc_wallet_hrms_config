@@ -77,6 +77,26 @@ From the **backend** directory (`bnc_wallet_hrms/backend`):
 
 **Do not use** `npx prisma migrate dev` until the migration history can build the full schema from scratch (e.g. by adding a baseline migration that creates `organizations`, `employees`, `paygroups`, etc., or by resetting migration history).
 
+---
+
+## Adding new migrations (e.g. Post to Payroll)
+
+Because `migrate dev` fails on the shadow database, **add new migrations manually** and apply with deploy:
+
+1. Create a new folder under `prisma/migrations/` with a timestamp and name, e.g. `20260220000000_add_post_to_payroll_mappings`.
+2. Add a `migration.sql` file inside it with the `CREATE TABLE` / `ALTER TABLE` statements.
+3. Apply to your real database (no shadow DB):
+
+   ```bash
+   npx prisma migrate deploy
+   ```
+
+4. Regenerate the client:
+
+   ```bash
+   npx prisma generate
+   ```
+
 **Note:** The migration only creates `transfer_promotions` and its foreign keys. It does not drop or modify any other table or data.
 
 If `transfer_promotions` already exists (e.g. from an earlier `prisma db push`) and deploy fails with "relation already exists", mark the migration as applied without running it:

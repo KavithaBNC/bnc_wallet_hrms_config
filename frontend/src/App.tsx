@@ -16,10 +16,12 @@ import EventConfigurationPage from './pages/EventConfigurationPage';
 import OthersConfigurationPage from './pages/OthersConfigurationPage';
 import ValidationProcessPage from './pages/ValidationProcessPage';
 import ValidationProcessEmployeeGridPage from './pages/ValidationProcessEmployeeGridPage';
+import RevertProcessPage from './pages/RevertProcessPage';
 import ValidationProcessRulePage from './pages/ValidationProcessRulePage';
 import ValidationProcessRuleFormPage from './pages/ValidationProcessRuleFormPage';
 import AttendanceLockPage from './pages/AttendanceLockPage';
 import PostToPayrollPage from './pages/PostToPayrollPage';
+import PostToPayrollHRActivitiesPage from './pages/PostToPayrollHRActivitiesPage';
 import AttendanceComponentsPage from './pages/AttendanceComponentsPage';
 import AttendanceComponentFormPage from './pages/AttendanceComponentFormPage';
 import EncashmentCarryForwardPage from './pages/EncashmentCarryForwardPage';
@@ -190,11 +192,31 @@ function App() {
             }
           />
           <Route
+            path="/hr-activities/validation-process/revert"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <RevertProcessPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/hr-activities/validation-process/employees"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
                   <ValidationProcessEmployeeGridPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hr-activities/post-to-payroll"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PostToPayrollHRActivitiesPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
@@ -249,7 +271,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
+                    <Route
             path="/others-configuration/post-to-payroll"
             element={
               <ProtectedRoute>

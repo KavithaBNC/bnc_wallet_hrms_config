@@ -70,6 +70,7 @@ model Organization {
   validationProcessRules       ValidationProcessRule[]
   workflowMappings             WorkflowMapping[]
   attendanceValidationResults  AttendanceValidationResult[]
+  postToPayrollMappings        PostToPayrollMapping[]
 
   @@map("organizations")
 }
@@ -753,6 +754,23 @@ model RuleSetting {
   department            Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
 
   @@map("rule_settings")
+}
+
+model PostToPayrollMapping {
+  id               String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  columnKey       String   @map("column_key") @db.VarChar(255)
+  columnName      String   @map("column_name") @db.VarChar(255)
+  format          String   @db.VarChar(20)
+  elementMapping  String?  @map("element_mapping") @db.VarChar(100)
+  orderIndex      Int      @default(0) @map("order_index")
+  showInList      Boolean  @default(true) @map("show_in_list")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("post_to_payroll_mappings")
 }
 
 model AutoCreditSetting {
