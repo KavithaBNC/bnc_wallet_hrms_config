@@ -71,7 +71,8 @@ model Organization {
   workflowMappings             WorkflowMapping[]
   attendanceValidationResults  AttendanceValidationResult[]
   postToPayrollMappings        PostToPayrollMapping[]
-
+  validationRevertHistory      ValidationRevertHistory[]
+  compounds                   Compound[]
   @@map("organizations")
 }
 
@@ -520,6 +521,8 @@ model AttendanceRecord {
   lateMinutes     Int?                       @map("late_minutes")
   otMinutes       Int?                       @map("ot_minutes")
   excessStayMinutes Int?                     @map("excess_stay_minutes")
+  validationAction  String?                  @map("validation_action") @db.VarChar(100)
+  validationMethod  String?                  @map("validation_method") @db.VarChar(50)
   employee        Employee                   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   shift           Shift?                     @relation(fields: [shiftId], references: [id])
   regularizations AttendanceRegularization[]
@@ -542,11 +545,15 @@ model AttendanceValidationResult {
   isNoOutPunch       Boolean      @map("is_no_out_punch")
   isShiftChange      Boolean      @map("is_shift_change")
   isOvertime         Boolean      @map("is_overtime")
-  isShortfall        Boolean      @map("is_shortfall")
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  employee           Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  isShortfall              Boolean      @map("is_shortfall")
+  isOnHold                 Boolean      @default(false) @map("is_on_hold")
+  holdAssociateCanModify   Boolean      @default(false) @map("hold_associate_can_modify")
+  holdManagerCanModify     Boolean      @default(false) @map("hold_manager_can_modify")
+  holdReason               String?      @map("hold_reason") @db.VarChar(500)
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+  organization             Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee                 Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, employeeId, date])
   @@index([organizationId, date])
@@ -922,6 +929,8 @@ model EmployeeLeaveBalance {
   employeeId     String    @map("employee_id") @db.Uuid
   leaveTypeId    String    @map("leave_type_id") @db.Uuid
   year           Int
+  fromDate       DateTime? @map("from_date") @db.Date
+  toDate         DateTime? @map("to_date") @db.Date
   openingBalance Decimal   @default(0) @map("opening_balance") @db.Decimal(5, 2)
   accrued        Decimal   @default(0) @db.Decimal(5, 2)
   used           Decimal   @default(0) @db.Decimal(5, 2)
@@ -1871,12 +1880,67 @@ model ValidationProcessAction {
   dayType               String               @map("day_type") @db.VarChar(20)
   days                  String               @db.VarChar(20)
   daysValue             Decimal?             @map("days_value") @db.Decimal(5, 2)
+  minMinutes            Int?                 @map("min_minutes")
+  maxMinutes            Int?                 @map("max_minutes")
   createdAt             DateTime             @default(now()) @map("created_at")
   updatedAt             DateTime             @updatedAt @map("updated_at")
   rule                  ValidationProcessRule @relation(fields: [validationProcessRuleId], references: [id], onDelete: Cascade)
   attendanceComponent   AttendanceComponent? @relation(fields: [attendanceComponentId], references: [id], onDelete: SetNull)
 
   @@map("validation_process_actions")
+}
+
+model ValidationRevertHistory {
+  id               String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId   String       @map("organization_id") @db.Uuid
+  revertedByUserId String       @map("reverted_by_user_id") @db.Uuid
+  fromDate         DateTime     @map("from_date") @db.Date
+  toDate           DateTime     @map("to_date") @db.Date
+  employeeCount    Int          @map("employee_count")
+  dayCount         Int          @map("day_count")
+  leaveRequestsDeleted Int      @map("leave_requests_deleted")
+  balancesRestored Int          @map("balances_restored")
+  remarks          String?      @db.VarChar(500)
+  revertDetails    Json?        @map("revert_details")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("validation_revert_history")
+}
+
+model Compound {
+  id              String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId  String           @map("organization_id") @db.Uuid
+  componentType   String           @map("component_type") @db.VarChar(50)
+  shortName       String           @map("short_name") @db.VarChar(100)
+  longName        String           @map("long_name") @db.VarChar(255)
+  type            String           @db.VarChar(50)
+  isDropDown      Boolean          @default(false) @map("is_drop_down")
+  isCompulsory    Boolean          @default(false) @map("is_compulsory")
+  isFilterable    Boolean          @default(false) @map("is_filterable")
+  reimbDetails    String?          @map("reimb_details") @db.VarChar(500)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  values          CompoundValue[]
+
+  @@unique([organizationId, shortName])
+  @@index([organizationId])
+  @@map("compounds")
+}
+
+model CompoundValue {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  compoundId String   @map("compound_id") @db.Uuid
+  value      String   @db.VarChar(255)
+  sortOrder  Int      @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  compound   Compound @relation(fields: [compoundId], references: [id], onDelete: Cascade)
+
+  @@index([compoundId])
+  @@map("compound_values")
 }
 
 enum OfferStatus {

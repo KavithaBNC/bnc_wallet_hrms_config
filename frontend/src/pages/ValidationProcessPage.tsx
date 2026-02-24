@@ -4,9 +4,9 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import paygroupService from '../services/paygroup.service';
 import employeeService from '../services/employee.service';
-import { attendanceService, type ValidationDaySummary } from '../services/attendance.service';
+import { attendanceService, type ValidationDaySummary, type LateDeductionEmployee, type LateDeductionResult, type ValidationRevertHistoryEntry } from '../services/attendance.service';
 
-type TabKey = 'process' | 'status';
+type TabKey = 'process' | 'status' | 'lateDeductions' | 'revertHistory';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -20,6 +20,7 @@ const EMPTY_DAY: ValidationDaySummary = {
   absent: 0,
   shortfall: 0,
   overtime: 0,
+  onHold: 0,
 };
 
 /** Aggregate daily summaries into one (sum counts across dates). */
@@ -29,7 +30,7 @@ function aggregateDailySummaries(
 ): ValidationDaySummary {
   const keys: (keyof ValidationDaySummary)[] = [
     'completed', 'approvalPending', 'late', 'earlyGoing', 'noOutPunch',
-    'shiftChange', 'absent', 'shortfall', 'overtime',
+    'shiftChange', 'absent', 'shortfall', 'overtime', 'onHold',
   ];
   const agg = { ...EMPTY_DAY };
   for (const dateKey of dateKeys) {
@@ -51,7 +52,8 @@ const VALIDATION_GROUPING_ROWS: { label: string; key: keyof ValidationDaySummary
   { label: 'OverTime', key: 'overtime' },
   { label: 'Shift Change', key: 'shiftChange' },
   { label: 'Shortfall', key: 'shortfall' },
-  { label: 'Completed', key: 'completed' },
+  { label: 'Validation Completed', key: 'completed' },
+  { label: 'Validation on Hold', key: 'onHold' },
 ];
 
 function getDayCellBgClass(dayStats: ValidationDaySummary): string {
@@ -63,6 +65,8 @@ function getDayCellBgClass(dayStats: ValidationDaySummary): string {
     dayStats.absent > 0 ||
     dayStats.shortfall > 0;
   const hasCompleted = dayStats.completed > 0;
+  const hasOnHold = (dayStats.onHold ?? 0) > 0;
+  if (hasOnHold) return 'bg-orange-50';
   if (hasAnomaly && hasCompleted) return 'bg-amber-50';
   if (hasAnomaly) return 'bg-red-50';
   if (hasCompleted) return 'bg-green-50';
@@ -121,17 +125,6 @@ function getDateKeysInRange(fromDate: string, toDate: string): string[] {
   return keys;
 }
 
-/** Default date range: first day of current month to last day of current month. */
-function getDefaultDateRange(): { from: string; to: string } {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return {
-    from: `${y}-${m}-01`,
-    to: `${y}-${m}-${String(lastDay).padStart(2, '0')}`,
-  };
-}
 
 export default function ValidationProcessPage() {
   const navigate = useNavigate();
@@ -160,15 +153,59 @@ export default function ValidationProcessPage() {
   const [dailySummary, setDailySummary] = useState<Record<string, ValidationDaySummary>>({});
   const [loadingProcess, setLoadingProcess] = useState(false);
   const [processError, setProcessError] = useState<string | null>(null);
+  const [hasProcessed, setHasProcessed] = useState(false);
   const [selectedDateForModal, setSelectedDateForModal] = useState<string | null>(null);
-  const hasUserTriggeredProcess = useRef(false);
+
+  const [lateDeductions, setLateDeductions] = useState<LateDeductionResult | null>(null);
+  const [loadingLateDeductions, setLoadingLateDeductions] = useState(false);
+  const [lateDeductionError, setLateDeductionError] = useState<string | null>(null);
+
+  // Revert state
+  const [showRevertConfirm, setShowRevertConfirm] = useState(false);
+  const [revertRemarks, setRevertRemarks] = useState('');
+  const [revertLoading, setRevertLoading] = useState(false);
+  const [revertResult, setRevertResult] = useState<{ reverted: number; leaveRequestsDeleted: number; balancesRestored: number; errors: { employeeId: string; date: string; message: string }[] } | null>(null);
+  const [showRevertResult, setShowRevertResult] = useState(false);
+
+  // Revert History state
+  const [revertHistory, setRevertHistory] = useState<ValidationRevertHistoryEntry[]>([]);
+  const [revertHistoryTotal, setRevertHistoryTotal] = useState(0);
+  const [revertHistoryPage, setRevertHistoryPage] = useState(1);
+  const [loadingRevertHistory, setLoadingRevertHistory] = useState(false);
+
+  const fetchRevertHistory = useCallback(async (page = 1) => {
+    if (!organizationId) return;
+    setLoadingRevertHistory(true);
+    try {
+      const res = await attendanceService.getValidationRevertHistory({ organizationId, page, limit: 20 });
+      setRevertHistory(res.history);
+      setRevertHistoryTotal(res.total);
+      setRevertHistoryPage(page);
+    } catch {
+      // ignore
+    } finally {
+      setLoadingRevertHistory(false);
+    }
+  }, [organizationId]);
+
+  const resetProcessResults = useCallback(() => {
+    setHasProcessed(false);
+    setProcessError(null);
+    setDailySummary({});
+    setSelectedDays(new Set());
+    setSelectedDateForModal(null);
+  }, []);
 
   const runProcess = useCallback(
     async (dateOverride?: { fromDate: string; toDate: string }) => {
       if (!organizationId) return;
-      const defaultRange = getDefaultDateRange();
-      const effectiveFrom = dateOverride?.fromDate ?? (fromDate || defaultRange.from);
-      const effectiveTo = dateOverride?.toDate ?? (toDate || defaultRange.to);
+      const effectiveFrom = dateOverride?.fromDate ?? fromDate;
+      const effectiveTo = dateOverride?.toDate ?? toDate;
+      if (!effectiveFrom || !effectiveTo) {
+        setProcessError('Select From Date and To Date, then click Process.');
+        setDailySummary({});
+        return;
+      }
       setLoadingProcess(true);
       setProcessError(null);
       try {
@@ -180,9 +217,11 @@ export default function ValidationProcessPage() {
           toDate: effectiveTo,
         });
         setDailySummary(res.daily ?? {});
+        setHasProcessed(true);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to run validation process';
         setProcessError(message);
+        setHasProcessed(false);
         setDailySummary({});
       } finally {
         setLoadingProcess(false);
@@ -191,29 +230,54 @@ export default function ValidationProcessPage() {
     [organizationId, paygroupFilter, associateFilter, fromDate, toDate]
   );
 
-  const loadStoredSummary = useCallback(async () => {
-    if (!organizationId) return;
-    const defaultRange = getDefaultDateRange();
-    const effectiveFrom = fromDate || defaultRange.from;
-    const effectiveTo = toDate || defaultRange.to;
+  const handleRevert = useCallback(async () => {
+    if (!organizationId || !fromDate || !toDate) return;
+    setRevertLoading(true);
     try {
-      const res = await attendanceService.getValidationProcessCalendarSummary({
+      const result = await attendanceService.revertValidationCorrection({
         organizationId,
         paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
         employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
-        fromDate: effectiveFrom,
-        toDate: effectiveTo,
+        fromDate,
+        toDate,
+        remarks: revertRemarks || undefined,
       });
-      setDailySummary(res.daily ?? {});
-    } catch {
-      setDailySummary({});
+      setRevertResult(result);
+      setShowRevertConfirm(false);
+      setShowRevertResult(true);
+      runProcess({ fromDate, toDate });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to revert';
+      setRevertResult({ reverted: 0, leaveRequestsDeleted: 0, balancesRestored: 0, errors: [{ employeeId: '', date: '', message }] });
+      setShowRevertConfirm(false);
+      setShowRevertResult(true);
+    } finally {
+      setRevertLoading(false);
+      setRevertRemarks('');
+    }
+  }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate, revertRemarks, runProcess]);
+
+  const fetchLateDeductions = useCallback(async () => {
+    if (!organizationId) return;
+    setLoadingLateDeductions(true);
+    setLateDeductionError(null);
+    try {
+      const res = await attendanceService.getValidationLateDeductions({
+        organizationId,
+        paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
+        employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
+        fromDate,
+        toDate,
+      });
+      setLateDeductions(res);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to fetch late deductions';
+      setLateDeductionError(msg);
+      setLateDeductions(null);
+    } finally {
+      setLoadingLateDeductions(false);
     }
   }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate]);
-
-  useEffect(() => {
-    if (!hasUserTriggeredProcess.current) return;
-    loadStoredSummary();
-  }, [paygroupFilter, associateFilter, loadStoredSummary]);
 
   useEffect(() => {
     if (!organizationId) return;
@@ -259,6 +323,12 @@ export default function ValidationProcessPage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  useEffect(() => {
+    if (activeTab === 'revertHistory') {
+      fetchRevertHistory(1);
+    }
+  }, [activeTab, fetchRevertHistory]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -284,6 +354,7 @@ export default function ValidationProcessPage() {
   const calendarWeeks = getCalendarWeeks(calendarYear, calendarMonthNum);
 
   const goPrevMonth = () => {
+    resetProcessResults();
     setCalendarMonth((d) => {
       const next = new Date(d);
       next.setMonth(next.getMonth() - 1);
@@ -295,6 +366,7 @@ export default function ValidationProcessPage() {
     });
   };
   const goNextMonth = () => {
+    resetProcessResults();
     setCalendarMonth((d) => {
       const next = new Date(d);
       next.setMonth(next.getMonth() + 1);
@@ -306,6 +378,7 @@ export default function ValidationProcessPage() {
     });
   };
   const goToday = () => {
+    resetProcessResults();
     const d = new Date();
     setCalendarMonth(d);
     const first = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -314,21 +387,46 @@ export default function ValidationProcessPage() {
     setToDate(last.toISOString().slice(0, 10));
   };
 
-  const getEffectiveDateRange = (): { from: string; to: string } => {
-    const defaultRange = getDefaultDateRange();
+  const getModalAggregationDates = (): {
+    datesToAggregate: string[];
+    dateFrom: string;
+    dateTo: string;
+  } => {
+    // Use the user-selected fromDate/toDate range when available.
+    // Fall back to the full visible calendar month only when no range is selected.
+    if (fromDate && toDate) {
+      const datesToAggregate = getDateKeysInRange(fromDate, toDate);
+      const sorted = [...datesToAggregate].sort();
+      return {
+        datesToAggregate,
+        dateFrom: sorted[0] ?? fromDate,
+        dateTo: sorted[sorted.length - 1] ?? toDate,
+      };
+    }
+    // Fallback: full visible calendar month
+    const y = calendarMonth.getFullYear();
+    const m = calendarMonth.getMonth();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const first = `${y}-${pad(m + 1)}-01`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const last = `${y}-${pad(m + 1)}-${pad(lastDay)}`;
+    const datesToAggregate = getDateKeysInRange(first, last);
+    const sorted = [...datesToAggregate].sort();
     return {
-      from: fromDate || defaultRange.from,
-      to: toDate || defaultRange.to,
+      datesToAggregate,
+      dateFrom: sorted[0] ?? '',
+      dateTo: sorted[sorted.length - 1] ?? '',
     };
   };
 
   const handleProcessOrView = () => {
-    hasUserTriggeredProcess.current = true;
-    const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
     if (!fromDate || !toDate) {
-      setFromDate(effectiveFrom);
-      setToDate(effectiveTo);
+      setProcessError('Select From Date and To Date, then click Process.');
+      setDailySummary({});
+      return;
     }
+    const effectiveFrom = fromDate;
+    const effectiveTo = toDate;
     setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
     runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
     // Select checkboxes only when user explicitly chose From Date and To Date
@@ -340,12 +438,13 @@ export default function ValidationProcessPage() {
   };
 
   const handleFilter = () => {
-    hasUserTriggeredProcess.current = true;
-    const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
     if (!fromDate || !toDate) {
-      setFromDate(effectiveFrom);
-      setToDate(effectiveTo);
+      setProcessError('Select From Date and To Date, then click Filter.');
+      setDailySummary({});
+      return;
     }
+    const effectiveFrom = fromDate;
+    const effectiveTo = toDate;
     setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
     runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
     // Select checkboxes only when user explicitly chose From Date and To Date
@@ -374,8 +473,8 @@ export default function ValidationProcessPage() {
         onLogout={handleLogout}
       />
 
-      <main className="flex-1 min-h-0 flex flex-col w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50">
-        <div className="flex-1 flex flex-col min-h-0 w-full">
+      <main className="flex-1 overflow-y-auto w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50">
+        <div className="w-full">
           {/* Breadcrumbs - Employee module style */}
           <div className="mb-4 flex-shrink-0">
             <nav className="flex items-center text-sm text-gray-600" aria-label="Breadcrumb">
@@ -387,8 +486,8 @@ export default function ValidationProcessPage() {
             </nav>
           </div>
 
-          {/* Card - full width and height */}
-          <div className="flex-1 flex flex-col min-h-0 bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+          {/* Card - full width */}
+          <div className="flex flex-col bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
             <div className="p-6 border-b border-gray-200 flex-shrink-0">
               <h2 className="text-2xl font-bold text-gray-900">Validation Process</h2>
               <p className="text-gray-600 mt-1">Filter by Pay Group and Associate, then view Process or Status</p>
@@ -421,6 +520,7 @@ export default function ValidationProcessPage() {
                             type="button"
                             onClick={() => {
                               setPaygroupFilter(opt.id);
+                              resetProcessResults();
                               setShowPaygroupDropdown(false);
                             }}
                             className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${
@@ -458,6 +558,7 @@ export default function ValidationProcessPage() {
                             type="button"
                             onClick={() => {
                               setAssociateFilter(opt.id);
+                              resetProcessResults();
                               setShowAssociateDropdown(false);
                             }}
                             className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 ${
@@ -495,12 +596,34 @@ export default function ValidationProcessPage() {
                   >
                     Status
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('lateDeductions')}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
+                      activeTab === 'lateDeductions'
+                        ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    Late Deductions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('revertHistory')}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
+                      activeTab === 'revertHistory'
+                        ? 'bg-orange-100 text-orange-900 border border-orange-300'
+                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    }`}
+                  >
+                    Revert History
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Content area - fills remaining space */}
-            <div className="flex-1 min-h-0 overflow-auto p-6 flex flex-col">
+            {/* Content area */}
+            <div className="p-6 flex flex-col">
               {activeTab === 'process' && (
                 <>
                   {/* Process tab: extra filters */}
@@ -530,7 +653,10 @@ export default function ValidationProcessPage() {
                       <input
                         type="date"
                         value={fromDate}
-                        onChange={(e) => setFromDate(e.target.value)}
+                        onChange={(e) => {
+                          setFromDate(e.target.value);
+                          resetProcessResults();
+                        }}
                         className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
@@ -539,7 +665,10 @@ export default function ValidationProcessPage() {
                       <input
                         type="date"
                         value={toDate}
-                        onChange={(e) => setToDate(e.target.value)}
+                        onChange={(e) => {
+                          setToDate(e.target.value);
+                          resetProcessResults();
+                        }}
                         className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
                     </div>
@@ -578,14 +707,13 @@ export default function ValidationProcessPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        const { from: effectiveFrom, to: effectiveTo } = getEffectiveDateRange();
-                        const params = new URLSearchParams();
-                        if (associateFilter !== 'ALL') params.set('associateId', associateFilter);
-                        params.set('fromDate', effectiveFrom);
-                        params.set('toDate', effectiveTo);
-                        navigate(`/hr-activities/validation-process/revert?${params.toString()}`);
+                        if (!fromDate || !toDate) {
+                          setProcessError('Select From Date and To Date before reverting.');
+                          return;
+                        }
+                        navigate(`/hr-activities/validation-process/revert?organizationId=${organizationId}&fromDate=${fromDate}&toDate=${toDate}${paygroupFilter && paygroupFilter !== 'ALL' ? `&paygroupId=${paygroupFilter}` : ''}`);
                       }}
-                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-red-300 bg-white text-sm font-medium text-red-700 hover:bg-red-50"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -630,7 +758,7 @@ export default function ValidationProcessPage() {
                   </div>
 
                   {/* Calendar */}
-                  <div className="flex-1 min-h-0 flex flex-col border border-gray-200 rounded-lg overflow-hidden bg-white">
+                  <div className="flex flex-col border border-gray-200 rounded-lg overflow-hidden bg-white">
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
                       <h3 className="text-lg font-semibold text-gray-900">{getMonthYearLabel(calendarMonth)}</h3>
                       <div className="flex items-center gap-2">
@@ -663,7 +791,7 @@ export default function ValidationProcessPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="flex-1 min-h-0 overflow-auto p-4">
+                    <div className="p-4">
                       <table className="w-full border-collapse text-sm">
                         <thead>
                           <tr>
@@ -684,42 +812,50 @@ export default function ValidationProcessPage() {
                                 const dateKey = `${calendarYear}-${String(calendarMonthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                                 const checked = selectedDays.has(dateKey);
                                 const dayStats = dailySummary[dateKey] ?? EMPTY_DAY;
-                                const cellBg = getDayCellBgClass(dayStats);
+                                const isFutureDate = new Date(dateKey + 'T00:00:00') > new Date(new Date().toDateString());
+                                const cellBg = isFutureDate ? 'bg-gray-50' : getDayCellBgClass(dayStats);
                                 return (
                                   <td
                                     key={di}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setSelectedDateForModal(dateKey)}
-                                    onKeyDown={(e) => e.key === 'Enter' && setSelectedDateForModal(dateKey)}
-                                    className={`border border-gray-200 align-top p-1.5 min-w-[120px] cursor-pointer hover:ring-1 hover:ring-blue-300 ${cellBg}`}
+                                    role={isFutureDate ? undefined : 'button'}
+                                    tabIndex={isFutureDate ? undefined : 0}
+                                    onClick={() => !isFutureDate && setSelectedDateForModal(dateKey)}
+                                    onKeyDown={(e) => !isFutureDate && e.key === 'Enter' && setSelectedDateForModal(dateKey)}
+                                    className={`border border-gray-200 align-top p-1.5 min-w-[120px] ${isFutureDate ? 'cursor-default opacity-40' : 'cursor-pointer hover:ring-1 hover:ring-blue-300'} ${cellBg}`}
                                   >
                                     <div className="flex items-start gap-1 mb-1">
-                                      <input
-                                        type="checkbox"
-                                        checked={checked}
-                                        onChange={(e) => {
-                                          e.stopPropagation();
-                                          toggleDay(calendarYear, calendarMonthNum, day);
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="rounded border-gray-300 text-gray-600 focus:ring-gray-500"
-                                      />
+                                      {!isFutureDate && (
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            toggleDay(calendarYear, calendarMonthNum, day);
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="rounded border-gray-300 text-gray-600 focus:ring-gray-500"
+                                        />
+                                      )}
                                       <span className="text-xs font-medium text-gray-500">{day}</span>
                                     </div>
-                                    {dayStats.completed > 0 && (
-                                      <div className="text-xs font-medium text-green-700 mb-1">Completed: {dayStats.completed}</div>
+                                    {isFutureDate ? null : (
+                                      <>
+                                        {dayStats.completed > 0 && (
+                                          <div className="text-xs font-medium text-green-700 mb-1">Validation Completed: {dayStats.completed}</div>
+                                        )}
+                                        {dayStats.approvalPending > 0 && (
+                                          <div className="text-xs text-red-700">Approval Pending: {dayStats.approvalPending}</div>
+                                        )}
+                                        {dayStats.late > 0 && <div className="text-xs text-red-700">Late: {dayStats.late}</div>}
+                                        {dayStats.earlyGoing > 0 && <div className="text-xs text-red-700">Early Going: {dayStats.earlyGoing}</div>}
+                                        {dayStats.noOutPunch > 0 && <div className="text-xs text-red-700">No Out Punch: {dayStats.noOutPunch}</div>}
+                                        {dayStats.shiftChange > 0 && <div className="text-xs text-red-700">Shift Change: {dayStats.shiftChange}</div>}
+                                        {dayStats.absent > 0 && <div className="text-xs text-red-700">Absent: {dayStats.absent}</div>}
+                                        {dayStats.shortfall > 0 && <div className="text-xs text-red-700">Shortfall: {dayStats.shortfall}</div>}
+                                        {dayStats.overtime > 0 && <div className="text-xs text-gray-700">OverTime: {dayStats.overtime}</div>}
+                                        {(dayStats.onHold ?? 0) > 0 && <div className="text-xs font-medium text-orange-700">Validation on Hold: {dayStats.onHold}</div>}
+                                      </>
                                     )}
-                                    {dayStats.approvalPending > 0 && (
-                                      <div className="text-xs text-red-700">Approval Pending: {dayStats.approvalPending}</div>
-                                    )}
-                                    {dayStats.late > 0 && <div className="text-xs text-red-700">Late: {dayStats.late}</div>}
-                                    {dayStats.earlyGoing > 0 && <div className="text-xs text-red-700">Early Going: {dayStats.earlyGoing}</div>}
-                                    {dayStats.noOutPunch > 0 && <div className="text-xs text-red-700">No Out Punch: {dayStats.noOutPunch}</div>}
-                                    {dayStats.shiftChange > 0 && <div className="text-xs text-red-700">Shift Change: {dayStats.shiftChange}</div>}
-                                    {dayStats.absent > 0 && <div className="text-xs text-red-700">Absent: {dayStats.absent}</div>}
-                                    {dayStats.shortfall > 0 && <div className="text-xs text-red-700">Shortfall: {dayStats.shortfall}</div>}
-                                    {dayStats.overtime > 0 && <div className="text-xs text-gray-700">OverTime: {dayStats.overtime}</div>}
                                   </td>
                                 );
                               })}
@@ -731,7 +867,7 @@ export default function ValidationProcessPage() {
                   </div>
 
                   {/* Validation Grouping modal - opens when a date is clicked */}
-                  {selectedDateForModal && (
+                  {hasProcessed && selectedDateForModal && (
                     <div
                       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
                       aria-modal="true"
@@ -757,13 +893,9 @@ export default function ValidationProcessPage() {
                         </div>
                         <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 text-sm text-gray-600">
                           {(() => {
-                            const { from: effFrom, to: effTo } = getEffectiveDateRange();
-                            const datesToAggregate =
-                              selectedDays.size > 0
-                                ? Array.from(selectedDays)
-                                : getDateKeysInRange(effFrom, effTo);
+                            const { datesToAggregate } = getModalAggregationDates();
                             if (datesToAggregate.length === 0) {
-                              return <>Date range: —</>;
+                              return <>Overall range: —</>;
                             }
                             const sorted = [...datesToAggregate].sort();
                             const first = sorted[0];
@@ -772,11 +904,7 @@ export default function ValidationProcessPage() {
                             const lastObj = new Date(last + 'T12:00:00');
                             const fromLabel = firstObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
                             const toLabel = lastObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-                            const rangeLabel =
-                              selectedDays.size > 0
-                                ? `Selected: ${datesToAggregate.length} dates (${fromLabel} – ${toLabel})`
-                                : `All data: ${fromLabel} – ${toLabel}`;
-                            return <>Date range: {rangeLabel}</>;
+                            return <>Overall range: {fromLabel} – {toLabel}</>;
                           })()}
                         </div>
                         <div className="flex items-center justify-between gap-4 px-6 py-3 border-b border-gray-200 bg-white">
@@ -830,15 +958,8 @@ export default function ValidationProcessPage() {
                             </thead>
                             <tbody>
                               {(() => {
-                                const { from: effFrom, to: effTo } = getEffectiveDateRange();
-                                const datesToAggregate =
-                                  selectedDays.size > 0
-                                    ? Array.from(selectedDays)
-                                    : getDateKeysInRange(effFrom, effTo);
+                                const { datesToAggregate, dateFrom, dateTo } = getModalAggregationDates();
                                 const aggregatedSummary = aggregateDailySummaries(dailySummary, datesToAggregate);
-                                const sortedDates = [...datesToAggregate].sort();
-                                const dateFrom = sortedDates[0] ?? '';
-                                const dateTo = sortedDates[sortedDates.length - 1] ?? '';
                                 return VALIDATION_GROUPING_ROWS.map(({ label, key }) => {
                                   const count = aggregatedSummary[key];
                                   return (
@@ -852,11 +973,12 @@ export default function ValidationProcessPage() {
                                           disabled={count === 0}
                                           onClick={() => {
                                             const params: Record<string, string> = { type: key };
-                                            if (dateFrom) params.date = dateFrom;
                                             if (dateFrom && dateTo) {
                                               params.fromDate = dateFrom;
                                               params.toDate = dateTo;
                                             }
+                                            if (paygroupFilter && paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
+                                            if (associateFilter && associateFilter !== 'ALL') params.employeeId = associateFilter;
                                             const search = new URLSearchParams(params).toString();
                                             setSelectedDateForModal(null);
                                             navigate(`/hr-activities/validation-process/employees?${search}`);
@@ -901,10 +1023,359 @@ export default function ValidationProcessPage() {
                   <p className="text-sm mt-2">Status content will be shown here.</p>
                 </div>
               )}
+
+              {activeTab === 'revertHistory' && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-gray-900">Revert History <span className="text-sm font-normal text-gray-500">(Audit Log)</span></h3>
+                    <button
+                      type="button"
+                      onClick={() => fetchRevertHistory(revertHistoryPage)}
+                      disabled={loadingRevertHistory}
+                      className="inline-flex items-center gap-1.5 h-8 px-3 rounded border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Refresh
+                    </button>
+                  </div>
+
+                  {loadingRevertHistory ? (
+                    <div className="py-8 text-center text-gray-500 text-sm">Loading history...</div>
+                  ) : revertHistory.length === 0 ? (
+                    <div className="py-12 text-center text-gray-400">
+                      <svg className="w-10 h-10 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <p className="text-sm font-medium">No revert history yet</p>
+                      <p className="text-xs mt-1">Revert actions will appear here for audit.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead className="bg-orange-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">#</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Date Range</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Employees</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Days Reverted</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Leaves Removed</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Balances Restored</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Remarks</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Reverted On</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 bg-white">
+                              {revertHistory.map((entry, idx) => (
+                                <tr key={entry.id} className="hover:bg-orange-50/40">
+                                  <td className="px-4 py-3 text-gray-400">{(revertHistoryPage - 1) * 20 + idx + 1}</td>
+                                  <td className="px-4 py-3 text-gray-900 font-medium whitespace-nowrap">
+                                    {entry.fromDate} → {entry.toDate}
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-gray-700">{entry.employeeCount}</td>
+                                  <td className="px-4 py-3 text-right text-gray-700">{entry.dayCount}</td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                      {entry.leaveRequestsDeleted}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                      {entry.balancesRestored}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-500 text-xs max-w-[200px] truncate">{entry.remarks || '—'}</td>
+                                  <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                                    {new Date(entry.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                      {revertHistoryTotal > 20 && (
+                        <div className="flex items-center justify-between text-sm text-gray-500">
+                          <span>Showing {(revertHistoryPage - 1) * 20 + 1}–{Math.min(revertHistoryPage * 20, revertHistoryTotal)} of {revertHistoryTotal}</span>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => fetchRevertHistory(revertHistoryPage - 1)}
+                              disabled={revertHistoryPage === 1 || loadingRevertHistory}
+                              className="h-8 px-3 rounded border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                            >Previous</button>
+                            <button
+                              type="button"
+                              onClick={() => fetchRevertHistory(revertHistoryPage + 1)}
+                              disabled={revertHistoryPage * 20 >= revertHistoryTotal || loadingRevertHistory}
+                              className="h-8 px-3 rounded border border-gray-300 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+                            >Next</button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              {activeTab === 'lateDeductions' && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div className="flex flex-col min-w-[140px]">
+                      <label className="text-sm font-medium text-gray-500 mb-1.5">From Date</label>
+                      <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+                        className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <div className="flex flex-col min-w-[140px]">
+                      <label className="text-sm font-medium text-gray-500 mb-1.5">To Date</label>
+                      <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)}
+                        className="h-10 w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                    </div>
+                    <button type="button" onClick={fetchLateDeductions} disabled={loadingLateDeductions || !organizationId}
+                      className="inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                      {loadingLateDeductions ? 'Calculating...' : 'Calculate Late Deductions'}
+                    </button>
+                  </div>
+
+                  {lateDeductionError && (
+                    <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{lateDeductionError}</div>
+                  )}
+
+                  {lateDeductions && (
+                    <>
+                      <div className="flex flex-wrap gap-4">
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex flex-col">
+                          <span className="text-xs text-blue-600 font-medium">Employees with Late</span>
+                          <span className="text-2xl font-bold text-blue-900">{lateDeductions.totals.totalEmployees}</span>
+                        </div>
+                        <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 flex flex-col">
+                          <span className="text-xs text-orange-600 font-medium">Total Late Count</span>
+                          <span className="text-2xl font-bold text-orange-900">{lateDeductions.totals.totalLateCount}</span>
+                        </div>
+                        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex flex-col">
+                          <span className="text-xs text-red-600 font-medium">Total Late Hours</span>
+                          <span className="text-2xl font-bold text-red-900">{(lateDeductions.totals.totalLateMinutes / 60).toFixed(1)} hr</span>
+                        </div>
+                      </div>
+
+                      <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">#</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Employee Code</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Employee Name</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Late Count</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Total Late Hours</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Tier / Action</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Deduction Type</th>
+                                <th className="px-4 py-3 text-right font-medium text-gray-700">Deduction Days</th>
+                                <th className="px-4 py-3 text-left font-medium text-gray-700">Note</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 bg-white">
+                              {lateDeductions.employees.length === 0 ? (
+                                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No late records found for the selected period</td></tr>
+                              ) : (
+                                lateDeductions.employees.map((emp: LateDeductionEmployee, idx: number) => (
+                                  <tr key={emp.employeeId} className="hover:bg-gray-50">
+                                    <td className="px-4 py-3 text-gray-500">{idx + 1}</td>
+                                    <td className="px-4 py-3 text-gray-900 font-medium">{emp.employeeCode}</td>
+                                    <td className="px-4 py-3 text-gray-900">{emp.employeeName}</td>
+                                    <td className="px-4 py-3 text-right text-gray-700">{emp.lateCount}</td>
+                                    <td className="px-4 py-3 text-right font-medium text-gray-900">{emp.totalLateHours} hr</td>
+                                    <td className="px-4 py-3">
+                                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                        {emp.actionName || '—'}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                        emp.deductionType === 'Permission' ? 'bg-green-100 text-green-800' :
+                                        emp.deductionType === 'Leave' ? 'bg-yellow-100 text-yellow-800' :
+                                        emp.deductionType === 'LOP' ? 'bg-red-100 text-red-800' :
+                                        'bg-gray-100 text-gray-800'
+                                      }`}>
+                                        {emp.deductionType || '—'}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right font-semibold text-gray-900">{emp.deductionDays}</td>
+                                    <td className="px-4 py-3 text-xs text-gray-500">
+                                      {emp.permissionExhausted && (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+                                          Permission exhausted → fallback
+                                        </span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {!lateDeductions && !loadingLateDeductions && !lateDeductionError && (
+                    <div className="text-center py-12 text-gray-500">
+                      <p className="text-lg font-medium mb-1">Select date range and click "Calculate Late Deductions"</p>
+                      <p className="text-sm">System will aggregate total late hours per employee and apply tier rules</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
       </main>
+
+      {/* Revert Confirmation Dialog */}
+      {showRevertConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => !revertLoading && setShowRevertConfirm(false)}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-red-50 rounded-t-xl">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Confirm Revert</h3>
+                <p className="text-xs text-gray-500 mt-0.5">This will undo HR validation corrections</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-3">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <p className="font-medium mb-1">What will be reverted:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-xs">
+                  <li>Validation lock removed → Status: Pending</li>
+                  <li>HR-created leave requests deleted (LOP, EL, Permission etc.)</li>
+                  <li>Leave balances restored automatically</li>
+                  <li>Employee-applied leaves are NOT affected</li>
+                </ul>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700">
+                <span className="font-medium">Date Range: </span>{fromDate} → {toDate}
+                {paygroupFilter !== 'ALL' && <><br /><span className="font-medium">Pay Group: </span>{selectedPaygroupLabel}</>}
+                {associateFilter !== 'ALL' && <><br /><span className="font-medium">Associate: </span>{selectedAssociateLabel}</>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Remarks (optional)</label>
+                <textarea
+                  rows={2}
+                  value={revertRemarks}
+                  onChange={(e) => setRevertRemarks(e.target.value)}
+                  placeholder="Reason for revert..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => { setShowRevertConfirm(false); setRevertRemarks(''); }}
+                disabled={revertLoading}
+                className="h-9 px-4 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRevert}
+                disabled={revertLoading}
+                className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {revertLoading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Reverting...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                    Yes, Revert
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revert Result Dialog */}
+      {showRevertResult && revertResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowRevertResult(false)}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${revertResult.errors.length > 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
+              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${revertResult.errors.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
+                {revertResult.errors.length > 0 ? (
+                  <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Revert {revertResult.errors.length > 0 ? 'Completed with Issues' : 'Successful'}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Validation corrections have been undone</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-800">{revertResult.reverted}</p>
+                  <p className="text-xs text-blue-600 mt-0.5">Records Reverted</p>
+                </div>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-red-800">{revertResult.leaveRequestsDeleted}</p>
+                  <p className="text-xs text-red-600 mt-0.5">Leaves Removed</p>
+                </div>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-green-800">{revertResult.balancesRestored}</p>
+                  <p className="text-xs text-green-600 mt-0.5">Balances Restored</p>
+                </div>
+              </div>
+              {revertResult.errors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 max-h-32 overflow-y-auto">
+                  <p className="text-xs font-semibold text-red-700 mb-1">Errors ({revertResult.errors.length}):</p>
+                  {revertResult.errors.map((e, i) => (
+                    <p key={i} className="text-xs text-red-600">{e.message}</p>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-gray-500 text-center">Calendar has been refreshed. Employee can now apply leave / correction.</p>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => { setShowRevertResult(false); if (activeTab !== 'revertHistory') setActiveTab('revertHistory'); fetchRevertHistory(1); }}
+                className="h-9 px-4 rounded-lg border border-orange-300 bg-orange-50 text-sm text-orange-700 hover:bg-orange-100"
+              >
+                View History
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRevertResult(false)}
+                className="h-9 px-4 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

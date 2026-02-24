@@ -9,7 +9,7 @@ import {
 } from '../utils/excess-time-rule';
 import {
   canPerformExcessTimeEventAction,
-  resolveRightsAllocationForEmployee,
+  resolveRightsAllocationContextForEmployee,
 } from '../utils/rights-allocation';
 
 export class CompOffRequestService {
@@ -399,7 +399,13 @@ export class CompOffRequestService {
     organizationId: string,
     data: { requestType: CompOffRequestType; reason?: string }
   ) {
-    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId);
+    const rightsContext = await resolveRightsAllocationContextForEmployee(employeeId, organizationId, {
+      effectiveDate: new Date(),
+    });
+    if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
+      throw new AppError('You do not have permission to request comp off from excess time.', 403);
+    }
+    const rightsAllocation = rightsContext.rights;
     const canAddCompOff = canPerformExcessTimeEventAction(rightsAllocation, 'add', {
       eventName: 'Excess time to Comp off',
     });
@@ -454,7 +460,13 @@ export class CompOffRequestService {
     organizationId: string,
     data?: { reason?: string }
   ) {
-    const rightsAllocation = await resolveRightsAllocationForEmployee(employeeId, organizationId);
+    const rightsContext = await resolveRightsAllocationContextForEmployee(employeeId, organizationId, {
+      effectiveDate: new Date(),
+    });
+    if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
+      throw new AppError('You do not have permission to request comp off from excess time.', 403);
+    }
+    const rightsAllocation = rightsContext.rights;
     const canAddCompOff = canPerformExcessTimeEventAction(rightsAllocation, 'add', {
       eventName: 'Excess time to Comp off',
     });

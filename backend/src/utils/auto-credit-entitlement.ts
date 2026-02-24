@@ -1,6 +1,23 @@
 import { prisma } from './prisma';
 import { getAttendanceComponentForLeaveType } from './event-config';
 
+function normalizeKey(value: unknown): string {
+  return String(value ?? '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+function applyRoundOffFromRule(value: number, rule: unknown): number {
+  if (!Number.isFinite(value)) return 0;
+  if (!rule || typeof rule !== 'object') return Number(value.toFixed(4));
+  const r = rule as Record<string, unknown>;
+  const isRoundOffEnabled = Boolean(r.roundOff);
+  if (!isRoundOffEnabled) return Number(value.toFixed(4));
+  const nature = String(r.roundOffNature ?? '').toLowerCase().trim();
+  if (nature.includes('up')) return Math.ceil(value);
+  if (nature.includes('down')) return Math.floor(value);
+  // Default behavior: >= .5 round to next integer
+  return Math.round(value);
+}
+
 export function readEntitlementDays(rule: unknown): number | null {
   if (!rule || typeof rule !== 'object') return null;
   const r = rule as Record<string, unknown>;
@@ -41,6 +58,25 @@ export type LeaveTypeForEntitlement = {
   code: string | null;
   defaultDaysPerYear: unknown;
 };
+
+export type AutoCreditSettingForMatch = {
+  eventType: string | null;
+  displayName: string | null;
+};
+
+export function doesAutoCreditSettingMatchLeaveType(
+  setting: AutoCreditSettingForMatch,
+  leaveType: { name: string; code: string | null }
+): boolean {
+  const leaveName = normalizeKey(leaveType.name);
+  const leaveCode = normalizeKey(leaveType.code);
+  const eventType = normalizeKey(setting.eventType);
+  const displayName = normalizeKey(setting.displayName);
+  return (
+    (eventType !== '' && (eventType === leaveName || (leaveCode !== '' && eventType === leaveCode))) ||
+    (displayName !== '' && (displayName === leaveCode || displayName === leaveName))
+  );
+}
 
 function isLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -99,7 +135,8 @@ export function readEntitlementDaysForEmployeeYear(
 ): number | null {
   const base = readEntitlementDays(rule);
   if (base == null) return null;
-  return computeProratedEntitlementForYear(base, rule, employeeDateOfJoining, year);
+  const prorated = computeProratedEntitlementForYear(base, rule, employeeDateOfJoining, year);
+  return applyRoundOffFromRule(prorated, rule);
 }
 
 /**
@@ -128,6 +165,7 @@ export async function getEntitlementForEmployeeAndLeaveType(
       effectiveDate: { lte: new Date(year, 11, 31) },
       OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date(year, 0, 1) } }],
     },
+    orderBy: [{ priority: 'asc' }, { effectiveDate: 'desc' }, { createdAt: 'desc' }],
     select: {
       eventType: true,
       displayName: true,
@@ -138,13 +176,9 @@ export async function getEntitlementForEmployeeAndLeaveType(
     },
   });
 
-  const nameKey = leaveType.name.toLowerCase().trim();
-  const codeKey = leaveType.code ? leaveType.code.trim().toUpperCase() : '';
   let hasAutoCreditInOrg = false;
   for (const s of autoCreditSettings) {
-    const matchByName = s.eventType && s.eventType.toLowerCase().trim() === nameKey;
-    const matchByCode = s.displayName && s.displayName.trim().toUpperCase() === codeKey;
-    if (matchByName || matchByCode) {
+    if (doesAutoCreditSettingMatchLeaveType(s, leaveType)) {
       hasAutoCreditInOrg = true;
       break;
     }
@@ -161,9 +195,7 @@ export async function getEntitlementForEmployeeAndLeaveType(
       year
     );
     if (n == null) continue;
-    const matchByName = s.eventType && s.eventType.toLowerCase().trim() === nameKey;
-    const matchByCode = s.displayName && s.displayName.trim().toUpperCase() === codeKey;
-    if (matchByName || matchByCode) {
+    if (doesAutoCreditSettingMatchLeaveType(s, leaveType)) {
       return { entitlement: n, hasAutoCreditInOrg: true };
     }
   }

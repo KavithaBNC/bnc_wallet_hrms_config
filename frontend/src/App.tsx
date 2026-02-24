@@ -14,6 +14,9 @@ import EmployeesPage from './pages/EmployeesPage';
 import PositionsPage from './pages/PositionsPage';
 import EventConfigurationPage from './pages/EventConfigurationPage';
 import OthersConfigurationPage from './pages/OthersConfigurationPage';
+import CoreHRPage from './pages/CoreHRPage';
+import CompoundCreationPage from './pages/CompoundCreationPage';
+import CompoundCreationFormPage from './pages/CompoundCreationFormPage';
 import ValidationProcessPage from './pages/ValidationProcessPage';
 import ValidationProcessEmployeeGridPage from './pages/ValidationProcessEmployeeGridPage';
 import RevertProcessPage from './pages/RevertProcessPage';
@@ -82,6 +85,7 @@ import EsopListPage from './pages/EsopListPage';
 import EsopPage from './pages/EsopPage';
 import LeaveApprovalPage from './pages/LeaveApprovalPage';
 import EventRequestPage from './pages/EventRequestPage';
+import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 function App() {
@@ -212,11 +216,88 @@ function App() {
             }
           />
           <Route
-            path="/hr-activities/post-to-payroll"
+
+          //   path="/hr-activities/post-to-payroll"
+          //   element={
+          //     <ProtectedRoute>
+          //       <DashboardLayout>
+          //         <PostToPayrollHRActivitiesPage />
+          //   path="/hr-activities/validation-process/revert"
+          //   element={
+          //     <ProtectedRoute>
+          //       <DashboardLayout>
+          //         <RevertProcessPage />
+          //       </DashboardLayout>
+          //     </ProtectedRoute>
+          //   }
+          // />
+                
+          path="/hr-activities/post-to-payroll"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <PostToPayrollHRActivitiesPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/hr-activities/validation-process/revert"
+          element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <RevertProcessPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          }
+        />
+          <Route
+            path="/core-hr"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <PostToPayrollHRActivitiesPage />
+                  <CoreHRPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/overview"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <CoreHRPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/compound-creation"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <CompoundCreationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/compound-creation/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <CompoundCreationFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/compound-creation/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <CompoundCreationFormPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
@@ -717,6 +798,16 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <EventRequestPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event/balance-entry"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EventBalanceEntryPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

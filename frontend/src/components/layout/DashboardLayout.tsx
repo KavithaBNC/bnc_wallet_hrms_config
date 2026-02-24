@@ -31,6 +31,21 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v8a2 2 0 002 2z" />
     </svg>
   ),
+  '/core-hr': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  ),
+  '/core-hr/overview': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  ),
+  '/core-hr/compound-creation': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012 2h6a2 2 0 012-2M5 11h14" />
+    </svg>
+  ),
   '/event-configuration': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -160,6 +175,11 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
   '/leave/approvals': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  '/event/balance-entry': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V7a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v12a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
     </svg>
   ),
   '/time-attendance': (
@@ -364,6 +384,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const isEventApply = mod.path === '/attendance/apply-event';
         const isEventRequest = mod.path === '/event/requests';
         const isEventApproval = mod.path === '/leave/approvals';
+        const isEventBalanceEntry = mod.path === '/event/balance-entry';
         const isExcessTimeRequest = mod.path === '/attendance/my-requests/excess-time-request';
         const isExcessTimeApproval = mod.path === '/attendance/excess-time-approval';
         const showTimeAttendance =
@@ -373,6 +394,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         const showEventApply = isEventApply && canAccessEventByRole;
         const showEventRequest = isEventRequest && canAccessEventByRole;
         const showEventApproval = isEventApproval && canAccessEventApprovalByRole;
+        const showEventBalanceEntry = isEventBalanceEntry && isHr;
         const showExcessTimeRequest = isExcessTimeRequest && canAccessEventByRole;
         const showExcessTimeApproval = isExcessTimeApproval && canAccessEventApprovalByRole;
         const isHrActivitiesModule = mod.path === '/hr-activities' || mod.parentPath === '/hr-activities';
@@ -384,6 +406,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           showEventApply ||
           showEventRequest ||
           showEventApproval ||
+          showEventBalanceEntry ||
           showExcessTimeRequest ||
           showExcessTimeApproval ||
           showHrActivities
@@ -393,7 +416,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     }
     return items;
-  }, [isSuperAdmin, hasView, isHrOrOrgAdmin, hasAnyReadPermission, canAccessEventByRole, canAccessEventApprovalByRole]);
+  }, [isSuperAdmin, hasView, isHrOrOrgAdmin, hasAnyReadPermission, canAccessEventByRole, canAccessEventApprovalByRole, isHr]);
 
   // Payroll Master dropdown: open when current path is under its children (e.g. /payroll/employee-separation)
   const payrollMasterDropdownOpen = location.pathname.startsWith('/payroll/');
@@ -454,6 +477,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     if (othersConfigurationDropdownOpen) setOthersConfigurationExpanded(true);
   }, [othersConfigurationDropdownOpen]);
 
+  // Core HR dropdown: open when current path is under /core-hr
+  const coreHrDropdownOpen = location.pathname.startsWith('/core-hr');
+  const [coreHrExpanded, setCoreHrExpanded] = useState(coreHrDropdownOpen);
+  useEffect(() => {
+    if (coreHrDropdownOpen) setCoreHrExpanded(true);
+  }, [coreHrDropdownOpen]);
+
   // Attendance dropdown: open when current path is under /attendance/
   const attendanceDropdownOpen = location.pathname.startsWith('/attendance/');
   const [attendanceExpanded, setAttendanceExpanded] = useState(attendanceDropdownOpen);
@@ -495,12 +525,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const isEventApplyPath = currentModule?.path === '/attendance/apply-event';
   const isEventRequestPath = currentModule?.path === '/event/requests';
   const isEventApprovalPath = currentModule?.path === '/leave/approvals';
+  const isEventBalanceEntryPath = currentModule?.path === '/event/balance-entry';
   const isExcessTimeRequestPath = currentModule?.path === '/attendance/my-requests/excess-time-request';
   const isExcessTimeApprovalPath = currentModule?.path === '/attendance/excess-time-approval';
   const hasLeaveAccess = canAccessEventByRole;
   const hasEventApplyAccess = canAccessEventByRole;
   const hasEventRequestAccess = canAccessEventByRole;
   const hasEventApprovalAccess = canAccessEventApprovalByRole;
+  const hasEventBalanceEntryAccess = isHr;
   const hasExcessTimeRequestAccess = canAccessEventByRole;
   const hasExcessTimeApprovalAccess = canAccessEventApprovalByRole;
   const allowed = isDashboardOrProfile
@@ -519,6 +551,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 ? hasEventRequestAccess
               : isEventApprovalPath
                 ? hasEventApprovalAccess
+                : isEventBalanceEntryPath
+                  ? hasEventBalanceEntryAccess
                 : isExcessTimeRequestPath
                   ? hasExcessTimeRequestAccess
                   : isExcessTimeApprovalPath
@@ -566,9 +600,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const isEventConfiguration = mod.path === '/event-configuration';
             const isHrActivities = mod.path === '/hr-activities';
             const isOthersConfiguration = mod.path === '/others-configuration';
-            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isLeave ? leaveExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isAttendance ? attendanceExpanded : isEventConfiguration ? eventConfigurationExpanded : isHrActivities ? hrActivitiesExpanded : isOthersConfiguration ? othersConfigurationExpanded : false;
-            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isLeave ? setLeaveExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isAttendance ? setAttendanceExpanded : isEventConfiguration ? setEventConfigurationExpanded : isHrActivities ? setHrActivitiesExpanded : isOthersConfiguration ? setOthersConfigurationExpanded : () => {};
-            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isLeave ? leaveDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isAttendance ? attendanceDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : isHrActivities ? hrActivitiesDropdownOpen : isOthersConfiguration ? othersConfigurationDropdownOpen : false;
+            const isCoreHr = mod.path === '/core-hr';
+            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isLeave ? leaveExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isAttendance ? attendanceExpanded : isEventConfiguration ? eventConfigurationExpanded : isHrActivities ? hrActivitiesExpanded : isOthersConfiguration ? othersConfigurationExpanded : isCoreHr ? coreHrExpanded : false;
+            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isLeave ? setLeaveExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isAttendance ? setAttendanceExpanded : isEventConfiguration ? setEventConfigurationExpanded : isHrActivities ? setHrActivitiesExpanded : isOthersConfiguration ? setOthersConfigurationExpanded : isCoreHr ? setCoreHrExpanded : () => {};
+            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isLeave ? leaveDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isAttendance ? attendanceDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : isHrActivities ? hrActivitiesDropdownOpen : isOthersConfiguration ? othersConfigurationDropdownOpen : isCoreHr ? coreHrDropdownOpen : false;
 
             if (isParentWithChildren) {
               return (
@@ -589,6 +624,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                         }
                         return;
                       }
+                      if (mod.path === '/core-hr') {
+                        if (location.pathname.startsWith('/core-hr')) {
+                          setExpanded((e: boolean) => !e);
+                        } else {
+                          setExpanded(true);
+                          navigate('/core-hr');
+                        }
+                        return;
+                      }
                       setExpanded((e: boolean) => !e);
                     }}
                     role="button"
@@ -602,6 +646,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                           } else {
                             setExpanded(true);
                             navigate('/attendance');
+                          }
+                          return;
+                        }
+                        if (mod.path === '/core-hr') {
+                          if (location.pathname.startsWith('/core-hr')) {
+                            setExpanded((x: boolean) => !x);
+                          } else {
+                            setExpanded(true);
+                            navigate('/core-hr');
                           }
                           return;
                         }

@@ -6,6 +6,7 @@ import { usePositionStore } from '../store/positionStore';
 import { Employee } from '../services/employee.service';
 import employeeService from '../services/employee.service';
 import api from '../services/api';
+import * as XLSX from 'xlsx';
 import Modal from '../components/common/Modal';
 import EmployeeForm from '../components/employees/EmployeeForm';
 import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
@@ -20,6 +21,59 @@ function getAvatarColor(name: string): string {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return colors[Math.abs(hash) % colors.length];
+}
+
+type EmployeeImportFailure = {
+  row: number;
+  message: string;
+  email?: string;
+};
+
+function normalizeHeader(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function toDateOnly(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // Excel serial date (days since 1899-12-30 in most files)
+    const utcMillis = Math.round((value - 25569) * 86400 * 1000);
+    const asDate = new Date(utcMillis);
+    if (!Number.isNaN(asDate.getTime())) {
+      return asDate.toISOString().slice(0, 10);
+    }
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+    if (isoDate.test(trimmed)) return trimmed;
+    const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
+    const match = trimmed.match(dmy);
+    if (match) {
+      const dd = match[1].padStart(2, '0');
+      const mm = match[2].padStart(2, '0');
+      const yyyy = match[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+  return null;
+}
+
+function getCellValue(row: Record<string, unknown>, keys: string[]): unknown {
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  for (const key of keys.map((k) => normalizeHeader(k))) {
+    const found = normalizedEntries.find(([k]) => k === key);
+    if (found && found[1] !== '' && found[1] != null) return found[1];
+  }
+  return '';
 }
 
 export default function EmployeesPage() {
@@ -62,6 +116,10 @@ export default function EmployeesPage() {
   const [updateFaceSaving, setUpdateFaceSaving] = useState(false);
   const [viewType, setViewType] = useState<'list' | 'grid'>('list');
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importingEmployees, setImportingEmployees] = useState(false);
+  const [importResult, setImportResult] = useState<{ total: number; success: number; failures: EmployeeImportFailure[] } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
@@ -544,6 +602,133 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleImportEmployees = async () => {
+    if (!importFile) {
+      alert('Please choose an Excel file first.');
+      return;
+    }
+    if (!effectiveOrganizationId) {
+      alert('Please select an organization before importing employees.');
+      return;
+    }
+
+    setImportingEmployees(true);
+    setImportResult(null);
+    try {
+      const buffer = await importFile.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) {
+        alert('No sheets found in the selected file.');
+        return;
+      }
+
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheet], {
+        defval: '',
+      });
+      if (!rows.length) {
+        alert('Selected file has no data rows.');
+        return;
+      }
+
+      const failures: EmployeeImportFailure[] = [];
+      let success = 0;
+      let total = 0;
+
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index];
+        const firstName = String(getCellValue(row, ['firstName', 'first_name', 'firstname'])).trim();
+        const lastName = String(getCellValue(row, ['lastName', 'last_name', 'lastname'])).trim();
+        const email = String(getCellValue(row, ['email', 'emailId', 'mail'])).trim();
+        const dateOfJoining = toDateOnly(getCellValue(row, ['dateOfJoining', 'date_of_joining', 'joiningDate', 'doj']));
+        const employeeCode = String(getCellValue(row, ['employeeCode', 'employee_code', 'empCode', 'empcode'])).trim();
+        const phone = String(getCellValue(row, ['phone', 'mobile', 'mobileNumber'])).trim();
+        const personalEmail = String(getCellValue(row, ['personalEmail', 'personal_email'])).trim();
+
+        // Skip fully empty rows
+        if (!firstName && !lastName && !email && !dateOfJoining && !employeeCode) {
+          continue;
+        }
+
+        total += 1;
+        if (!firstName || !lastName || !email || !dateOfJoining) {
+          failures.push({
+            row: index + 2, // 1-based + header row
+            email: email || undefined,
+            message: 'Missing required columns (firstName, lastName, email, dateOfJoining).',
+          });
+          continue;
+        }
+
+        try {
+          await employeeService.create({
+            organizationId: effectiveOrganizationId,
+            firstName,
+            lastName,
+            email,
+            dateOfJoining,
+            ...(employeeCode ? { employeeCode } : {}),
+            ...(phone ? { phone } : {}),
+            ...(personalEmail ? { personalEmail } : {}),
+          });
+          success += 1;
+        } catch (err: any) {
+          failures.push({
+            row: index + 2,
+            email,
+            message: err?.response?.data?.message || err?.message || 'Failed to create employee',
+          });
+        }
+      }
+
+      setImportResult({ total, success, failures });
+
+      const params: any = {
+        page: currentPage,
+        limit: pageSize,
+        listView: true,
+        sortBy,
+        sortOrder,
+      };
+      if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+      if (searchTerm) params.search = searchTerm;
+      params.employeeStatus = statusFilter;
+      if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+      if (positionFilter !== 'ALL') params.positionId = positionFilter;
+      await fetchEmployees(params);
+    } finally {
+      setImportingEmployees(false);
+    }
+  };
+
+  const handleDownloadImportTemplate = () => {
+    const templateRows = [
+      {
+        firstName: 'John',
+        lastName: 'Doe',
+        email: 'john.doe@example.com',
+        dateOfJoining: '2026-02-18',
+        employeeCode: 'EMP1001',
+        phone: '9876543210',
+        personalEmail: 'john.personal@example.com',
+      },
+      {
+        firstName: 'Priya',
+        lastName: 'Kumar',
+        email: 'priya.kumar@example.com',
+        dateOfJoining: '2026-02-19',
+        employeeCode: 'EMP1002',
+        phone: '9123456780',
+        personalEmail: 'priya.personal@example.com',
+      },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(templateRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Employees');
+    XLSX.writeFile(workbook, `employee_import_template_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   // Show error if no organizationId (after trying to load user data). Super Admin can use "All" so skip.
   if (!organizationId && !loadingUser && !isSuperAdmin) {
     return (
@@ -725,6 +910,19 @@ export default function EmployeesPage() {
                 className="h-9 px-4 py-2 rounded-lg bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 + Add Employee
+              </button>
+            )}
+            {(user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER') && (
+              <button
+                onClick={() => {
+                  setShowImportModal(true);
+                  setImportResult(null);
+                }}
+                disabled={isSuperAdmin && superAdminSelectedOrgId === 'ALL'}
+                title={isSuperAdmin && superAdminSelectedOrgId === 'ALL' ? 'Select an organization to import employees' : undefined}
+                className="h-9 px-4 py-2 rounded-lg bg-white text-gray-700 font-medium text-sm border border-gray-300 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Import Excel
               </button>
             )}
           </div>
@@ -1655,6 +1853,89 @@ export default function EmployeesPage() {
             }
           />
         )}
+      </Modal>
+
+      {/* Employee Import Modal */}
+      <Modal
+        isOpen={showImportModal}
+        onClose={() => {
+          if (importingEmployees) return;
+          setShowImportModal(false);
+          setImportFile(null);
+          setImportResult(null);
+        }}
+        title="Import Employees (Excel)"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-gray-600">
+            Required columns: <strong>firstName</strong>, <strong>lastName</strong>, <strong>email</strong>, <strong>dateOfJoining</strong>. Optional: employeeCode, phone, personalEmail.
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={handleDownloadImportTemplate}
+              disabled={importingEmployees}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Download Sample Template
+            </button>
+          </div>
+          <div>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border file:border-gray-300 file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100"
+              disabled={importingEmployees}
+            />
+            {importFile && (
+              <p className="mt-2 text-xs text-gray-500">
+                Selected: {importFile.name}
+              </p>
+            )}
+          </div>
+
+          {importResult && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+              <p>Total rows processed: <strong>{importResult.total}</strong></p>
+              <p>Created successfully: <strong className="text-green-700">{importResult.success}</strong></p>
+              <p>Failed: <strong className="text-red-700">{importResult.failures.length}</strong></p>
+              {importResult.failures.length > 0 && (
+                <div className="mt-2 max-h-48 overflow-auto rounded border border-red-100 bg-white p-2">
+                  {importResult.failures.map((f, idx) => (
+                    <div key={`${f.row}-${idx}`} className="text-xs text-red-700">
+                      Row {f.row}{f.email ? ` (${f.email})` : ''}: {f.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowImportModal(false);
+                setImportFile(null);
+                setImportResult(null);
+              }}
+              disabled={importingEmployees}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={handleImportEmployees}
+              disabled={!importFile || importingEmployees}
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50"
+            >
+              {importingEmployees ? 'Importing...' : 'Start Import'}
+            </button>
+          </div>
+        </div>
       </Modal>
       </main>
     </div>

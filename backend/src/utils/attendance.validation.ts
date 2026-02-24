@@ -188,7 +188,7 @@ export const runValidationProcessSchema = z
   .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
 
 const validationGroupingTypeEnum = z.enum([
-  'absent', 'approvalPending', 'earlyGoing', 'late', 'noOutPunch', 'overtime', 'shiftChange', 'shortfall', 'completed',
+  'absent', 'approvalPending', 'earlyGoing', 'late', 'noOutPunch', 'overtime', 'shiftChange', 'shortfall', 'completed', 'validationOnHold',
 ]);
 
 export const queryValidationProcessEmployeeListSchema = z.object({
@@ -196,7 +196,77 @@ export const queryValidationProcessEmployeeListSchema = z.object({
   fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
   toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
   type: validationGroupingTypeEnum,
+  paygroupId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
 }).refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
+
+export const applyValidationCorrectionSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  ruleId: z.string().uuid().optional(),
+  directComponentId: z.string().uuid().optional(),
+  type: z.enum(['late', 'earlyGoing', 'noOutPunch', 'shortfall', 'absent', 'approvalPending', 'overtime', 'shiftChange']).optional(),
+  selectedRows: z.array(z.object({
+    employeeId: z.string().uuid('Invalid employee ID'),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })).min(1, 'At least one row must be selected'),
+  remarks: z.string().max(500).optional(),
+});
+
+export const revertValidationCorrectionSchema = z
+  .object({
+    organizationId: z.string().uuid('Invalid organization ID'),
+    paygroupId: z.string().uuid().optional().nullable(),
+    employeeId: z.string().uuid().optional().nullable(),
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+    remarks: z.string().max(500).optional(),
+  })
+  .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
+
+export const queryValidationRevertHistorySchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
+});
+
+export const queryCompletedListSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  paygroupId: z.string().uuid().optional(),
+  search: z.string().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(200).optional(),
+});
+
+export const revertByRowsSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  selectedRows: z.array(z.object({
+    employeeId: z.string().uuid('Invalid employee ID'),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })).min(1, 'At least one row must be selected'),
+  remarks: z.string().max(500).optional(),
+});
+
+export const onHoldSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  selectedRows: z.array(z.object({
+    employeeId: z.string().uuid('Invalid employee ID'),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })).min(1, 'At least one row must be selected'),
+  holdAssociateCanModify: z.boolean().optional().default(false),
+  holdManagerCanModify: z.boolean().optional().default(false),
+  revertRegularization: z.boolean().optional().default(false),
+  reason: z.string().max(500).optional(),
+});
+
+export const releaseHoldSchema = z.object({
+  organizationId: z.string().uuid('Invalid organization ID'),
+  selectedRows: z.array(z.object({
+    employeeId: z.string().uuid('Invalid employee ID'),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })).min(1, 'At least one row must be selected'),
+});
 
 // Types
 export type CheckInInput = z.infer<typeof checkInSchema>;
@@ -217,3 +287,10 @@ export type QueryCompOffRequestDetailsInput = z.infer<typeof queryCompOffRequest
 export type QueryValidationProcessCalendarInput = z.infer<typeof queryValidationProcessCalendarSchema>;
 export type RunValidationProcessInput = z.infer<typeof runValidationProcessSchema>;
 export type QueryValidationProcessEmployeeListInput = z.infer<typeof queryValidationProcessEmployeeListSchema>;
+export type ApplyValidationCorrectionInput = z.infer<typeof applyValidationCorrectionSchema>;
+export type RevertValidationCorrectionInput = z.infer<typeof revertValidationCorrectionSchema>;
+export type QueryValidationRevertHistoryInput = z.infer<typeof queryValidationRevertHistorySchema>;
+export type QueryCompletedListInput = z.infer<typeof queryCompletedListSchema>;
+export type RevertByRowsInput = z.infer<typeof revertByRowsSchema>;
+export type OnHoldInput = z.infer<typeof onHoldSchema>;
+export type ReleaseHoldInput = z.infer<typeof releaseHoldSchema>;

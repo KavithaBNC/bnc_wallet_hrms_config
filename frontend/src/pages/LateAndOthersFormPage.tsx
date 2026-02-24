@@ -239,6 +239,14 @@ export default function LateAndOthersFormPage() {
       setError('Effective Date is required.');
       return;
     }
+    if (
+      selectedShifts.length === 0 &&
+      selectedPaygroups.length === 0 &&
+      selectedDepartments.length === 0
+    ) {
+      setError('Select at least one: Shift, Paygroup, or Department.');
+      return;
+    }
 
     setError(null);
     setSaving(true);
@@ -396,7 +404,7 @@ export default function LateAndOthersFormPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Shift <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Shift</label>
                       <MultiSelectChips
                         selected={selectedShifts}
                         onRemove={removeShift}
@@ -418,7 +426,7 @@ export default function LateAndOthersFormPage() {
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Paygroup <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Paygroup</label>
                       <MultiSelectChips
                         selected={selectedPaygroups}
                         onRemove={removePaygroup}
@@ -431,7 +439,7 @@ export default function LateAndOthersFormPage() {
                       <p className="mt-1.5 text-xs text-gray-500">Select &quot;All&quot; to apply this rule to all paygroups in the organization.</p>
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Department <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">Department</label>
                       <MultiSelectChips
                         selected={selectedDepartments}
                         onRemove={removeDepartment}

@@ -40,6 +40,7 @@
     "migrate:rule-setting-event-rules": "ts-node -r tsconfig-paths/register src/scripts/add-rule-setting-event-rules-columns.ts",
     "migrate:auto-credit-setting": "ts-node -r tsconfig-paths/register src/scripts/apply-auto-credit-setting-migration.ts",
     "migrate:auto-credit-rule": "ts-node -r tsconfig-paths/register src/scripts/add-auto-credit-rule-columns.ts",
+    "migrate:event-balance-entry-dates": "ts-node -r tsconfig-paths/register src/scripts/add-event-balance-entry-date-range-columns.ts",
     "ensure:login": "ts-node -r tsconfig-paths/register src/scripts/ensure-login-users.ts",
     "test:iclock": "ts-node -r tsconfig-paths/register src/scripts/test-iclock-local.ts",
     "check:attendance-log": "ts-node -r tsconfig-paths/register src/scripts/check-latest-attendance-log.ts",

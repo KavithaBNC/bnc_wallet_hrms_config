@@ -14,7 +14,7 @@ import { getEntitlementForEmployeeAndLeaveType } from '../utils/auto-credit-enti
 import { getAttendanceComponentForLeaveType } from '../utils/event-config';
 import {
   canPerformAttendanceEventAction,
-  resolveRightsAllocationForEmployee,
+  resolveRightsAllocationContextForEmployee,
 } from '../utils/rights-allocation';
 import { resolveWorkflowForEmployeeOrNull } from './workflow-resolution.service';
 import {
@@ -26,25 +26,47 @@ import {
 import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
 
 export class LeaveRequestService {
-  private readonly hrManagedOnlyLeaveNameKeys = [
+  private readonly hrEntryRequiredLeaveNameKeys = [
+    'paternityleave',
     'marriageleave',
+    'bereavementleave',
+  ];
+
+  private readonly fixedDurationLeaveNameKeys = [
+    'marriageleave',
+    'maternityleave',
     'paternityleave',
     'beverageleave',
     'bereavementleave',
   ];
 
-  private readonly hrManagedOnlyRoles = new Set(['HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN']);
-
   private normalizeEventKey(value: string | null | undefined): string {
     return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
-  private isHrManagedOnlyLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
+  private isCarryForwardEligibleLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
+    const code = (leaveType.code || '').trim().toUpperCase();
+    const nameKey = this.normalizeEventKey(leaveType.name);
+    return code === 'EL' || code === 'SL' || nameKey === 'earnedleave' || nameKey === 'sickleave';
+  }
+
+  private isFixedDurationLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
     const nameKey = this.normalizeEventKey(leaveType.name);
     const codeKey = this.normalizeEventKey(leaveType.code);
-    return this.hrManagedOnlyLeaveNameKeys.some(
+    return this.fixedDurationLeaveNameKeys.some(
       (k) => nameKey.includes(k) || codeKey === k
     );
+  }
+
+  private isForcedZeroOpeningLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
+    void leaveType;
+    return false;
+  }
+
+  private isHrEntryRequiredLeaveType(leaveType: { name?: string | null; code?: string | null }): boolean {
+    const nameKey = this.normalizeEventKey(leaveType.name);
+    const codeKey = this.normalizeEventKey(leaveType.code);
+    return this.hrEntryRequiredLeaveNameKeys.some((k) => nameKey.includes(k) || codeKey === k);
   }
 
   private isUuid(value: string | null | undefined): boolean {
@@ -272,9 +294,8 @@ export class LeaveRequestService {
   }
 
   /**
-   * Validate leave dates against Allow WeekOff / Allow Holiday flags.
-   * If allowWeekOffSelection is false, no date in range may be a weekend.
-   * If allowHolidaySelection is false, no date in range may be a holiday.
+   * Validate leave range has at least one eligible day based on
+   * Allow WeekOff / Allow Holiday flags.
    */
   private async validateWeekOffAndHoliday(
     employeeId: string,
@@ -285,26 +306,88 @@ export class LeaveRequestService {
     allowHoliday: boolean
   ): Promise<{ valid: boolean; reason?: string }> {
     if (allowWeekOff && allowHoliday) return { valid: true };
+    let hasEligibleDay = false;
+    let firstBlockedLabel: string | null = null;
     const current = new Date(startDate);
     current.setUTCHours(0, 0, 0, 0);
     const end = new Date(endDate);
     end.setUTCHours(23, 59, 59, 999);
     while (current <= end) {
-      if (!allowWeekOff && (await this.isWeekOffForEmployee(employeeId, organizationId, current))) {
-        return {
-          valid: false,
-          reason: `This leave type cannot be applied on week-offs. ${this.formatDateOnly(current)} is a weekend.`,
-        };
-      }
-      if (!allowHoliday && (await this.isHoliday(organizationId, current))) {
-        return {
-          valid: false,
-          reason: `This leave type cannot be applied on holidays. ${this.formatDateOnly(current)} is a holiday.`,
-        };
+      const isWeekOff = await this.isWeekOffForEmployee(employeeId, organizationId, current);
+      const isHoliday = await this.isHoliday(organizationId, current);
+      const canCountByWeekOff = allowWeekOff || !isWeekOff;
+      const canCountByHoliday = allowHoliday || !isHoliday;
+
+      if (canCountByWeekOff && canCountByHoliday) {
+        hasEligibleDay = true;
+      } else if (!firstBlockedLabel) {
+        if (!allowWeekOff && isWeekOff) {
+          firstBlockedLabel = `${this.formatDateOnly(current)} is a weekend.`;
+        } else if (!allowHoliday && isHoliday) {
+          firstBlockedLabel = `${this.formatDateOnly(current)} is a holiday.`;
+        }
       }
       current.setUTCDate(current.getUTCDate() + 1);
     }
+    if (!hasEligibleDay) {
+      return {
+        valid: false,
+        reason:
+          `Selected date range has no eligible leave days for this leave type.` +
+          (firstBlockedLabel ? ` ${firstBlockedLabel}` : ''),
+      };
+    }
     return { valid: true };
+  }
+
+  private async countEligibleDaysInRange(
+    employeeId: string,
+    organizationId: string,
+    startDate: Date,
+    endDate: Date,
+    allowWeekOff: boolean,
+    allowHoliday: boolean
+  ): Promise<number> {
+    let count = 0;
+    const current = new Date(startDate);
+    current.setUTCHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setUTCHours(0, 0, 0, 0);
+    while (current <= end) {
+      const isWeekOff = await this.isWeekOffForEmployee(employeeId, organizationId, current);
+      const isHoliday = await this.isHoliday(organizationId, current);
+      const canCountByWeekOff = allowWeekOff || !isWeekOff;
+      const canCountByHoliday = allowHoliday || !isHoliday;
+      if (canCountByWeekOff && canCountByHoliday) count += 1;
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+    return count;
+  }
+
+  private async calculateEndDateForEligibleDays(params: {
+    employeeId: string;
+    organizationId: string;
+    startDate: Date;
+    requiredDays: number;
+    allowWeekOff: boolean;
+    allowHoliday: boolean;
+  }): Promise<Date> {
+    const { employeeId, organizationId, startDate, requiredDays, allowWeekOff, allowHoliday } = params;
+    const cursor = new Date(startDate);
+    cursor.setUTCHours(0, 0, 0, 0);
+    let remaining = Math.max(0, Math.floor(requiredDays));
+    if (remaining === 0) return cursor;
+    while (remaining > 0) {
+      const isWeekOff = await this.isWeekOffForEmployee(employeeId, organizationId, cursor);
+      const isHoliday = await this.isHoliday(organizationId, cursor);
+      const canCountByWeekOff = allowWeekOff || !isWeekOff;
+      const canCountByHoliday = allowHoliday || !isHoliday;
+      if (canCountByWeekOff && canCountByHoliday) {
+        remaining -= 1;
+      }
+      if (remaining > 0) cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return cursor;
   }
 
   private normalizeKey(value: string | null | undefined): string {
@@ -501,7 +584,80 @@ export class LeaveRequestService {
       },
     });
 
-    if (!balance) {
+    if (balance) {
+      const leaveType = await prisma.leaveType.findUnique({
+        where: { id: leaveTypeId },
+        select: { name: true, code: true },
+      });
+      if (leaveType && this.isHrEntryRequiredLeaveType(leaveType)) {
+        const hasExplicitHrEntry = !!balance.fromDate && !!balance.toDate;
+        if (!hasExplicitHrEntry) {
+          const opening = Number(balance.openingBalance ?? 0);
+          const accrued = Number(balance.accrued ?? 0);
+          const carry = Number(balance.carriedForward ?? 0);
+          const available = Number(balance.available ?? 0);
+          if (opening > 0 || accrued > 0 || carry > 0 || available > 0) {
+            balance = await prisma.employeeLeaveBalance.update({
+              where: {
+                employeeId_leaveTypeId_year: {
+                  employeeId,
+                  leaveTypeId,
+                  year,
+                },
+              },
+              data: {
+                openingBalance: new Prisma.Decimal(0),
+                accrued: new Prisma.Decimal(0),
+                carriedForward: new Prisma.Decimal(0),
+                available: new Prisma.Decimal(0),
+              },
+            });
+          }
+        }
+      }
+      if (leaveType && this.isForcedZeroOpeningLeaveType(leaveType)) {
+        const opening = Number(balance.openingBalance ?? 0);
+        const accrued = Number(balance.accrued ?? 0);
+        const carry = Number(balance.carriedForward ?? 0);
+        if (opening > 0 || accrued > 0 || carry > 0) {
+          balance = await prisma.employeeLeaveBalance.update({
+            where: {
+              employeeId_leaveTypeId_year: {
+                employeeId,
+                leaveTypeId,
+                year,
+              },
+            },
+            data: {
+              openingBalance: new Prisma.Decimal(0),
+              accrued: new Prisma.Decimal(0),
+              carriedForward: new Prisma.Decimal(0),
+              available: new Prisma.Decimal(0),
+            },
+          });
+        }
+      }
+      if (leaveType && !this.isCarryForwardEligibleLeaveType(leaveType)) {
+        const existingCarry = Number(balance.carriedForward ?? 0);
+        if (existingCarry > 0) {
+          const opening = Number(balance.openingBalance ?? 0);
+          const used = Number(balance.used ?? 0);
+          balance = await prisma.employeeLeaveBalance.update({
+            where: {
+              employeeId_leaveTypeId_year: {
+                employeeId,
+                leaveTypeId,
+                year,
+              },
+            },
+            data: {
+              carriedForward: new Prisma.Decimal(0),
+              available: new Prisma.Decimal(Math.max(0, opening - used)),
+            },
+          });
+        }
+      }
+    } else {
       const [employee, leaveType] = await Promise.all([
         prisma.employee.findUnique({
           where: { id: employeeId },
@@ -511,6 +667,7 @@ export class LeaveRequestService {
             paygroupId: true,
             departmentId: true,
             employeeCode: true,
+            dateOfJoining: true,
           },
         }),
         prisma.leaveType.findUnique({
@@ -531,6 +688,28 @@ export class LeaveRequestService {
         leaveType,
         year
       );
+      const forcedZeroOpening = this.isForcedZeroOpeningLeaveType(leaveType);
+      const hrEntryRequired = this.isHrEntryRequiredLeaveType(leaveType);
+      const previousYearBalance = await prisma.employeeLeaveBalance.findUnique({
+        where: {
+          employeeId_leaveTypeId_year: {
+            employeeId,
+            leaveTypeId,
+            year: year - 1,
+          },
+        },
+        select: { available: true },
+      });
+      const previousAvailable = forcedZeroOpening || hrEntryRequired ? 0 : Math.max(0, Number(previousYearBalance?.available ?? 0));
+      const maxCarryForward = !forcedZeroOpening && !hrEntryRequired && leaveType.maxCarryForward != null
+        ? Math.max(0, Number(leaveType.maxCarryForward))
+        : null;
+      const carryForward = forcedZeroOpening || hrEntryRequired
+        ? 0
+        :
+        maxCarryForward != null ? Math.min(previousAvailable, maxCarryForward) : previousAvailable;
+      const effectiveEntitlement = forcedZeroOpening || hrEntryRequired ? 0 : entitlement;
+      const available = Math.max(0, effectiveEntitlement + carryForward);
       const dec = (n: number) => new Prisma.Decimal(n);
 
       balance = await prisma.employeeLeaveBalance.create({
@@ -538,9 +717,10 @@ export class LeaveRequestService {
           employeeId,
           leaveTypeId,
           year,
-          openingBalance: dec(entitlement),
-          accrued: dec(entitlement),
-          available: dec(entitlement),
+          openingBalance: dec(effectiveEntitlement),
+          accrued: dec(effectiveEntitlement),
+          carriedForward: dec(carryForward),
+          available: dec(available),
         },
       });
     }
@@ -554,7 +734,7 @@ export class LeaveRequestService {
   async create(
     employeeId: string,
     data: CreateLeaveRequestInput,
-    requesterRole?: string
+    _requesterRole?: string
   ) {
     // Verify employee exists
     const employee = await prisma.employee.findUnique({
@@ -583,17 +763,6 @@ export class LeaveRequestService {
       throw new AppError('Leave type does not belong to your organization', 403);
     }
 
-    // Certain leave types must be granted only by HR/Admin users.
-    if (
-      this.isHrManagedOnlyLeaveType(leaveType) &&
-      !this.hrManagedOnlyRoles.has(String(requesterRole || ''))
-    ) {
-      throw new AppError(
-        `${leaveType.name} can be added only by HR. Please contact HR team.`,
-        403
-      );
-    }
-
     // Parse dates
     const startDate = this.parseDateOnly(data.startDate);
     const endDate = this.parseDateOnly(data.endDate);
@@ -603,6 +772,34 @@ export class LeaveRequestService {
     today.setUTCHours(0, 0, 0, 0);
     // Past-date apply is allowed.
     // Keep only date-format/order validation (handled by schema + parseDateOnly).
+
+    // Block event application if validation is already completed for any date in range
+    const allDatesInRange: Date[] = [];
+    const dateCursor = new Date(startDate);
+    while (dateCursor <= endDate) {
+      allDatesInRange.push(new Date(dateCursor));
+      dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    }
+
+    const validationCompletedDates = await prisma.attendanceValidationResult.findMany({
+      where: {
+        organizationId: employee.organizationId,
+        employeeId,
+        date: { in: allDatesInRange },
+        isCompleted: true,
+      },
+      select: { date: true },
+    });
+
+    if (validationCompletedDates.length > 0) {
+      const completedDateStrings = validationCompletedDates
+        .map(v => v.date.toISOString().split('T')[0])
+        .join(', ');
+      throw new AppError(
+        `Validation already completed for date(s): ${completedDateStrings}. Cannot apply event.`,
+        400
+      );
+    }
 
     // Check eligibility based on leave policy
     const eligibility = await leavePolicyService.checkEligibility(employeeId, data.leaveTypeId);
@@ -634,10 +831,15 @@ export class LeaveRequestService {
 
     // Event config: resolve AttendanceComponent for this leave type (by name/code)
     const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
-    const rightsAllocation = await resolveRightsAllocationForEmployee(
+    const rightsContext = await resolveRightsAllocationContextForEmployee(
       employeeId,
-      employee.organizationId
+      employee.organizationId,
+      { effectiveDate: startDate }
     );
+    if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
+      throw new AppError('You do not have permission to apply this event.', 403);
+    }
+    const rightsAllocation = rightsContext.rights;
     const canAddEvent = canPerformAttendanceEventAction(rightsAllocation, 'add', {
       eventId: component?.id,
       leaveTypeName: leaveType.name,
@@ -652,12 +854,30 @@ export class LeaveRequestService {
     // a full-day request on weekend/holiday is not incorrectly stored as half-day/0-day.
     const computedWorkingDays = this.calculateTotalDays(startDate, endDate);
     const computedCalendarDays = this.calculateCalendarDays(startDate, endDate);
+    const computedEligibleDays = await this.countEligibleDaysInRange(
+      employeeId,
+      employee.organizationId,
+      startDate,
+      endDate,
+      component?.allowWeekOffSelection ?? true,
+      component?.allowHolidaySelection ?? true
+    );
     const shouldCountCalendarDays =
-      !!component && (component.allowWeekOffSelection || component.allowHolidaySelection);
+      !!component && !!component.allowWeekOffSelection && !!component.allowHolidaySelection;
     const totalDays =
       data.totalDays != null
         ? data.totalDays
-        : (shouldCountCalendarDays ? computedCalendarDays : computedWorkingDays);
+        : (shouldCountCalendarDays
+            ? computedCalendarDays
+            : component
+              ? computedEligibleDays
+              : computedWorkingDays);
+    if (totalDays <= 0) {
+      throw new AppError(
+        'Selected date range has no eligible leave days. Please choose working days.',
+        400
+      );
+    }
 
     // Allow Hourly = NO → reject half-day/hourly requests
     const isHourlyOrHalfDay = totalDays < 1 || totalDays % 1 !== 0;
@@ -743,21 +963,38 @@ export class LeaveRequestService {
     // Enforce monthly permission application limit from Rule Settings (server-side guard)
     await this.enforceMonthlyPermissionLimit(employee, leaveType, startDate, endDate);
 
-    // Get current year
-    const year = new Date().getFullYear();
+    // Use request start year for balance operations.
+    const year = startDate.getUTCFullYear();
 
     // Onduty-marked requests should behave like non-balance events even when a fallback leave type is used.
     const isOndutyMarkedRequest = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(data.reason || '');
+    const hrEntryRequiredLeave = this.isHrEntryRequiredLeaveType(leaveType);
     // Has Balance = NO → do not maintain balance; skip balance check and deduction on approve
-    const shouldCheckBalance = !isOndutyMarkedRequest && (component === null || component.hasBalance);
+    const shouldCheckBalance =
+      !isOndutyMarkedRequest && (hrEntryRequiredLeave || component === null || component.hasBalance);
     if (shouldCheckBalance) {
       const balance = await this.getOrCreateLeaveBalance(employeeId, data.leaveTypeId, year);
       const availableDays = parseFloat(balance.available.toString());
+      if (this.isFixedDurationLeaveType(leaveType) && availableDays <= 0) {
+        throw new AppError(
+          `${leaveType.name} balance is exhausted. You cannot apply again.`,
+          400
+        );
+      }
       if (totalDays > availableDays && !leaveType.canBeNegative) {
         throw new AppError(
           `Insufficient leave balance. Available: ${availableDays} days, Requested: ${totalDays} days`,
           400
         );
+      }
+      if (this.isFixedDurationLeaveType(leaveType) && availableDays > 0) {
+        const isExact = Math.abs(totalDays - availableDays) < 0.0001;
+        if (!isExact) {
+          throw new AppError(
+            `${leaveType.name} must be applied for exactly ${availableDays} day(s) based on your opening balance.`,
+            400
+          );
+        }
       }
     }
 
@@ -850,6 +1087,68 @@ export class LeaveRequestService {
     }
 
     return leaveRequest;
+  }
+
+  async getApplyHint(employeeId: string, query: { leaveTypeId: string; startDate: string }) {
+    const employee = await prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { id: true, organizationId: true },
+    });
+    if (!employee) throw new AppError('Employee not found', 404);
+
+    const leaveType = await prisma.leaveType.findUnique({
+      where: { id: query.leaveTypeId },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        organizationId: true,
+      },
+    });
+    if (!leaveType) throw new AppError('Leave type not found', 404);
+    if (leaveType.organizationId !== employee.organizationId) {
+      throw new AppError('Leave type does not belong to your organization', 403);
+    }
+
+    const startDate = this.parseDateOnly(query.startDate);
+    const year = startDate.getUTCFullYear();
+    const balance = await this.getOrCreateLeaveBalance(employeeId, leaveType.id, year);
+    const openingBalance = Number(balance.openingBalance ?? 0);
+    const usedBalance = Number(balance.used ?? 0);
+    const availableBalance = Number(balance.available ?? 0);
+    const fixedDurationEnforced = this.isFixedDurationLeaveType(leaveType);
+    const fixedDays = fixedDurationEnforced ? Math.max(0, Math.floor(availableBalance)) : null;
+
+    const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
+    const allowWeekOffSelection = component?.allowWeekOffSelection ?? true;
+    const allowHolidaySelection = component?.allowHolidaySelection ?? true;
+
+    const recommendedEndDate =
+      fixedDays && fixedDays > 0
+        ? this.formatDateOnly(
+            await this.calculateEndDateForEligibleDays({
+              employeeId,
+              organizationId: employee.organizationId,
+              startDate,
+              requiredDays: fixedDays,
+              allowWeekOff: allowWeekOffSelection,
+              allowHoliday: allowHolidaySelection,
+            })
+          )
+        : this.formatDateOnly(startDate);
+
+    return {
+      leaveTypeId: leaveType.id,
+      openingBalance,
+      usedBalance,
+      availableBalance,
+      fixedDurationEnforced,
+      fixedDays,
+      recommendedFromDate: this.formatDateOnly(startDate),
+      recommendedEndDate,
+      allowWeekOffSelection,
+      allowHolidaySelection,
+    };
   }
 
   /**
@@ -1070,7 +1369,9 @@ export class LeaveRequestService {
       leaveRequest.leaveType
     );
     const isOndutyMarkedRequest = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(leaveRequest.reason || '');
-    const shouldDeductBalance = !isOndutyMarkedRequest && (component === null || component.hasBalance);
+    const hrEntryRequiredLeave = this.isHrEntryRequiredLeaveType(leaveRequest.leaveType);
+    const shouldDeductBalance =
+      !isOndutyMarkedRequest && (hrEntryRequiredLeave || component === null || component.hasBalance);
 
     const reviewerEmployee = await this.validateReviewerAccess(reviewerId, reviewerRole, leaveRequest);
 
@@ -1154,7 +1455,7 @@ export class LeaveRequestService {
 
     // Update leave balance only when FULLY approved and event config Has Balance = YES
     if (isFullyApproved && shouldDeductBalance) {
-      const year = new Date().getFullYear();
+      const year = new Date(leaveRequest.startDate).getUTCFullYear();
       const balance = await this.getOrCreateLeaveBalance(
         leaveRequest.employeeId,
         leaveRequest.leaveTypeId,
@@ -1217,6 +1518,8 @@ export class LeaveRequestService {
     const approvedAttendanceNote = isOndutyOrWorkFromHome
       ? `Present: Full Day (${leaveRequest.leaveType?.name ?? 'On Duty'})`
       : `Leave: ${leaveRequest.leaveType?.name ?? 'Approved leave'}`;
+    const allowWeekOffSelection = component?.allowWeekOffSelection ?? true;
+    const allowHolidaySelection = component?.allowHolidaySelection ?? true;
 
     const start = new Date(leaveRequest.startDate);
     start.setHours(0, 0, 0, 0);
@@ -1225,6 +1528,26 @@ export class LeaveRequestService {
     for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
       const dateOnly = new Date(d);
       dateOnly.setHours(0, 0, 0, 0);
+      let statusForDay: AttendanceStatus = approvedAttendanceStatus;
+      let notesForDay = approvedAttendanceNote;
+
+      if (!isOndutyOrWorkFromHome) {
+        const isWeekOff = !allowWeekOffSelection
+          ? await this.isWeekOffForEmployee(leaveRequest.employeeId, leaveRequest.employee.organizationId, dateOnly)
+          : false;
+        const isHoliday = !allowHolidaySelection
+          ? await this.isHoliday(leaveRequest.employee.organizationId, dateOnly)
+          : false;
+
+        if (isWeekOff) {
+          statusForDay = AttendanceStatus.WEEKEND;
+          notesForDay = 'Week Off';
+        } else if (isHoliday) {
+          statusForDay = AttendanceStatus.HOLIDAY;
+          notesForDay = 'Holiday';
+        }
+      }
+
       await prisma.attendanceRecord.upsert({
         where: {
           employeeId_date: { employeeId: leaveRequest.employeeId, date: dateOnly },
@@ -1232,12 +1555,12 @@ export class LeaveRequestService {
         create: {
           employeeId: leaveRequest.employeeId,
           date: dateOnly,
-          status: approvedAttendanceStatus,
-          notes: approvedAttendanceNote,
+          status: statusForDay,
+          notes: notesForDay,
         },
         update: {
-          status: approvedAttendanceStatus,
-          notes: approvedAttendanceNote,
+          status: statusForDay,
+          notes: notesForDay,
         },
       });
     }
@@ -1406,10 +1729,15 @@ export class LeaveRequestService {
     ]);
     if (employee && leaveType) {
       const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
-      const rightsAllocation = await resolveRightsAllocationForEmployee(
+      const rightsContext = await resolveRightsAllocationContextForEmployee(
         employee.id,
-        employee.organizationId
+        employee.organizationId,
+        { effectiveDate: leaveRequest.startDate }
       );
+      if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
+        throw new AppError('You do not have permission to cancel this event.', 403);
+      }
+      const rightsAllocation = rightsContext.rights;
       const canCancelEvent = canPerformAttendanceEventAction(rightsAllocation, 'cancel', {
         eventId: component?.id,
         leaveTypeName: leaveType.name,
@@ -1513,9 +1841,20 @@ export class LeaveRequestService {
         : null;
       const computedWorkingDays = this.calculateTotalDays(startDate, endDate);
       const computedCalendarDays = this.calculateCalendarDays(startDate, endDate);
+      const computedEligibleDays =
+        component && employee
+          ? await this.countEligibleDaysInRange(
+              employeeId,
+              employee.organizationId,
+              startDate,
+              endDate,
+              component.allowWeekOffSelection ?? true,
+              component.allowHolidaySelection ?? true
+            )
+          : computedWorkingDays;
       const shouldCountCalendarDays =
-        !!component && (component.allowWeekOffSelection || component.allowHolidaySelection);
-      const totalDays = shouldCountCalendarDays ? computedCalendarDays : computedWorkingDays;
+        !!component && !!component.allowWeekOffSelection && !!component.allowHolidaySelection;
+      const totalDays = shouldCountCalendarDays ? computedCalendarDays : computedEligibleDays;
       updateData.startDate = startDate;
       updateData.endDate = endDate;
       updateData.totalDays = new Prisma.Decimal(totalDays);

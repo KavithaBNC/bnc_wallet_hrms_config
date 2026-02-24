@@ -21,6 +21,8 @@ export interface ValidationProcessActionInput {
   dayType: string;
   days: string;
   daysValue?: number | string | null;
+  minMinutes?: number | null;
+  maxMinutes?: number | null;
   sortOrder?: number;
 }
 
@@ -105,6 +107,8 @@ export class ValidationProcessRuleService {
           dayType: a.dayType,
           days: a.days,
           daysValue: a.daysValue != null && a.daysValue !== '' ? new Prisma.Decimal(String(a.daysValue)) : null,
+          minMinutes: a.minMinutes ?? null,
+          maxMinutes: a.maxMinutes ?? null,
           sortOrder: a.sortOrder ?? i,
         })),
       });
@@ -260,6 +264,8 @@ export class ValidationProcessRuleService {
             dayType: a.dayType,
             days: a.days,
             daysValue: a.daysValue != null && a.daysValue !== '' ? new Prisma.Decimal(String(a.daysValue)) : null,
+            minMinutes: a.minMinutes ?? null,
+            maxMinutes: a.maxMinutes ?? null,
             sortOrder: a.sortOrder ?? i,
           })),
         });
@@ -278,23 +284,23 @@ export class ValidationProcessRuleService {
   }
 
   /**
-   * Find the best matching Validation Process Rule for a **Late** scenario.
-   * This is read-only and designed to fail soft (returns null on any Prisma error)
-   * so that attendance flow is never broken even if validation tables are missing.
+   * Find the best matching Validation Process Rule for a given grouping (Late, Early Going, etc.).
+   * Fails soft (returns null) so attendance flow is never broken.
    */
-  async getApplicableRuleForLate(params: {
+  async getApplicableRule(params: {
     organizationId: string;
     employeeId: string;
     paygroupId?: string | null;
     departmentId?: string | null;
     shiftId?: string | null;
     attendanceDate: Date;
+    validationGrouping: string;
   }) {
     try {
       const baseRules = await prisma.validationProcessRule.findMany({
         where: {
           organizationId: params.organizationId,
-          validationGrouping: 'Late',
+          validationGrouping: params.validationGrouping,
           effectiveDate: { lte: params.attendanceDate },
         },
         orderBy: [{ priority: 'asc' }, { effectiveDate: 'desc' }],
@@ -333,7 +339,6 @@ export class ValidationProcessRuleService {
           } else if (shiftIds && params.shiftId && shiftIds.includes(params.shiftId)) {
             score = 1;
           } else if (!employeeIds && !paygroupIds && !departmentIds && !shiftIds) {
-            // Organization-wide fallback
             score = 0;
           }
 
@@ -352,9 +357,22 @@ export class ValidationProcessRuleService {
 
       return scored[0].rule;
     } catch {
-      // Table might not exist on some environments; never break attendance flow.
       return null;
     }
+  }
+
+  /**
+   * Backward-compatible wrapper: find the best matching rule for **Late**.
+   */
+  async getApplicableRuleForLate(params: {
+    organizationId: string;
+    employeeId: string;
+    paygroupId?: string | null;
+    departmentId?: string | null;
+    shiftId?: string | null;
+    attendanceDate: Date;
+  }) {
+    return this.getApplicableRule({ ...params, validationGrouping: 'Late' });
   }
 
   /**
@@ -389,7 +407,6 @@ export class ValidationProcessRuleService {
       const month = args.attendanceDate.getUTCMonth();
       const monthStart = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
 
-      // Count previous late days in the same month (before current date)
       const previousCount = await prisma.attendanceRecord.count({
         where: {
           employeeId: args.employeeId,
@@ -401,10 +418,9 @@ export class ValidationProcessRuleService {
         },
       });
 
-      const totalCount = previousCount + 1; // including today
+      const totalCount = previousCount + 1;
 
       if (monthly.count == null) {
-        // No count cap configured
         return true;
       }
 
@@ -412,13 +428,158 @@ export class ValidationProcessRuleService {
         return false;
       }
 
-      // You can optionally also enforce maxMinutes here later
-      // if (monthly.maxMinutes != null && args.lateMinutesToday > monthly.maxMinutes) return false;
-
       return true;
     } catch {
-      // Any error (including table missing) should not break attendance processing
       return true;
+    }
+  }
+
+  /**
+   * Given a rule and the number of late minutes today, pick the matching action
+   * based on each action's minMinutes / maxMinutes range.
+   *
+   * If no action matches by minute range, falls back to the last action (sortOrder).
+   * Fails soft (returns null) on any error.
+   */
+  getActionForLateMinutes(rule: {
+    actions?: {
+      id: string;
+      name: string;
+      sortOrder: number;
+      correctionMethod: string;
+      minMinutes: number | null;
+      maxMinutes: number | null;
+      [key: string]: unknown;
+    }[];
+  }, lateMinutes: number) {
+    try {
+      const actions = rule.actions ?? [];
+      if (!actions.length) return null;
+
+      const hasRanges = actions.some((a) => a.minMinutes != null || a.maxMinutes != null);
+      if (!hasRanges) {
+        return actions.sort((a, b) => a.sortOrder - b.sortOrder)[0];
+      }
+
+      const sorted = [...actions].sort((a, b) => a.sortOrder - b.sortOrder);
+      for (const action of sorted) {
+        const min = action.minMinutes ?? 0;
+        const max = action.maxMinutes;
+        if (lateMinutes >= min && (max == null || lateMinutes <= max)) {
+          return action;
+        }
+      }
+
+      return sorted[sorted.length - 1];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Full resolution: pick the correct action for a late scenario considering
+   * both the minute-based tier AND the monthly permission/count limit.
+   *
+   * Flow:
+   *   1. Match action by lateMinutes range (e.g. 90 min → Action0 Permission)
+   *   2. If the matched action has a monthly limit configured (e.g. 2 permissions/month):
+   *      a. Count how many times that action was already applied this month
+   *      b. If within limit → return the matched action
+   *      c. If exhausted → fall back to the action named in `deductPriority`
+   *   3. If the fallback action is "Leave" but employee has no leave balance,
+   *      look for an LOP action as final fallback.
+   *
+   * Returns { action, permissionExhausted, usedCount, monthlyLimit } or null.
+   * Fails soft (returns the minute-matched action) on any DB error.
+   */
+  async resolveActionForLate(args: {
+    rule: {
+      id: string;
+      hasLimit: boolean;
+      limits?: {
+        periodicity: string;
+        maxMinutes: number | null;
+        count: number | null;
+        applyAfterEveryCount: boolean;
+        deductPriority: string | null;
+      }[];
+      actions?: {
+        id: string;
+        name: string;
+        sortOrder: number;
+        correctionMethod: string;
+        minMinutes: number | null;
+        maxMinutes: number | null;
+        [key: string]: unknown;
+      }[];
+    };
+    employeeId: string;
+    attendanceDate: Date;
+    lateMinutes: number;
+  }) {
+    const actions = args.rule.actions ?? [];
+    const sorted = [...actions].sort((a, b) => a.sortOrder - b.sortOrder);
+
+    const matched = this.getActionForLateMinutes(args.rule, args.lateMinutes);
+    if (!matched) return null;
+
+    if (!args.rule.hasLimit) {
+      return { action: matched, permissionExhausted: false, usedCount: 0, monthlyLimit: null };
+    }
+
+    const limits = (args.rule.limits ?? []) as {
+      periodicity: string;
+      maxMinutes: number | null;
+      count: number | null;
+      applyAfterEveryCount: boolean;
+      deductPriority: string | null;
+    }[];
+
+    const monthly = limits.find((l) => l.periodicity === 'Monthly');
+    if (!monthly || monthly.count == null) {
+      return { action: matched, permissionExhausted: false, usedCount: 0, monthlyLimit: null };
+    }
+
+    try {
+      const year = args.attendanceDate.getUTCFullYear();
+      const month = args.attendanceDate.getUTCMonth();
+      const monthStart = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+
+      const usedCount = await prisma.attendanceRecord.count({
+        where: {
+          employeeId: args.employeeId,
+          date: { gte: monthStart, lt: args.attendanceDate },
+          isLate: true,
+          validationAction: matched.name,
+        },
+      });
+
+      if (usedCount < monthly.count) {
+        return {
+          action: matched,
+          permissionExhausted: false,
+          usedCount,
+          monthlyLimit: monthly.count,
+        };
+      }
+
+      // Permission exhausted → fall back to deductPriority action
+      const fallbackName = monthly.deductPriority;
+      const fallback = fallbackName
+        ? sorted.find((a) => a.name === fallbackName)
+        : null;
+
+      const finalAction = fallback ?? sorted.find((a) => a.name !== matched.name && a.correctionMethod !== 'LOP') ?? matched;
+
+      return {
+        action: finalAction,
+        permissionExhausted: true,
+        usedCount,
+        monthlyLimit: monthly.count,
+      };
+    } catch {
+      // DB error (e.g. validationAction column missing) → return matched action, don't break flow
+      return { action: matched, permissionExhausted: false, usedCount: 0, monthlyLimit: monthly.count };
     }
   }
 }

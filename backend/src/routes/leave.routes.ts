@@ -114,6 +114,16 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/leaves/requests/apply-hint
+ * @desc    Get employee-specific leave apply hint
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/requests/apply-hint',
+  leaveRequestController.getApplyHint.bind(leaveRequestController)
+);
+
+/**
  * @route   GET /api/v1/leaves/requests/:id
  * @desc    Get leave request by ID
  * @access  Private (All authenticated users)
@@ -193,6 +203,28 @@ router.get(
   '/calendar',
   validateQuery(queryLeaveCalendarSchema),
   leaveBalanceController.getCalendar.bind(leaveBalanceController)
+);
+
+/**
+ * @route   GET /api/v1/leaves/balance-entry
+ * @desc    List event balance entries (employee-wise)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.get(
+  '/balance-entry',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  leaveBalanceController.getBalanceEntries.bind(leaveBalanceController)
+);
+
+/**
+ * @route   PUT /api/v1/leaves/balance-entry
+ * @desc    Upsert event balance entry
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.put(
+  '/balance-entry',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  leaveBalanceController.upsertBalanceEntry.bind(leaveBalanceController)
 );
 
 // ============================================================================

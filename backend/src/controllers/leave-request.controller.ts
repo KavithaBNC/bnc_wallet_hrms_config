@@ -47,6 +47,51 @@ export class LeaveRequestController {
   }
 
   /**
+   * Get leave apply hint (opening/available/fixed range)
+   * GET /api/v1/leaves/requests/apply-hint
+   */
+  async getApplyHint(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return res.status(401).json({
+          status: 'fail',
+          message: 'Authentication required',
+        });
+      }
+
+      const employee = await prisma.employee.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
+
+      if (!employee) {
+        return res.status(404).json({
+          status: 'fail',
+          message: 'Employee profile not found',
+        });
+      }
+
+      const leaveTypeId = String(req.query.leaveTypeId || '');
+      const startDate = String(req.query.startDate || '');
+      if (!leaveTypeId || !startDate) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'leaveTypeId and startDate are required',
+        });
+      }
+
+      const data = await leaveRequestService.getApplyHint(employee.id, { leaveTypeId, startDate });
+      return res.status(200).json({
+        status: 'success',
+        data,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Get all leave requests
    * GET /api/v1/leaves/requests
    */

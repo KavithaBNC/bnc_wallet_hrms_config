@@ -285,12 +285,13 @@ export class ShiftAssignmentRuleService {
     if (!employee) return null;
 
     const normDateStr = dateStr.slice(0, 10); // YYYY-MM-DD
-    const dateForQuery = new Date(normDateStr + 'T12:00:00.000Z');
 
+    // For holiday rules we do NOT filter by effectiveDate <= date because
+    // the rule is created on (or after) the holiday dates it contains.
+    // Instead we check each holiday's own date field inside the JSON.
     const rules = await prisma.shiftAssignmentRule.findMany({
       where: {
         organizationId,
-        effectiveDate: { lte: dateForQuery },
         remarks: { contains: '__HOLIDAY_DATA__' },
       },
       orderBy: [
@@ -462,8 +463,13 @@ export class ShiftAssignmentRuleService {
     for (const rule of rules) {
       if (!rule.shift) continue; // skip policy-only rules with no shift
       const employeeIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];
-      if (employeeIds.length > 0 && employeeIds.includes(employeeId)) {
-        return rule.shift;
+      if (employeeIds.length > 0) {
+        // Associate-specific rules are strict: if employeeIds is provided and employee
+        // is not listed, do not fallback to paygroup/department for the same rule.
+        if (employeeIds.includes(employeeId)) {
+          return rule.shift;
+        }
+        continue;
       }
       if (rule.paygroupId && rule.departmentId) {
         if (rule.paygroupId === employee.paygroupId && rule.departmentId === employee.departmentId) {

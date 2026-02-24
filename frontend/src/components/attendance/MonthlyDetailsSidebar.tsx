@@ -63,6 +63,20 @@ function isPermissionName(name: string | null | undefined): boolean {
   return (name || '').toLowerCase().includes('permission');
 }
 
+function isForcedZeroOpeningLeaveName(name: string | null | undefined): boolean {
+  void name;
+  return false;
+}
+
+function normalizeLeaveKey(name: string | null | undefined): string {
+  return (name || '')
+    .toLowerCase()
+    .trim()
+    .replace(/marraige/g, 'marriage')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+
 type MonthlyRow = {
   name: string;
   opening: number;
@@ -145,7 +159,17 @@ export default function MonthlyDetailsSidebar({
     );
   }
 
-  const leaveRowsWithoutPermission = data.leave.filter((row) => !isPermissionName(row.name));
+  const leaveRowsWithoutPermission = data.leave
+    .filter((row) => !isPermissionName(row.name))
+    .map((row) => {
+      if (!isForcedZeroOpeningLeaveName(row.name)) return row;
+      return {
+        ...row,
+        opening: 0,
+        credit: 0,
+        balance: Math.max(0, 0 + 0 - Number(row.used || 0)),
+      };
+    });
   const entitlementWarningsWithoutPermission = (data.entitlementWarnings || []).filter(
     (name) => !isPermissionName(name)
   );
@@ -177,19 +201,13 @@ export default function MonthlyDetailsSidebar({
               </tr>
             ) : (
               rows.map((row, i) => {
-                const isDefaultLeaveModule = title === 'Leave' && row.source !== 'attendance_component';
                 return (
                 <tr
                   key={i}
-                  className={isDefaultLeaveModule ? 'bg-amber-50' : undefined}
+                  className={undefined}
                 >
-                  <td className={`px-2 py-1.5 ${isDefaultLeaveModule ? 'text-amber-900 font-medium' : 'text-gray-900'}`}>
+                  <td className="px-2 py-1.5 text-gray-900">
                     {row.name}
-                    {isDefaultLeaveModule && (
-                      <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
-                        Default
-                      </span>
-                    )}
                   </td>
                   <td className="px-2 py-1.5 text-right text-gray-700">{formatBalance(row.opening)}</td>
                   <td className="px-2 py-1.5 text-right text-gray-700">{formatBalance(row.credit)}</td>

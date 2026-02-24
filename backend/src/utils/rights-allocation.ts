@@ -1,5 +1,6 @@
 import { prisma } from './prisma';
 import { resolveWorkflowForEmployeeOrNull } from '../services/workflow-resolution.service';
+import { shiftAssignmentRuleService } from '../services/shift-assignment-rule.service';
 
 type AttendanceAction = 'view' | 'add' | 'cancel' | 'delete';
 type ExcessTimeAction = 'add';
@@ -22,10 +23,18 @@ type EventMatchContext = {
   leaveTypeCode?: string | null;
 };
 
+export type ResolvedRightsAllocationContext = {
+  rights: ResolvedRightsAllocation | null;
+  hasEntryRightsTemplate: boolean;
+  template: string | null;
+  shiftMatched: boolean;
+};
+
 export type ResolvedRightsAllocation = {
   id: string;
   shortName: string;
   longName: string;
+  shiftId: string | null;
   attendanceEvents: unknown;
   excessTimeEvents: unknown;
 };
@@ -68,13 +77,34 @@ function findAttendanceEvent(
   );
 }
 
-export async function resolveRightsAllocationForEmployee(
+export async function resolveRightsAllocationContextForEmployee(
   employeeId: string,
-  organizationId: string
-): Promise<ResolvedRightsAllocation | null> {
+  organizationId: string,
+  options?: { effectiveDate?: Date | null }
+): Promise<ResolvedRightsAllocationContext> {
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { shiftId: true },
+  });
+  if (!employee) {
+    return {
+      rights: null,
+      hasEntryRightsTemplate: false,
+      template: null,
+      shiftMatched: false,
+    };
+  }
+
   const workflow = await resolveWorkflowForEmployeeOrNull(employeeId, organizationId);
   const template = workflow?.entryRightsTemplate?.trim();
-  if (!template) return null;
+  if (!template) {
+    return {
+      rights: null,
+      hasEntryRightsTemplate: false,
+      template: null,
+      shiftMatched: false,
+    };
+  }
 
   const where = isUuid(template)
     ? {
@@ -92,12 +122,72 @@ export async function resolveRightsAllocationForEmployee(
       id: true,
       shortName: true,
       longName: true,
+      shiftId: true,
       attendanceEvents: true,
       excessTimeEvents: true,
     },
   });
 
-  return rights;
+  if (!rights) {
+    return {
+      rights: null,
+      hasEntryRightsTemplate: true,
+      template,
+      shiftMatched: false,
+    };
+  }
+
+  // If a rights allocation is tied to a specific shift, apply it only when employee's
+  // effective shift (master or shift-assignment-rule) matches.
+  if (rights?.shiftId) {
+    if (rights.shiftId === employee.shiftId) {
+      return {
+        rights,
+        hasEntryRightsTemplate: true,
+        template,
+        shiftMatched: true,
+      };
+    }
+
+    const effectiveDate = options?.effectiveDate ? new Date(options.effectiveDate) : new Date();
+    if (Number.isNaN(effectiveDate.getTime())) {
+      return {
+        rights: null,
+        hasEntryRightsTemplate: true,
+        template,
+        shiftMatched: false,
+      };
+    }
+    const shiftFromRule = await shiftAssignmentRuleService.getApplicableShiftForEmployee(
+      employeeId,
+      effectiveDate,
+      organizationId
+    );
+    if (!shiftFromRule || shiftFromRule.id !== rights.shiftId) {
+      return {
+        rights: null,
+        hasEntryRightsTemplate: true,
+        template,
+        shiftMatched: false,
+      };
+    }
+  }
+
+  return {
+    rights,
+    hasEntryRightsTemplate: true,
+    template,
+    shiftMatched: true,
+  };
+}
+
+export async function resolveRightsAllocationForEmployee(
+  employeeId: string,
+  organizationId: string,
+  options?: { effectiveDate?: Date | null }
+): Promise<ResolvedRightsAllocation | null> {
+  const ctx = await resolveRightsAllocationContextForEmployee(employeeId, organizationId, options);
+  return ctx.rights;
 }
 
 export function canPerformAttendanceEventAction(

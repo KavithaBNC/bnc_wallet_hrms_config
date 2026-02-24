@@ -167,17 +167,45 @@ export async function getLeaveTypeIdForAttendanceComponent(
   const shortNameKey = component.shortName?.toLowerCase().trim() ?? '';
   if (!eventNameKey && !shortNameKey) return null;
 
+  const normalize = (s: string | null | undefined) =>
+    (s || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+
+  const enNorm = normalize(component.eventName);
+  const snNorm = normalize(component.shortName);
+
   const leaveTypes = await prisma.leaveType.findMany({
     where: { organizationId, isActive: true },
     select: { id: true, name: true, code: true },
   });
 
-  const byName = leaveTypes.find((lt) => {
+  // 1. Exact match by name or code
+  const exactMatch = leaveTypes.find((lt) => {
     const n = lt.name?.toLowerCase().trim() ?? '';
     const c = lt.code?.toLowerCase().trim() ?? '';
-    return (eventNameKey && (n === eventNameKey || c === eventNameKey)) || (shortNameKey && (c === shortNameKey || n === shortNameKey));
+    return (eventNameKey && (n === eventNameKey || c === eventNameKey)) ||
+           (shortNameKey && (c === shortNameKey || n === shortNameKey));
   });
-  return byName?.id ?? null;
+  if (exactMatch) return exactMatch.id;
+
+  // 2. Normalized match (strips spaces/punctuation) — e.g. "Bereavement Leave" vs "BereavementLeave"
+  const normalizedMatch = leaveTypes.find((lt) => {
+    const nNorm = normalize(lt.name);
+    const cNorm = normalize(lt.code);
+    return (enNorm && (nNorm === enNorm || cNorm === enNorm)) ||
+           (snNorm && (cNorm === snNorm || nNorm === snNorm));
+  });
+  if (normalizedMatch) return normalizedMatch.id;
+
+  // 3. Partial/substring match — e.g. component "BEREAVEMENT LEAVE" contains leave type name "Bereavement"
+  const partialMatch = leaveTypes.find((lt) => {
+    const nNorm = normalize(lt.name);
+    const cNorm = normalize(lt.code);
+    return (enNorm && nNorm && (enNorm.includes(nNorm) || nNorm.includes(enNorm))) ||
+           (enNorm && cNorm && (enNorm.includes(cNorm) || cNorm.includes(enNorm))) ||
+           (snNorm && nNorm && (snNorm.includes(nNorm) || nNorm.includes(snNorm))) ||
+           (snNorm && cNorm && (snNorm.includes(cNorm) || cNorm.includes(snNorm)));
+  });
+  return partialMatch?.id ?? null;
 }
 
 /**

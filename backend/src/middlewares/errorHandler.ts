@@ -33,13 +33,21 @@ export const errorHandler = (
   const prismaCode = prismaErr.code;
   const errMessage = String(err.message || '').toLowerCase();
   const isDbConnectivityError =
-    prismaCode === 'P1001' ||
-    prismaCode === 'P1017' ||
-    prismaCode === 'P2024' ||
+    prismaCode === 'P1001' ||   // Can't reach database server
+    prismaCode === 'P1017' ||   // Server has closed the connection
+    prismaCode === 'P2024' ||   // Timed out fetching a new connection from the pool
+    prismaCode === 'P1008' ||   // Operations timed out
     errMessage.includes('connection pool') ||
     errMessage.includes("can't reach database server") ||
     errMessage.includes('server has closed the connection') ||
-    errMessage.includes('connectionreset');
+    errMessage.includes('connection reset') ||
+    errMessage.includes('connectionreset') ||
+    errMessage.includes('econnreset') ||
+    errMessage.includes('econnrefused') ||
+    errMessage.includes('socket hang up') ||
+    errMessage.includes('timed out') ||
+    errMessage.includes('pool timeout') ||
+    errMessage.includes('connect timeout');
 
   if (isDbConnectivityError) {
     err = new AppError('Database temporarily unavailable. Please try again.', 503);

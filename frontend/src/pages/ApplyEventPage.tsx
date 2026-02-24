@@ -27,6 +27,19 @@ interface LeaveType {
   code: string;
 }
 
+interface LeaveApplyHint {
+  leaveTypeId: string;
+  openingBalance: number;
+  usedBalance: number;
+  availableBalance: number;
+  fixedDurationEnforced: boolean;
+  fixedDays: number | null;
+  recommendedFromDate: string;
+  recommendedEndDate: string;
+  allowWeekOffSelection: boolean;
+  allowHolidaySelection: boolean;
+}
+
 function normalizeKey(value: string | null | undefined): string {
   return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -170,6 +183,7 @@ export default function ApplyEventPage() {
 
   const [loading, setLoading] = useState(true);
   const [selectedComponentId, setSelectedComponentId] = useState('');
+  const [selectedLeaveTypeId, setSelectedLeaveTypeId] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [fromDuration, setFromDuration] = useState<DurationOption>('FULL_DAY');
@@ -181,6 +195,7 @@ export default function ApplyEventPage() {
   const [ondutyHourlyEnabled, setOndutyHourlyEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [leaveHint, setLeaveHint] = useState<LeaveApplyHint | null>(null);
   const [defaultPermissionWindow, setDefaultPermissionWindow] = useState<PermissionWindow>(
     DEFAULT_PERMISSION_WINDOW
   );
@@ -217,6 +232,21 @@ export default function ApplyEventPage() {
   const isPermissionType = selectedComponent?.eventCategory === 'Permission' || pageMode === 'Permission';
   const isOndutyType = isOndutyLikeComponent(selectedComponent) || pageMode === 'Onduty';
   const requiresTimeWindow = isPermissionType || (isOndutyType && ondutyHourlyEnabled);
+  const selectedLeaveTypeIdForHint = useMemo(() => {
+    if (!selectedComponentId || isPermissionType || isOndutyType) return null;
+    const fromMapping = componentToLeaveTypeId[selectedComponentId];
+    const fromNameMatch = resolveLeaveTypeIdFromComponent(leaveTypes, selectedComponent);
+    return fromMapping || fromNameMatch || selectedLeaveTypeId || leaveTypes[0]?.id || null;
+  }, [
+    selectedComponentId,
+    isPermissionType,
+    isOndutyType,
+    componentToLeaveTypeId,
+    leaveTypes,
+    selectedComponent,
+    selectedLeaveTypeId,
+  ]);
+  const fixedDurationEnforced = !!leaveHint?.fixedDurationEnforced;
 
   const handleLogout = async () => {
     await logout();
@@ -363,6 +393,48 @@ export default function ApplyEventPage() {
     if (selectedComponentId || eventComponents.length === 0) return;
     setSelectedComponentId(eventComponents[0].id);
   }, [selectedComponentId, eventComponents]);
+
+  useEffect(() => {
+    setSelectedLeaveTypeId('');
+  }, [selectedComponentId]);
+
+  useEffect(() => {
+    if (!typeSelected || isPermissionType || isOndutyType || selectedLeaveTypeId || leaveTypes.length === 0) return;
+    setSelectedLeaveTypeId(leaveTypes[0].id);
+  }, [typeSelected, isPermissionType, isOndutyType, selectedComponent, selectedLeaveTypeId, leaveTypes]);
+
+  useEffect(() => {
+    if (!typeSelected || isPermissionType || isOndutyType || !selectedLeaveTypeIdForHint || !fromDate) {
+      setLeaveHint(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ data: LeaveApplyHint }>('/leaves/requests/apply-hint', {
+        params: {
+          leaveTypeId: selectedLeaveTypeIdForHint,
+          startDate: fromDate,
+        },
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const hint = res.data?.data ?? null;
+        setLeaveHint(hint);
+        if (hint?.fixedDurationEnforced) {
+          setFromDuration('FULL_DAY');
+          setToDuration('FULL_DAY');
+          if (hint.recommendedEndDate) {
+            setToDate(hint.recommendedEndDate);
+          }
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLeaveHint(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [typeSelected, isPermissionType, isOndutyType, selectedLeaveTypeIdForHint, fromDate]);
 
   useEffect(() => {
     if (!isOndutyType) {
@@ -512,6 +584,10 @@ export default function ApplyEventPage() {
         const isSingleDay = fromDate === toDate;
         const isHalfDaySelection = fromDuration !== 'FULL_DAY' || toDuration !== 'FULL_DAY';
         totalDays = isSingleDay && isHalfDaySelection ? 0.5 : undefined;
+        if (fixedDurationEnforced && leaveHint?.fixedDays && leaveHint.fixedDays > 0) {
+          endDate = leaveHint.recommendedEndDate;
+          totalDays = leaveHint.fixedDays;
+        }
       }
 
       if (isOndutyType) {
@@ -636,6 +712,42 @@ export default function ApplyEventPage() {
           {/* From Date, To Date, Reason – only after Type is selected */}
           {typeSelected && (
             <>
+              {!isPermissionType && !isOndutyType && leaveTypes.length > 0 && (
+                <div className="mb-6">
+                  <label htmlFor="leaveTypeFallback" className="block text-sm font-medium text-gray-700 mb-1">
+                    Leave Type (Fallback)
+                  </label>
+                  <select
+                    id="leaveTypeFallback"
+                    value={selectedLeaveTypeId}
+                    onChange={(e) => setSelectedLeaveTypeId(e.target.value)}
+                    className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="">Auto resolve</option>
+                    {leaveTypes.map((lt) => (
+                      <option key={lt.id} value={lt.id}>
+                        {lt.name} {lt.code ? `(${lt.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Use this only when auto mapping is unavailable.
+                  </p>
+                  {leaveHint && (
+                    <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                      Opening: <span className="font-semibold">{leaveHint.openingBalance}</span> | Used:{' '}
+                      <span className="font-semibold">{leaveHint.usedBalance}</span> | Available:{' '}
+                      <span className="font-semibold">{leaveHint.availableBalance}</span>
+                      {leaveHint.fixedDurationEnforced && leaveHint.fixedDays != null && (
+                        <>
+                          {' '}| Fixed Apply Days:{' '}
+                          <span className="font-semibold">{leaveHint.fixedDays}</span> (To Date auto-calculated)
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {isOndutyType && !isPermissionType && (
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -741,6 +853,7 @@ export default function ApplyEventPage() {
                         <select
                           value={fromDuration}
                           onChange={(e) => setFromDuration(e.target.value as DurationOption)}
+                          disabled={fixedDurationEnforced}
                           className="text-sm text-gray-900 focus:outline-none border-0 bg-transparent py-0 pr-6"
                         >
                           {(Object.keys(DURATION_LABELS) as DurationOption[]).map((d) => (
@@ -752,6 +865,7 @@ export default function ApplyEventPage() {
                         <button
                           type="button"
                           onClick={() => setFromDuration('FULL_DAY')}
+                          disabled={fixedDurationEnforced}
                           className="p-1 text-gray-400 hover:text-gray-600 rounded"
                           aria-label="Clear duration"
                         >
@@ -780,6 +894,7 @@ export default function ApplyEventPage() {
                           type="date"
                           value={toDate}
                           onChange={(e) => setToDate(e.target.value)}
+                          disabled={fixedDurationEnforced}
                           required={typeSelected}
                           className="flex-1 min-w-0 py-2 pl-2 pr-3 border-0 bg-transparent text-sm text-gray-900 focus:outline-none"
                         />
@@ -788,6 +903,7 @@ export default function ApplyEventPage() {
                         <select
                           value={toDuration}
                           onChange={(e) => setToDuration(e.target.value as DurationOption)}
+                          disabled={fixedDurationEnforced}
                           className="text-sm text-gray-900 focus:outline-none border-0 bg-transparent py-0 pr-6"
                         >
                           {(Object.keys(DURATION_LABELS) as DurationOption[]).map((d) => (
@@ -799,6 +915,7 @@ export default function ApplyEventPage() {
                         <button
                           type="button"
                           onClick={() => setToDuration('FULL_DAY')}
+                          disabled={fixedDurationEnforced}
                           className="p-1 text-gray-400 hover:text-gray-600 rounded"
                           aria-label="Clear duration"
                         >

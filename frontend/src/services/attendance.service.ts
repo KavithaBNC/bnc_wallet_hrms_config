@@ -112,6 +112,17 @@ export interface ValidationDaySummary {
   absent: number;
   shortfall: number;
   overtime: number;
+  onHold: number;
+}
+
+export interface CompletedListRow {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  date: string;
+  isCompleted: boolean;
+  isOnHold: boolean;
+  holdReason: string | null;
 }
 
 export const attendanceService = {
@@ -279,12 +290,28 @@ export const attendanceService = {
     return data.data;
   },
 
+  getValidationLateDeductions: async (params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<LateDeductionResult> => {
+    const { data } = await api.post<{ data: LateDeductionResult }>(
+      '/attendance/validation-process/late-deductions',
+      params
+    );
+    return data.data;
+  },
+
   /** Get validation process employee list for the grid (by type and date range). */
   getValidationProcessEmployeeList: async (params: {
     organizationId: string;
     fromDate: string;
     toDate: string;
     type: string;
+    paygroupId?: string;
+    employeeId?: string;
   }): Promise<{ rows: ValidationProcessEmployeeRow[] }> => {
     const { data } = await api.get<{ data: { rows: ValidationProcessEmployeeRow[] } }>(
       '/attendance/validation-process/employee-list',
@@ -292,7 +319,148 @@ export const attendanceService = {
     );
     return data.data;
   },
+
+  /** Revert HR validation corrections for a date range. Removes HR-created leaves and restores balances. */
+  revertValidationCorrection: async (params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+    remarks?: string;
+  }): Promise<{ reverted: number; leaveRequestsDeleted: number; balancesRestored: number; errors: { employeeId: string; date: string; message: string }[] }> => {
+    const { data } = await api.post<{ data: { reverted: number; leaveRequestsDeleted: number; balancesRestored: number; errors: { employeeId: string; date: string; message: string }[] } }>(
+      '/attendance/validation-process/revert',
+      params
+    );
+    return data.data;
+  },
+
+  /** Get validation revert history (audit log). */
+  getValidationRevertHistory: async (params: {
+    organizationId: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    history: ValidationRevertHistoryEntry[];
+    total: number;
+  }> => {
+    const { data } = await api.get<{ data: { history: ValidationRevertHistoryEntry[]; total: number } }>(
+      '/attendance/validation-process/revert-history',
+      { params }
+    );
+    return data.data;
+  },
+
+  /** Get completed/on-hold validation rows for Revert Process page. */
+  getCompletedList: async (params: {
+    organizationId: string;
+    fromDate: string;
+    toDate: string;
+    paygroupId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ rows: CompletedListRow[]; total: number; page: number; limit: number }> => {
+    const { data } = await api.get<{ data: { rows: CompletedListRow[]; total: number; page: number; limit: number } }>(
+      '/attendance/validation-process/completed-list',
+      { params }
+    );
+    return data.data;
+  },
+
+  /** Revert specific employee+date rows. */
+  revertByRows: async (params: {
+    organizationId: string;
+    selectedRows: { employeeId: string; date: string }[];
+    remarks?: string;
+  }): Promise<{ reverted: number; leaveRequestsDeleted: number; balancesRestored: number; errors: { employeeId: string; date: string; message: string }[] }> => {
+    const { data } = await api.post<{ data: { reverted: number; leaveRequestsDeleted: number; balancesRestored: number; errors: { employeeId: string; date: string; message: string }[] } }>(
+      '/attendance/validation-process/revert-rows',
+      params
+    );
+    return data.data;
+  },
+
+  /** Put selected rows on hold. */
+  putOnHold: async (params: {
+    organizationId: string;
+    selectedRows: { employeeId: string; date: string }[];
+    holdAssociateCanModify?: boolean;
+    holdManagerCanModify?: boolean;
+    revertRegularization?: boolean;
+    reason?: string;
+  }): Promise<{ updated: number; errors: { employeeId: string; date: string; message: string }[] }> => {
+    const { data } = await api.post<{ data: { updated: number; errors: { employeeId: string; date: string; message: string }[] } }>(
+      '/attendance/validation-process/on-hold',
+      params
+    );
+    return data.data;
+  },
+
+  /** Release selected rows from hold. */
+  releaseHold: async (params: {
+    organizationId: string;
+    selectedRows: { employeeId: string; date: string }[];
+  }): Promise<{ released: number; errors: { employeeId: string; date: string; message: string }[] }> => {
+    const { data } = await api.post<{ data: { released: number; errors: { employeeId: string; date: string; message: string }[] } }>(
+      '/attendance/validation-process/release-hold',
+      params
+    );
+    return data.data;
+  },
+
+  /** Apply validation correction (leave deduction) for selected employees based on rule or direct component. */
+  applyValidationCorrection: async (params: {
+    organizationId: string;
+    ruleId?: string;
+    directComponentId?: string;
+    type?: string;
+    selectedRows: { employeeId: string; date: string }[];
+    remarks?: string;
+  }): Promise<{ applied: number; errors: { employeeId: string; date: string; message: string }[]; skipped?: { employeeId: string; date: string; message: string }[] }> => {
+    const { data } = await api.post<{
+      data: { applied: number; errors: { employeeId: string; date: string; message: string }[]; skipped?: { employeeId: string; date: string; message: string }[] };
+    }>('/attendance/validation-process/apply-correction', params);
+    return data.data;
+  },
 };
+
+export interface LateDeductionEmployee {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  lateCount: number;
+  totalLateMinutes: number;
+  totalLateHours: number;
+  actionName: string;
+  deductionType: string;
+  deductionDays: number;
+  permissionExhausted: boolean;
+}
+
+export interface LateDeductionResult {
+  employees: LateDeductionEmployee[];
+  totals: {
+    totalEmployees: number;
+    totalLateCount: number;
+    totalLateMinutes: number;
+  };
+}
+
+export interface ValidationRevertHistoryEntry {
+  id: string;
+  fromDate: string;
+  toDate: string;
+  employeeCount: number;
+  dayCount: number;
+  leaveRequestsDeleted: number;
+  balancesRestored: number;
+  remarks: string | null;
+  revertedByUserId: string;
+  revertDetails: unknown;
+  createdAt: string;
+}
 
 export interface ValidationProcessEmployeeRow {
   employeeId: string;

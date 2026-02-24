@@ -165,6 +165,8 @@ const DAY_TYPE_OPTIONS = [{ id: 'Auto', label: 'Auto', isGreen: true }, { id: 'M
 const DAYS_OPTIONS = [{ id: 'Auto', label: 'Auto', isGreen: true }, { id: 'Manual', label: 'Manual', isGreen: false }];
 const CORRECTION_METHOD_OPTIONS = [
   { id: 'Apply Event', name: 'Apply Event' },
+  { id: 'Permission', name: 'Permission' },
+  { id: 'No Correction', name: 'No Correction' },
   { id: 'Auto', name: 'Auto' },
   { id: 'Leave', name: 'Leave' },
   { id: 'LOP', name: 'LOP' },
@@ -182,6 +184,8 @@ interface ActionBlockData {
   dayType: string;
   days: string;
   daysValue: string;
+  minMinutes: string;
+  maxMinutes: string;
 }
 
 const MultiSelectChips = ({
@@ -318,6 +322,8 @@ export default function ValidationProcessRuleFormPage() {
       dayType: 'Auto',
       days: 'Auto',
       daysValue: '0.5',
+      minMinutes: '',
+      maxMinutes: '',
     },
   ]);
 
@@ -406,6 +412,8 @@ export default function ValidationProcessRuleFormPage() {
                     dayType: a.dayType,
                     days: a.days,
                     daysValue: a.daysValue != null ? String(a.daysValue) : '0.5',
+                    minMinutes: a.minMinutes != null ? String(a.minMinutes) : '',
+                    maxMinutes: a.maxMinutes != null ? String(a.maxMinutes) : '',
                   }))
                 : [
                     {
@@ -419,6 +427,8 @@ export default function ValidationProcessRuleFormPage() {
                       dayType: 'Auto',
                       days: 'Auto',
                       daysValue: '0.5',
+                      minMinutes: '',
+                      maxMinutes: '',
                     },
                   ]
             );
@@ -547,6 +557,8 @@ export default function ValidationProcessRuleFormPage() {
         dayType: 'Auto',
         days: 'Auto',
         daysValue: '0.5',
+        minMinutes: '',
+        maxMinutes: '',
       },
     ]);
   };
@@ -633,6 +645,8 @@ export default function ValidationProcessRuleFormPage() {
           dayType: a.dayType,
           days: a.days,
           daysValue: a.days === 'Manual' && a.daysValue ? a.daysValue : undefined,
+          minMinutes: a.minMinutes ? Number(a.minMinutes) : undefined,
+          maxMinutes: a.maxMinutes ? Number(a.maxMinutes) : undefined,
         })),
       };
       if (isEdit && id) {
@@ -1136,6 +1150,37 @@ export default function ValidationProcessRuleFormPage() {
                             {!action.collapsed && (
                               <div className="p-4 relative">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  {/* Row 0: Minute Range for tiered actions */}
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="block text-xs font-medium text-gray-600">Min Minutes</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={action.minMinutes}
+                                      onChange={(e) => updateActionBlock(action.id, 'minMinutes', e.target.value)}
+                                      placeholder="0"
+                                      className="h-9 w-full px-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="block text-xs font-medium text-gray-600">Max Minutes</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={action.maxMinutes}
+                                      onChange={(e) => updateActionBlock(action.id, 'maxMinutes', e.target.value)}
+                                      placeholder="No limit"
+                                      className="h-9 w-full px-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    />
+                                  </div>
+                                  <div className="flex items-end pb-1">
+                                    <span className="text-xs text-gray-400">
+                                      {action.minMinutes || action.maxMinutes
+                                        ? `${action.minMinutes || '0'} – ${action.maxMinutes || '∞'} min late → this action`
+                                        : 'Leave empty for all durations'}
+                                    </span>
+                                  </div>
+
                                   {/* Row 1: Condition, Correction Method, Auto Apply */}
                                   <PillToggle
                                     label="Condition"
