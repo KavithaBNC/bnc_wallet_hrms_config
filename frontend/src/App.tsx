@@ -16,6 +16,8 @@ import EventConfigurationPage from './pages/EventConfigurationPage';
 import OthersConfigurationPage from './pages/OthersConfigurationPage';
 import CoreHRPage from './pages/CoreHRPage';
 import CompoundCreationPage from './pages/CompoundCreationPage';
+import RulesEnginePage from './pages/RulesEnginePage';
+import RulesEngineFormulaEditorPage from './pages/RulesEngineFormulaEditorPage';
 import CompoundCreationFormPage from './pages/CompoundCreationFormPage';
 import ValidationProcessPage from './pages/ValidationProcessPage';
 import ValidationProcessEmployeeGridPage from './pages/ValidationProcessEmployeeGridPage';
@@ -87,6 +89,8 @@ import LeaveApprovalPage from './pages/LeaveApprovalPage';
 import EventRequestPage from './pages/EventRequestPage';
 import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
 import NotFoundPage from './pages/NotFoundPage';
+import VariableInputPage from './pages/VariableInputPage';
+import VariableInputEntryPage from './pages/VariableInputEntryPage';
 
 function App() {
   const { isAuthenticated, loadUser } = useAuthStore();
@@ -298,6 +302,56 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <CompoundCreationFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/rules-engine"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <RulesEnginePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/variable-input"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <VariableInputPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/variable-input/entry"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <VariableInputEntryPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/variable-input"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <VariableInputPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/core-hr/rules-engine/formula/:paygroupId/:compoundId"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <RulesEngineFormulaEditorPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
