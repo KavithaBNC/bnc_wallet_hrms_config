@@ -143,6 +143,8 @@ import ruleSettingRoutes from './routes/rule-setting.routes';
 import autoCreditSettingRoutes from './routes/auto-credit-setting.routes';
 import monthlyAttendanceSummaryRoutes from './routes/monthly-attendance-summary.routes';
 import configRoutes from './routes/config.routes';
+import compoundRoutes from './routes/compound.routes';
+import rulesEngineRoutes from './routes/rules-engine.routes';
 import validationProcessRuleRoutes from './routes/validation-process-rule.routes';
 import postToPayrollRoutes from './routes/post-to-payroll.routes';
 
@@ -173,6 +175,8 @@ app.use('/api/v1/rule-settings', ruleSettingRoutes);
 app.use('/api/v1/auto-credit-settings', autoCreditSettingRoutes);
 app.use('/api/v1/monthly-attendance-summary', monthlyAttendanceSummaryRoutes);
 app.use('/api/v1/config', configRoutes);
+app.use('/api/v1/compounds', compoundRoutes);
+app.use('/api/v1/rules-engine', rulesEngineRoutes);
 app.use('/api/v1/validation-process-rules', validationProcessRuleRoutes);
 app.use('/api/v1/post-to-payroll', postToPayrollRoutes);
 app.use('/api/v1/permissions', permissionRoutes);

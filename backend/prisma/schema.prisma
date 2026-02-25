@@ -276,13 +276,13 @@ model JobPosition {
 }
 
 model Paygroup {
-  id                       String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  organizationId           String                   @map("organization_id") @db.Uuid
-  name                     String                   @db.VarChar(255)
-  code                     String?                  @unique @db.VarChar(50)
-  isActive                 Boolean                  @default(true) @map("is_active")
-  createdAt                DateTime                 @default(now()) @map("created_at")
-  updatedAt                DateTime                 @updatedAt @map("updated_at")
+  id                       String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId           String                    @map("organization_id") @db.Uuid
+  name                     String                    @db.VarChar(255)
+  code                     String?                   @unique @db.VarChar(50)
+  isActive                 Boolean                   @default(true) @map("is_active")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
   autoCreditSettings       AutoCreditSetting[]
   employees                Employee[]
   organization             Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -291,6 +291,7 @@ model Paygroup {
   transferPromotionEntries TransferPromotionEntry[]
   transferPromotions       TransferPromotion[]
   workflowMappings         WorkflowMapping[]
+  componentRules           PaygroupComponentRule[]
 
   @@unique([organizationId, name])
   @@map("paygroups")
@@ -1910,23 +1911,27 @@ model ValidationRevertHistory {
 }
 
 model Compound {
-  id              String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  organizationId  String           @map("organization_id") @db.Uuid
-  componentType   String           @map("component_type") @db.VarChar(50)
-  shortName       String           @map("short_name") @db.VarChar(100)
-  longName        String           @map("long_name") @db.VarChar(255)
-  type            String           @db.VarChar(50)
-  isDropDown      Boolean          @default(false) @map("is_drop_down")
-  isCompulsory    Boolean          @default(false) @map("is_compulsory")
-  isFilterable    Boolean          @default(false) @map("is_filterable")
-  reimbDetails    String?          @map("reimb_details") @db.VarChar(500)
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id              String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId  String                    @map("organization_id") @db.Uuid
+  componentType   String                    @map("component_type") @db.VarChar(50)
+  shortName       String                    @map("short_name") @db.VarChar(100)
+  longName        String                    @map("long_name") @db.VarChar(255)
+  type            String                    @db.VarChar(50)
+  status          String                    @default("ACTIVE") @db.VarChar(20)
+  isDropDown      Boolean                   @default(false) @map("is_drop_down")
+  isCompulsory    Boolean                   @default(false) @map("is_compulsory")
+  isFilterable    Boolean                   @default(false) @map("is_filterable")
+  reimbDetails    String?                   @map("reimb_details") @db.VarChar(500)
+  showInPayslip   Boolean                   @default(false) @map("show_in_payslip")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  organization    Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   values          CompoundValue[]
+  paygroupRules   PaygroupComponentRule[]
 
   @@unique([organizationId, shortName])
   @@index([organizationId])
+  @@index([organizationId, status])
   @@map("compounds")
 }
 
@@ -1941,6 +1946,29 @@ model CompoundValue {
 
   @@index([compoundId])
   @@map("compound_values")
+}
+
+model PaygroupComponentRule {
+  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  paygroupId        String    @map("paygroup_id") @db.Uuid
+  compoundId        String    @map("compound_id") @db.Uuid
+  inputType         String    @default("INPUT") @map("input_type") @db.VarChar(50)
+  componentBehavior String    @default("DEFAULT") @map("component_behavior") @db.VarChar(50)
+  formula           String?   @db.VarChar(2000)
+  percentage        Decimal?  @db.Decimal(10, 2)
+  rounding          Boolean   @default(false)
+  roundingType      String?   @map("rounding_type") @db.VarChar(20)
+  roundOffValue     Decimal?  @map("round_off_value") @db.Decimal(10, 2)
+  order             Int       @default(0) @map("order")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  paygroup          Paygroup  @relation(fields: [paygroupId], references: [id], onDelete: Cascade)
+  compound          Compound @relation(fields: [compoundId], references: [id], onDelete: Cascade)
+
+  @@unique([paygroupId, compoundId])
+  @@index([organizationId, paygroupId])
+  @@map("paygroup_component_rules")
 }
 
 enum OfferStatus {

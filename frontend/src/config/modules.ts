@@ -30,6 +30,8 @@ export const APP_MODULES: AppModule[] = [
   { path: '/core-hr', label: 'Core HR', resource: 'core_hr', visibility: 'all' },
   { path: '/core-hr/overview', label: 'Overview', resource: 'core_hr', visibility: 'all', parentPath: '/core-hr' },
   { path: '/core-hr/compound-creation', label: 'Component Creation', resource: 'compound_creation', visibility: 'all', parentPath: '/core-hr' },
+  { path: '/core-hr/rules-engine', label: 'Rules Engine', resource: 'rules_engine', visibility: 'all', parentPath: '/core-hr' },
+  { path: '/core-hr/variable-input', label: 'Variable Input', resource: 'variable_input', visibility: 'all', parentPath: '/core-hr' },
   { path: '/event-configuration', label: 'Event Configuration', resource: 'event_configuration', visibility: 'all' },
   { path: '/event-configuration/attendance-components', label: 'Attendance Components', resource: 'attendance_components', visibility: 'all', parentPath: '/event-configuration' },
   { path: '/event-configuration/approval-workflow', label: 'Approval Workflow', resource: 'approval_workflow', visibility: 'all', parentPath: '/event-configuration' },
