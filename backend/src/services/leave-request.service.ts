@@ -24,6 +24,7 @@ import {
   type ApprovalLevelConfig,
 } from './approval-routing.service';
 import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
+import { monthlyAttendanceSummaryService } from './monthly-attendance-summary.service';
 
 export class LeaveRequestService {
   private readonly hrEntryRequiredLeaveNameKeys = [
@@ -773,30 +774,51 @@ export class LeaveRequestService {
     // Past-date apply is allowed.
     // Keep only date-format/order validation (handled by schema + parseDateOnly).
 
-    // Block event application if validation is already completed for any date in range
-    const allDatesInRange: Date[] = [];
+    // 1. Block if any month in range is locked (payroll closed for that period)
+    const uniqueMonths = new Set<string>();
     const dateCursor = new Date(startDate);
     while (dateCursor <= endDate) {
-      allDatesInRange.push(new Date(dateCursor));
+      uniqueMonths.add(`${dateCursor.getUTCFullYear()}-${dateCursor.getUTCMonth() + 1}`);
       dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
     }
+    for (const key of uniqueMonths) {
+      const [year, month] = key.split('-').map(Number);
+      const locked = await monthlyAttendanceSummaryService.isMonthLocked(
+        employee.organizationId,
+        year,
+        month
+      );
+      if (locked) {
+        throw new AppError(
+          `Month ${year}-${String(month).padStart(2, '0')} is locked. Cannot apply leave to a locked period. Unlock attendance first to apply.`,
+          400
+        );
+      }
+    }
 
-    const validationCompletedDates = await prisma.attendanceValidationResult.findMany({
+    // 2. Block if validation has run for any date in range (presence/absence is final)
+    const allDatesInRange: Date[] = [];
+    const dateCursor2 = new Date(startDate);
+    while (dateCursor2 <= endDate) {
+      allDatesInRange.push(new Date(dateCursor2));
+      dateCursor2.setUTCDate(dateCursor2.getUTCDate() + 1);
+    }
+
+    const validationResultDates = await prisma.attendanceValidationResult.findMany({
       where: {
         organizationId: employee.organizationId,
         employeeId,
         date: { in: allDatesInRange },
-        isCompleted: true,
       },
       select: { date: true },
     });
 
-    if (validationCompletedDates.length > 0) {
-      const completedDateStrings = validationCompletedDates
+    if (validationResultDates.length > 0) {
+      const blockedDateStrings = validationResultDates
         .map(v => v.date.toISOString().split('T')[0])
         .join(', ');
       throw new AppError(
-        `Validation already completed for date(s): ${completedDateStrings}. Cannot apply event.`,
+        `Validation already run for date(s): ${blockedDateStrings}. Cannot apply event to closed period.`,
         400
       );
     }

@@ -37,6 +37,7 @@ import {
   revertByRowsSchema,
   onHoldSchema,
   releaseHoldSchema,
+  clearValidationSchema,
 } from '../utils/attendance.validation';
 
 const router = Router();
@@ -203,6 +204,18 @@ router.post(
   authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
   validate(revertValidationCorrectionSchema),
   attendanceController.revertValidationCorrection.bind(attendanceController)
+);
+
+/**
+ * @route   POST /api/v1/attendance/validation-process/clear
+ * @desc    Clear all validation results for a date range (deletes lock so events can be applied)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/validation-process/clear',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  validate(clearValidationSchema),
+  attendanceController.clearValidationResults.bind(attendanceController)
 );
 
 /**

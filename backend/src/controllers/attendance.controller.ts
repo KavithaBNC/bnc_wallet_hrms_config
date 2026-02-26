@@ -985,6 +985,32 @@ export class AttendanceController {
   }
 
   /**
+   * Clear all validation results for a date range.
+   * POST /api/v1/attendance/validation-process/clear
+   */
+  async clearValidationResults(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, paygroupId, employeeId, fromDate, toDate } = req.body as {
+        organizationId: string;
+        paygroupId?: string | null;
+        employeeId?: string | null;
+        fromDate: string;
+        toDate: string;
+      };
+      const result = await attendanceService.clearValidationResults({
+        organizationId,
+        paygroupId,
+        employeeId,
+        fromDate,
+        toDate,
+      });
+      return res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Get validation revert history.
    * GET /api/v1/attendance/validation-process/revert-history
    */

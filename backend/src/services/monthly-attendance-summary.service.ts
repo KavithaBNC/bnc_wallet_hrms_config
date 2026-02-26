@@ -47,12 +47,101 @@ export class MonthlyAttendanceSummaryService {
   }
 
   /**
+   * Count week-off days in period using __WEEK_OFF_DATA__ rules (fetch once, compute in-memory).
+   */
+  private async countWeekOffDaysInPeriod(
+    employeeId: string,
+    organizationId: string,
+    periodStart: Date,
+    periodEnd: Date
+  ): Promise<number> {
+    const [employee, weekOffRules] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { paygroupId: true, departmentId: true },
+      }),
+      prisma.shiftAssignmentRule.findMany({
+        where: {
+          organizationId,
+          effectiveDate: { lte: periodEnd },
+          remarks: { contains: '__WEEK_OFF_DATA__' },
+        },
+        orderBy: [{ priority: 'desc' }, { effectiveDate: 'desc' }],
+        select: { employeeIds: true, paygroupId: true, departmentId: true, remarks: true, effectiveDate: true },
+      }),
+    ]);
+
+    const isWeekOff = (date: Date): boolean => {
+      for (const rule of weekOffRules) {
+        if (rule.effectiveDate > date) continue;
+        const ruleEmpIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];
+        let matches = false;
+        if (ruleEmpIds.length > 0) {
+          matches = ruleEmpIds.includes(employeeId);
+        } else if (rule.paygroupId && rule.departmentId) {
+          matches =
+            rule.paygroupId === employee?.paygroupId && rule.departmentId === employee?.departmentId;
+        } else if (rule.paygroupId) {
+          matches = rule.paygroupId === employee?.paygroupId;
+        } else if (rule.departmentId) {
+          matches = rule.departmentId === employee?.departmentId;
+        } else {
+          matches = true;
+        }
+        if (!matches || !rule.remarks) continue;
+        const markerIdx = rule.remarks.indexOf('__WEEK_OFF_DATA__');
+        if (markerIdx === -1) continue;
+        try {
+          const jsonStr = rule.remarks.slice(markerIdx + '__WEEK_OFF_DATA__'.length);
+          const parsed = JSON.parse(jsonStr) as {
+            weekOffDetails?: boolean[][];
+            alternateSaturdayOff?: string;
+          };
+          let weekOffDetails = parsed?.weekOffDetails;
+          if (!weekOffDetails || !Array.isArray(weekOffDetails)) continue;
+          const altSat = (parsed?.alternateSaturdayOff || '').toUpperCase();
+          if (
+            (altSat.includes('1ST') && altSat.includes('3RD')) ||
+            (altSat.includes('2ND') && altSat.includes('4TH'))
+          ) {
+            weekOffDetails = weekOffDetails.map((week) => {
+              const row = [...week];
+              if (row[0] !== undefined) row[0] = false;
+              return row;
+            });
+          }
+          const dayOfMonth = date.getUTCDate();
+          const weekIndex = Math.min(5, Math.max(0, Math.ceil(dayOfMonth / 7) - 1));
+          const dayIndex = date.getUTCDay();
+          if (weekOffDetails[weekIndex]?.[dayIndex]) return true;
+        } catch {
+          /* ignore */
+        }
+      }
+      return date.getUTCDay() === 0;
+    };
+
+    let count = 0;
+    const cursor = new Date(periodStart);
+    cursor.setUTCHours(0, 0, 0, 0);
+    const end = new Date(periodEnd);
+    end.setUTCHours(23, 59, 59, 999);
+    while (cursor <= end) {
+      if (isWeekOff(new Date(cursor))) count += 1;
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return count;
+  }
+
+  /**
    * Get attendance data for an employee for a calendar month (same logic as payroll).
+   * weekendDays: from employee-specific week-off rules (__WEEK_OFF_DATA__), e.g. Sunday + Alternate Saturday.
    */
   private async getAttendanceDataForMonth(
     employeeId: string,
     periodStart: Date,
-    periodEnd: Date
+    periodEnd: Date,
+    organizationId: string
   ): Promise<AttendanceData> {
     const attendanceRecords = await prisma.attendanceRecord.findMany({
       where: {
@@ -65,7 +154,21 @@ export class MonthlyAttendanceSummaryService {
     const absentDays = attendanceRecords.filter((r) => r.status === AttendanceStatus.ABSENT).length;
     const halfDays = attendanceRecords.filter((r) => r.status === AttendanceStatus.HALF_DAY).length;
     const holidayDays = attendanceRecords.filter((r) => r.status === AttendanceStatus.HOLIDAY).length;
-    const weekendDays = attendanceRecords.filter((r) => r.status === AttendanceStatus.WEEKEND).length;
+
+    // weekendDays from employee-specific week-off rules (batched); fallback to record count if rule-based fails
+    let weekendDays: number;
+    try {
+      weekendDays = await this.countWeekOffDaysInPeriod(
+        employeeId,
+        organizationId,
+        periodStart,
+        periodEnd
+      );
+    } catch (err) {
+      // Fallback: count from attendance records (status WEEKEND) if rule-based calculation fails
+      weekendDays = attendanceRecords.filter((r) => r.status === AttendanceStatus.WEEKEND).length;
+    }
+
     const overtimeHours = attendanceRecords.reduce(
       (sum, r) => sum + (r.overtimeHours ? Number(r.overtimeHours) : 0),
       0
@@ -152,7 +255,7 @@ export class MonthlyAttendanceSummaryService {
     const periodEnd = new Date(year, month, 0);
 
     const [attendance, leaves] = await Promise.all([
-      this.getAttendanceDataForMonth(employeeId, periodStart, periodEnd),
+      this.getAttendanceDataForMonth(employeeId, periodStart, periodEnd, organizationId),
       this.getLeaveDataForMonth(employeeId, periodStart, periodEnd),
     ]);
 

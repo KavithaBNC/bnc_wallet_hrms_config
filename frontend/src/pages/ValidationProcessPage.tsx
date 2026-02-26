@@ -173,6 +173,12 @@ export default function ValidationProcessPage() {
   const [revertHistoryPage, setRevertHistoryPage] = useState(1);
   const [loadingRevertHistory, setLoadingRevertHistory] = useState(false);
 
+  // Clear validation state
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearResult, setClearResult] = useState<{ deleted: number } | null>(null);
+  const [showClearResult, setShowClearResult] = useState(false);
+
   const fetchRevertHistory = useCallback(async (page = 1) => {
     if (!organizationId) return;
     setLoadingRevertHistory(true);
@@ -256,6 +262,30 @@ export default function ValidationProcessPage() {
       setRevertRemarks('');
     }
   }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate, revertRemarks, runProcess]);
+
+  const handleClearValidation = useCallback(async () => {
+    if (!organizationId || !fromDate || !toDate) return;
+    setClearLoading(true);
+    try {
+      const result = await attendanceService.clearValidationResults({
+        organizationId,
+        paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
+        employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
+        fromDate,
+        toDate,
+      });
+      setClearResult(result);
+      setShowClearConfirm(false);
+      setShowClearResult(true);
+      runProcess({ fromDate, toDate });
+    } catch (err: unknown) {
+      setClearResult({ deleted: 0 });
+      setShowClearConfirm(false);
+      setShowClearResult(true);
+    } finally {
+      setClearLoading(false);
+    }
+  }, [organizationId, paygroupFilter, associateFilter, fromDate, toDate, runProcess]);
 
   const fetchLateDeductions = useCallback(async () => {
     if (!organizationId) return;
@@ -719,6 +749,23 @@ export default function ValidationProcessPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                       </svg>
                       Revert / Validation On Hold
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!fromDate || !toDate) {
+                          setProcessError('Select From Date and To Date (e.g. 2026-02-01 to 2026-02-28) before clearing.');
+                          return;
+                        }
+                        setShowClearConfirm(true);
+                        setProcessError(null);
+                      }}
+                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-amber-400 bg-white text-sm font-medium text-amber-800 hover:bg-amber-50"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Clear validation
                     </button>
                     <button
                       type="button"
@@ -1368,6 +1415,101 @@ export default function ValidationProcessPage() {
               <button
                 type="button"
                 onClick={() => setShowRevertResult(false)}
+                className="h-9 px-4 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Validation Confirmation Dialog */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => !clearLoading && setShowClearConfirm(false)}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-amber-50 rounded-t-xl">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Clear all validation</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Remove validation lock so events can be applied</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 flex flex-col gap-3">
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <p className="font-medium mb-1">What will be cleared:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-xs">
+                  <li>All validation results for the date range will be deleted</li>
+                  <li>Employees can apply leave, permission, or other events again</li>
+                  <li>Run Process again after applying events to re-validate</li>
+                </ul>
+              </div>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700">
+                <span className="font-medium">Date Range: </span>{fromDate} → {toDate}
+                {paygroupFilter !== 'ALL' && <><br /><span className="font-medium">Pay Group: </span>{selectedPaygroupLabel}</>}
+                {associateFilter !== 'ALL' && <><br /><span className="font-medium">Associate: </span>{selectedAssociateLabel}</>}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => setShowClearConfirm(false)}
+                disabled={clearLoading}
+                className="h-9 px-4 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearValidation}
+                disabled={clearLoading}
+                className="h-9 px-4 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {clearLoading ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Clearing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Yes, Clear validation
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Result Dialog */}
+      {showClearResult && clearResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowClearResult(false)}>
+          <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-green-50 rounded-t-xl">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Clear successful</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{clearResult.deleted} validation record(s) deleted. Events can now be applied.</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <button
+                type="button"
+                onClick={() => setShowClearResult(false)}
                 className="h-9 px-4 rounded-lg bg-gray-800 text-white text-sm font-medium hover:bg-gray-700"
               >
                 Close

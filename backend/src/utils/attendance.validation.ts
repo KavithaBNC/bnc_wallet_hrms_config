@@ -268,6 +268,16 @@ export const releaseHoldSchema = z.object({
   })).min(1, 'At least one row must be selected'),
 });
 
+export const clearValidationSchema = z
+  .object({
+    organizationId: z.string().uuid('Invalid organization ID'),
+    paygroupId: z.string().uuid().optional().nullable(),
+    employeeId: z.string().uuid().optional().nullable(),
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  })
+  .refine((d) => d.toDate >= d.fromDate, { message: 'toDate must be on or after fromDate', path: ['toDate'] });
+
 // Types
 export type CheckInInput = z.infer<typeof checkInSchema>;
 export type QueryMonthlyDetailsInput = z.infer<typeof queryMonthlyDetailsSchema>;
@@ -294,3 +304,4 @@ export type QueryCompletedListInput = z.infer<typeof queryCompletedListSchema>;
 export type RevertByRowsInput = z.infer<typeof revertByRowsSchema>;
 export type OnHoldInput = z.infer<typeof onHoldSchema>;
 export type ReleaseHoldInput = z.infer<typeof releaseHoldSchema>;
+export type ClearValidationInput = z.infer<typeof clearValidationSchema>;

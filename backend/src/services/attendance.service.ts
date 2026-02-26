@@ -5193,6 +5193,42 @@ export class AttendanceService {
   }
 
   /**
+   * Clear all validation results for a date range. Deletes AttendanceValidationResult rows
+   * so events (leave, permission, etc.) can be applied again. Does NOT revert HR corrections
+   * or delete leave requests - use Revert for that.
+   */
+  async clearValidationResults(params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ deleted: number }> {
+    const { organizationId, paygroupId, employeeId, fromDate, toDate } = params;
+    const from = new Date(fromDate + 'T00:00:00.000Z');
+    const to = new Date(toDate + 'T23:59:59.999Z');
+
+    const employeeWhere: Prisma.EmployeeWhereInput = { organizationId, deletedAt: null };
+    if (employeeId) {
+      employeeWhere.id = employeeId;
+    } else if (paygroupId) {
+      employeeWhere.paygroupId = paygroupId;
+    }
+    const employees = await prisma.employee.findMany({ where: employeeWhere, select: { id: true } });
+    const employeeIds = employees.map((e) => e.id);
+    if (employeeIds.length === 0) return { deleted: 0 };
+
+    const result = await prisma.attendanceValidationResult.deleteMany({
+      where: {
+        organizationId,
+        employeeId: { in: employeeIds },
+        date: { gte: from, lte: to },
+      },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
    * Get validation revert history for an organization (most recent first).
    */
   async getValidationRevertHistory(params: {

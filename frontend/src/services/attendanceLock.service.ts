@@ -24,11 +24,11 @@ const attendanceLockService = {
     year: number,
     month: number
   ): Promise<BuildMonthResult> => {
-    const response = await api.post('/monthly-attendance-summary/build-month', {
-      organizationId,
-      year,
-      month,
-    });
+    const response = await api.post(
+      '/monthly-attendance-summary/build-month',
+      { organizationId, year, month },
+      { timeout: 120000 }
+    );
     return response.data.data ?? response.data;
   },
 

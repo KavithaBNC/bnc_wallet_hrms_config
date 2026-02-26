@@ -50,7 +50,9 @@
     "clear:hardcoded-leave-entitlements": "ts-node -r tsconfig-paths/register src/scripts/clear-hardcoded-leave-entitlements.ts",
     "fix:employee-approval-in-workflows": "ts-node -r tsconfig-paths/register src/scripts/fix-employee-approval-in-workflow-mappings.ts",
     "migrate:face-encoding": "ts-node -r tsconfig-paths/register src/scripts/add-face-encoding-column.ts",
-    "test:lop": "ts-node -r tsconfig-paths/register src/scripts/test-lop-calculation.ts"
+    "test:lop": "ts-node -r tsconfig-paths/register src/scripts/test-lop-calculation.ts",
+    "check:saravanan": "ts-node -r tsconfig-paths/register src/scripts/check-saravanan-attendance-summary.ts",
+    "set:lop-unpaid": "ts-node -r tsconfig-paths/register src/scripts/set-lop-leave-type-unpaid.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

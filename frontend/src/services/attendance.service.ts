@@ -336,6 +336,21 @@ export const attendanceService = {
     return data.data;
   },
 
+  /** Clear all validation results for a date range (deletes lock so events can be applied). */
+  clearValidationResults: async (params: {
+    organizationId: string;
+    paygroupId?: string | null;
+    employeeId?: string | null;
+    fromDate: string;
+    toDate: string;
+  }): Promise<{ deleted: number }> => {
+    const { data } = await api.post<{ data: { deleted: number } }>(
+      '/attendance/validation-process/clear',
+      params
+    );
+    return data.data;
+  },
+
   /** Get validation revert history (audit log). */
   getValidationRevertHistory: async (params: {
     organizationId: string;

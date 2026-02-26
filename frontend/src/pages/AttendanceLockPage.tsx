@@ -76,9 +76,11 @@ export default function AttendanceLockPage() {
       setSummaryCount(result.successCount);
       fetchLockStatus();
     } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'response' in err
-        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
-        : 'Failed to build summaries';
+      const ax = err as { response?: { data?: { message?: string } }; message?: string };
+      const msg =
+        ax?.response?.data?.message ||
+        ax?.message ||
+        'Failed to build summaries';
       setError(String(msg));
     } finally {
       setBuilding(false);
