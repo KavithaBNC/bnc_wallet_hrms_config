@@ -241,9 +241,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const [currentTab, setCurrentTab] = useState<
     'company' | 'personal' | 'statutory' | 'bank' | 'salary' | 'assets' | 'academic' | 'previousEmployment' | 'family' | 'others' | 'newFields' | 'esop'
-  >(
-    initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup ? 'company' : 'personal'
-  );
+  >('company');
 
   // Fetch ESOP records when ESOP tab is selected and employee exists
   useEffect(() => {
@@ -1009,19 +1007,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         {/* Tab Navigation - vertical menu */}
         <div className="w-56 flex-shrink-0">
           <nav className="flex flex-col space-y-2 bg-white rounded-lg border border-gray-200 p-3">
-          {(rejoinMode || initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && (
-            <button
-              type="button"
-              onClick={() => setCurrentTab('company')}
-              className={`${
-                currentTab === 'company'
-                  ? 'bg-blue-50 text-blue-600 border-blue-500'
-                  : 'bg-white text-gray-600 border-transparent hover:bg-gray-50 hover:text-gray-800'
-              } w-full text-left px-3 py-2 rounded-md border text-sm font-medium`}
-            >
-              Company Details
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setCurrentTab('company')}
+            className={`${
+              currentTab === 'company'
+                ? 'bg-blue-50 text-blue-600 border-blue-500'
+                : 'bg-white text-gray-600 border-transparent hover:bg-gray-50 hover:text-gray-800'
+            } w-full text-left px-3 py-2 rounded-md border text-sm font-medium`}
+          >
+            Company Details
+          </button>
           <button
             type="button"
             onClick={() => setCurrentTab('personal')}
@@ -1161,7 +1157,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       <div className="flex-1 min-w-0 space-y-6">
 
       {/* Company Details Tab */}
-      {(rejoinMode || initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup) && currentTab === 'company' && (
+      {currentTab === 'company' && (
         <div className="space-y-4">
           {rejoinMode && employee && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1186,8 +1182,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <label className="block text-sm font-medium text-gray-700">Paygroup</label>
               <input
                 type="text"
-                value={formData.paygroupDisplay}
+                value={formData.paygroupDisplay || 'Not assigned'}
                 readOnly
+                placeholder="Select paygroup when creating employee"
                 className="mt-1 block w-full h-10 bg-gray-100 rounded-md border border-gray-300 text-gray-700 sm:text-sm"
               />
             </div>
@@ -1371,7 +1368,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <div className="flex gap-2">
                 <select name="departmentId" value={formData.departmentId} onChange={(e) => {
                   handleChange(e);
-                  setFormData((prev) => ({ ...prev, subDepartment: '' }));
+                  setFormData((prev) => ({ ...prev, subDepartment: '', positionId: '' }));
                 }}
                   className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                     errors.departmentId
@@ -1436,7 +1433,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                       : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                   }`}>
                   <option value="">Designation</option>
-                  {positions.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                  {positions
+                    .filter((p) => !formData.departmentId?.trim() || !p.departmentId || p.departmentId === formData.departmentId)
+                    .map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
                 </select>
                 <button
                   type="button"
@@ -3322,7 +3321,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       {/* Form Actions */}
       <div className="flex justify-between pt-4 border-t">
         <div>
-          {currentTab !== (initialPaygroupId || (employee as any)?.paygroupId || (employee as any)?.paygroup ? 'company' : 'personal') && (
+          {currentTab !== 'company' && (
             <button
               type="button"
               onClick={handleBack}
@@ -3346,7 +3345,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             const showSubmit = !isViewMode && (
               !employee
                 ? true
-                : (currentTab === 'newFields' && (editableTabs == null || editableTabs.includes('newFields'))) ||
+                : (currentTab === 'company' && isTabEditable('company')) ||
+                  (currentTab === 'newFields' && (editableTabs == null || editableTabs.includes('newFields'))) ||
                   (currentTab === 'personal' && isTabEditable('personal')) ||
                   (currentTab === 'academic' && isTabEditable('academic')) ||
                   (currentTab === 'previousEmployment' && isTabEditable('previousEmployment')) ||

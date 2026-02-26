@@ -15,6 +15,11 @@ import AppHeader from '../components/layout/AppHeader';
 import { canCreateEmployee, canUpdateEmployee, canDeleteEmployee, getEditableTabsFromPermissions, canEditEmployeeByPermission, type EmployeeFormTabKey } from '../utils/rbac';
 import permissionService from '../services/permission.service';
 import organizationService, { type Organization } from '../services/organization.service';
+import positionService from '../services/position.service';
+import departmentService from '../services/department.service';
+import paygroupService from '../services/paygroup.service';
+import costCentreService from '../services/costCentre.service';
+import { employeeSalaryService } from '../services/payroll.service';
 
 function getAvatarColor(name: string): string {
   const colors = ['bg-green-500', 'bg-blue-500', 'bg-orange-500', 'bg-purple-500', 'bg-teal-500', 'bg-indigo-500'];
@@ -51,7 +56,7 @@ function toDateOnly(value: unknown): string | null {
     if (!trimmed) return null;
     const isoDate = /^\d{4}-\d{2}-\d{2}$/;
     if (isoDate.test(trimmed)) return trimmed;
-    const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/;
+    const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/;
     const match = trimmed.match(dmy);
     if (match) {
       const dd = match[1].padStart(2, '0');
@@ -59,9 +64,30 @@ function toDateOnly(value: unknown): string | null {
       const yyyy = match[3];
       return `${yyyy}-${mm}-${dd}`;
     }
-    const parsed = new Date(trimmed);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString().slice(0, 10);
+    const mdyMatch = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (mdyMatch) {
+      const a = parseInt(mdyMatch[1], 10);
+      const b = parseInt(mdyMatch[2], 10);
+      const y = mdyMatch[3];
+      let dd: string; let mm: string;
+      if (a > 12) { dd = mdyMatch[1].padStart(2, '0'); mm = mdyMatch[2].padStart(2, '0'); }
+      else if (b > 12) { mm = mdyMatch[1].padStart(2, '0'); dd = mdyMatch[2].padStart(2, '0'); }
+      else { dd = mdyMatch[1].padStart(2, '0'); mm = mdyMatch[2].padStart(2, '0'); }
+      const parsed = new Date(`${y}-${mm}-${dd}`);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    }
+    let parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const monthMatch = trimmed.match(/^(\d{1,2})[-./\s]?([a-z]{3,})[-./\s]?(\d{2,4})$/i);
+    if (monthMatch) {
+      const d = monthMatch[1].padStart(2, '0');
+      const mIdx = monthNames.findIndex((m) => monthMatch[2].toLowerCase().startsWith(m));
+      if (mIdx >= 0) {
+        const m = String(mIdx + 1).padStart(2, '0');
+        const y = monthMatch[3].length === 2 ? '20' + monthMatch[3] : monthMatch[3];
+        return `${y}-${m}-${d}`;
+      }
     }
   }
   return null;
@@ -119,7 +145,7 @@ export default function EmployeesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importingEmployees, setImportingEmployees] = useState(false);
-  const [importResult, setImportResult] = useState<{ total: number; success: number; failures: EmployeeImportFailure[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ total: number; success: number; skipped: number; failures: EmployeeImportFailure[] } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
@@ -602,6 +628,23 @@ export default function EmployeesPage() {
     }
   };
 
+  const mapGender = (val: string): string | undefined => {
+    const v = String(val).trim().toUpperCase();
+    if (v === 'M' || v === 'MALE') return 'MALE';
+    if (v === 'F' || v === 'FEMALE') return 'FEMALE';
+    if (v === 'OTHER') return 'OTHER';
+    return undefined;
+  };
+
+  const mapMaritalStatus = (val: string): string | undefined => {
+    const v = String(val).trim().toUpperCase();
+    if (v === 'S' || v === 'SINGLE') return 'SINGLE';
+    if (v === 'M' || v === 'MARRIED') return 'MARRIED';
+    if (v === 'DIVORCED') return 'DIVORCED';
+    if (v === 'WIDOWED') return 'WIDOWED';
+    return undefined;
+  };
+
   const handleImportEmployees = async () => {
     if (!importFile) {
       alert('Please choose an Excel file first.');
@@ -615,6 +658,19 @@ export default function EmployeesPage() {
     setImportingEmployees(true);
     setImportResult(null);
     try {
+      const [
+        { positions: orgPositions },
+        { departments: orgDepartments },
+        orgPaygroups,
+        { employees: orgEmployees },
+        orgCostCentres,
+      ] = await Promise.all([
+        positionService.getAll({ organizationId: effectiveOrganizationId, limit: 500 }),
+        departmentService.getAll({ organizationId: effectiveOrganizationId, limit: 500 }),
+        paygroupService.getAll({ organizationId: effectiveOrganizationId }),
+        employeeService.getAll({ organizationId: effectiveOrganizationId, employeeStatus: 'ALL', limit: 5000 }),
+        costCentreService.getByOrganization(effectiveOrganizationId),
+      ]);
       const buffer = await importFile.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
       const firstSheet = workbook.SheetNames[0];
@@ -633,17 +689,91 @@ export default function EmployeesPage() {
 
       const failures: EmployeeImportFailure[] = [];
       let success = 0;
+      let skipped = 0;
       let total = 0;
 
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index];
-        const firstName = String(getCellValue(row, ['firstName', 'first_name', 'firstname'])).trim();
-        const lastName = String(getCellValue(row, ['lastName', 'last_name', 'lastname'])).trim();
-        const email = String(getCellValue(row, ['email', 'emailId', 'mail'])).trim();
-        const dateOfJoining = toDateOnly(getCellValue(row, ['dateOfJoining', 'date_of_joining', 'joiningDate', 'doj']));
-        const employeeCode = String(getCellValue(row, ['employeeCode', 'employee_code', 'empCode', 'empcode'])).trim();
-        const phone = String(getCellValue(row, ['phone', 'mobile', 'mobileNumber'])).trim();
-        const personalEmail = String(getCellValue(row, ['personalEmail', 'personal_email'])).trim();
+        const associateName = String(getCellValue(row, ['Associate Name', 'associateName', 'associate_name', 'Name', 'Employee Name', 'Full Name', 'Emp Name'])).trim();
+        const firstNameCol = String(getCellValue(row, ['firstName', 'first_name', 'firstname', 'First Name', 'EMP.F.NAME'])).trim();
+        const lastNameCol = String(getCellValue(row, ['lastName', 'last_name', 'lastname', 'Last Name', 'EMP.L.NAME'])).trim();
+        let firstName = firstNameCol;
+        let lastName = lastNameCol;
+        if (associateName && !firstNameCol && !lastNameCol) {
+          const parts = associateName.split(/\s+/).filter(Boolean);
+          firstName = parts[0] || associateName;
+          lastName = parts.length > 1 ? parts.slice(1).join(' ') : associateName;
+        }
+        const middleName = String(getCellValue(row, ['middleName', 'middle_name', 'EMP.M.NAME'])).trim();
+        const officialEmail = String(getCellValue(row, ['Official E-Mail Id', 'officialEmail', 'official_email', 'Official Email', 'email'])).trim();
+        const permanentEmail = String(getCellValue(row, ['Permanent E-Mail Id', 'permanentEmail', 'permanent_email', 'Permanent Email'])).trim();
+        const emailCol = String(getCellValue(row, ['email', 'emailId', 'mail', 'Email ID', 'EMAIL ID', 'Email', 'E-Mail Id', 'E-Mail'])).trim();
+        let email = emailCol || officialEmail || permanentEmail;
+        if (!email) {
+          const emailLike = Object.values(row).find((v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim()));
+          if (emailLike) email = String(emailLike).trim();
+        }
+        if ((!firstName || !lastName) && email && /^[^\s@]+@[^\s@]+/.test(email)) {
+          const localPart = email.split('@')[0] || '';
+          const nameParts = localPart.replace(/[._]/g, ' ').split(/\s+/).filter(Boolean);
+          if (!firstName && nameParts.length) firstName = nameParts[0];
+          if (!lastName && nameParts.length) lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : nameParts[0] || localPart;
+        }
+        const fatherName = String(getCellValue(row, ['fatherName', 'father_name', 'Father Name', 'FATHER NAME'])).trim();
+        if (!lastName && fatherName) lastName = fatherName;
+        if (!lastName) lastName = 'N/A';
+        if (firstName.length < 2) firstName = (firstName + 'X').slice(0, 2);
+        const personalEmailRaw = String(getCellValue(row, ['personalEmail', 'personal_email', 'Permanent E-Mail Id'])).trim()
+          || (permanentEmail && permanentEmail !== email ? permanentEmail : '');
+        const personalEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmailRaw) ? personalEmailRaw : '';
+        const dateOfJoining = toDateOnly(getCellValue(row, ['dateOfJoining', 'date_of_joining', 'joiningDate', 'doj', 'Date of Joining', 'DOJ', 'Joining Date']));
+        const employeeCode = String(getCellValue(row, ['Associate Code', 'employeeCode', 'employee_code', 'empCode', 'empcode', 'empId', 'emp id', 'Emp ID', 'EMP.CODE'])).trim();
+        const phone = String(getCellValue(row, ['phone', 'mobile', 'mobileNumber', 'mobile_number', 'phone_number', 'Mobile No', 'Permanent mobile', 'Permanent Phone', 'Current Phone', 'EMRG.CONTACT NO.'])).trim();
+        const designation = String(getCellValue(row, ['designation', 'Designation', 'position'])).trim();
+        const department = String(getCellValue(row, ['department', 'departmentName', 'dept', 'Department', 'DEPARTMENT'])).trim();
+        const paygroupName = String(getCellValue(row, ['Paygroup', 'paygroup', 'payGroup', 'PAY GROUP'])).trim();
+        const gender = mapGender(String(getCellValue(row, ['gender', 'Gender', 'GENDER'])));
+        const maritalStatus = mapMaritalStatus(String(getCellValue(row, ['maritalStatus', 'marital_status', 'Marital Status', 'MARITIAL STATUS'])));
+        const dateOfLeaving = toDateOnly(getCellValue(row, ['dateOfLeaving', 'date_of_leaving', 'dol', 'RELIEVING DATE']));
+        const permanentAddress = String(getCellValue(row, ['permanentAddress', 'permanent_address', 'Permanent Address', 'Address - Permanent', 'PARMANENT ADDRESS'])).trim();
+        const presentAddress = String(getCellValue(row, ['presentAddress', 'present_address', 'Current Address', 'Address - Current', 'COMMUNICATON ADDRESS'])).trim();
+        const city = String(getCellValue(row, ['city', 'City', 'Permanent City', 'City - Permanent'])).trim();
+        const cityCurrent = String(getCellValue(row, ['cityCurrent', 'City - Current', 'Current City'])).trim();
+        const state = String(getCellValue(row, ['state', 'State', 'Permanent State', 'State - Permanent'])).trim();
+        const stateCurrent = String(getCellValue(row, ['stateCurrent', 'State - Current', 'Current State'])).trim();
+        const pincode = String(getCellValue(row, ['pincode', 'postalCode', 'postal_code', 'Permanent Pincode', 'Pincode - Permanent'])).trim();
+        const pincodeCurrent = String(getCellValue(row, ['pincodeCurrent', 'Pincode - Current', 'Current Pincode'])).trim();
+        const countryPermanent = String(getCellValue(row, ['countryPermanent', 'Country - Permanent'])).trim();
+        const countryCurrent = String(getCellValue(row, ['countryCurrent', 'Country - Current'])).trim();
+        const panNumber = String(getCellValue(row, ['panNumber', 'pan_number', 'PAN', 'Pan No', 'Pan No.', 'Pan Card Number', 'PANCARD NO'])).trim();
+        const aadhaarNumber = String(getCellValue(row, ['aadhaarNumber', 'aadhar_number', 'aadhar', 'Aadhar', 'Aadhar No', 'Adhaar Number', 'AADHAR NO'])).trim();
+        const uanNumber = String(getCellValue(row, ['uanNumber', 'uan_number', 'UAN', 'UAN No', 'UAN Number', 'UAN NO'])).trim();
+        const pfNumber = String(getCellValue(row, ['pfNumber', 'pf_number', 'EPF', 'epfNumber', 'PF No', 'PF Number', 'PF NO'])).trim();
+        const esiNumber = String(getCellValue(row, ['esiNumber', 'esi_number', 'ESIC', 'ESIC No', 'ESI Number', 'ESIC NO'])).trim();
+        const bankName = String(getCellValue(row, ['bankName', 'bank_name', 'Bank Name', 'BANK NAME'])).trim();
+        const accountNumber = String(getCellValue(row, ['accountNumber', 'account_number', 'accountNo', 'Account No', 'Bank Account No', 'ACCOUNT NO'])).trim();
+        const ifscCode = String(getCellValue(row, ['ifscCode', 'ifsc_code', 'IFSC', 'Bank IFSC Code', 'IFSC CODE'])).trim();
+        const age = String(getCellValue(row, ['age', 'Age'])).trim();
+        const passportNumber = String(getCellValue(row, ['passportNumber', 'passport_number', 'PASSPORT NO'])).trim();
+        const drivingLicenseNumber = String(getCellValue(row, ['drivingLicenseNumber', 'driving_license', 'DRIVING LICENCE NO'])).trim();
+        const bloodGroup = String(getCellValue(row, ['bloodGroup', 'blood_group', 'Blood Group', 'BLOOD GROUP'])).trim();
+        const experienceYears = String(getCellValue(row, ['experienceYears', 'experience', 'Experience', 'Exp - Total', 'Exp - Relevant', 'PREVIOUS EXPERIENCE'])).trim();
+        const dateOfBirth = toDateOnly(getCellValue(row, ['dateOfBirth', 'date_of_birth', 'dob', 'Date of Birth', 'DOB']));
+        const subDepartment = String(getCellValue(row, ['subDepartment', 'sub_department', 'Sub Department', 'SubDepartment', 'SUB.DEPARTMENT'])).trim();
+        const qualification = String(getCellValue(row, ['qualification', 'Qualification', 'QUALIFICATION'])).trim();
+        const course = String(getCellValue(row, ['course', 'Course'])).trim();
+        const university = String(getCellValue(row, ['university', 'University', 'INSTITUTE'])).trim();
+        const passoutYear = String(getCellValue(row, ['passoutYear', 'passout_year', 'Passout Year', 'YEAR OF PASSING'])).trim();
+        const emergencyContactName = String(getCellValue(row, ['emergencyContactName', 'emergency_contact_name', 'Emergency Contact Name', 'EMRG.CONTACT NAME'])).trim();
+        const emergencyContactNo = String(getCellValue(row, ['emergencyContactNo', 'emergency_contact_no', 'Emergency Contact No', 'EMRG.CONTACT NO.'])).trim();
+        const relationship = String(getCellValue(row, ['relationship', 'Relationship', 'RELATION'])).trim();
+        const placeOfTaxRaw = String(getCellValue(row, ['Place of Tax Deduction', 'placeOfTaxDeduction', 'place_of_tax_deduction'])).trim().toUpperCase();
+        const placeOfTax = placeOfTaxRaw === 'M' ? 'METRO' : placeOfTaxRaw === 'N' ? 'NON_METRO' : placeOfTaxRaw;
+        const workLocation = String(getCellValue(row, ['Location', 'location', 'workLocation'])).trim();
+        const reportingManagerName = String(getCellValue(row, ['Reporting Manager', 'reportingManager', 'reporting_manager'])).trim();
+        const costCentreCol = String(getCellValue(row, ['Cost Centre', 'costCentre', 'cost_centre', 'cost_center'])).trim();
+        const fixedGross = String(getCellValue(row, ['Fixed Gross', 'fixedGross', 'fixed_gross'])).trim();
+        const vehicleAllowances = String(getCellValue(row, ['Vehicle Allowances', 'vehicleAllowances', 'vehicle_allowances'])).trim();
 
         // Skip fully empty rows
         if (!firstName && !lastName && !email && !dateOfJoining && !employeeCode) {
@@ -651,37 +781,190 @@ export default function EmployeesPage() {
         }
 
         total += 1;
-        if (!firstName || !lastName || !email || !dateOfJoining) {
+        if (!firstName || !email || !dateOfJoining) {
           failures.push({
-            row: index + 2, // 1-based + header row
+            row: index + 2,
             email: email || undefined,
-            message: 'Missing required columns (firstName, lastName, email, dateOfJoining).',
+            message: 'Missing required: Associate Name (or firstName), Official/Permanent E-Mail Id, Date of Joining.',
           });
           continue;
         }
 
+        const positionId = designation
+          ? orgPositions?.find((p) => p.title?.toLowerCase() === designation.toLowerCase())?.id ?? null
+          : null;
+        const departmentId = department
+          ? orgDepartments?.find((d) => d.name?.toLowerCase() === department.toLowerCase())?.id ?? null
+          : null;
+        const paygroupId = paygroupName
+          ? orgPaygroups?.find((p) => p.name?.toLowerCase() === paygroupName.toLowerCase())?.id ?? null
+          : null;
+        const reportingManagerId = reportingManagerName
+          ? orgEmployees?.find((e) => {
+              const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+              const alt = `${e.lastName || ''} ${e.firstName || ''}`.trim().toLowerCase();
+              const search = reportingManagerName.toLowerCase();
+              const codeMatch = (e as { employeeCode?: string }).employeeCode?.toLowerCase() === search;
+              return codeMatch || full === search || alt === search || full.includes(search) || search.includes(full);
+            })?.id ?? null
+          : null;
+        const costCentreId = costCentreCol
+          ? orgCostCentres?.find(
+              (c) =>
+                c.name?.toLowerCase() === costCentreCol.toLowerCase() ||
+                (c.code && c.code.toLowerCase() === costCentreCol.toLowerCase())
+            )?.id ?? null
+          : null;
+        const placeOfTaxDeduction = placeOfTax === 'METRO' || placeOfTax === 'NON_METRO' ? placeOfTax : undefined;
+
+        const permanentDistrict = String(getCellValue(row, ['Permanent District', 'permanentDistrict', 'permanent_district'])).trim();
+        const presentDistrict = String(getCellValue(row, ['Current District', 'presentDistrict', 'currentDistrict', 'current_district'])).trim();
+        const presentPhone = String(getCellValue(row, ['Current Phone', 'presentPhone', 'present_phone'])).trim();
+
+        const address =
+          permanentAddress || presentAddress || city || cityCurrent || state || stateCurrent || pincode || pincodeCurrent || countryPermanent || countryCurrent || permanentDistrict || presentDistrict || presentPhone
+            ? {
+                ...(permanentAddress ? { street: permanentAddress, permanentAddress } : {}),
+                ...(presentAddress ? { presentAddress } : {}),
+                ...(city ? { city } : {}),
+                ...(state ? { state } : {}),
+                ...(pincode ? { postalCode: pincode } : {}),
+                ...(countryPermanent ? { country: countryPermanent } : {}),
+                ...(cityCurrent ? { presentCity: cityCurrent } : {}),
+                ...(stateCurrent ? { presentState: stateCurrent } : {}),
+                ...(pincodeCurrent ? { presentPincode: pincodeCurrent } : {}),
+                ...(presentDistrict ? { presentDistrict } : {}),
+                ...(presentPhone ? { presentPhoneNumber: presentPhone } : {}),
+              }
+            : undefined;
+
+        const taxInformation =
+          panNumber || aadhaarNumber || uanNumber || pfNumber || esiNumber
+            ? {
+                ...(panNumber ? { panNumber } : {}),
+                ...(aadhaarNumber ? { aadhaarNumber } : {}),
+                ...(uanNumber ? { uanNumber } : {}),
+                ...(pfNumber ? { pfNumber } : {}),
+                ...(esiNumber ? { esiNumber } : {}),
+              }
+            : undefined;
+
+        const bankDetails =
+          bankName || accountNumber || ifscCode
+            ? {
+                ...(bankName ? { bankName } : {}),
+                ...(accountNumber ? { accountNumber } : {}),
+                ...(ifscCode ? { ifscCode } : {}),
+              }
+            : undefined;
+
+        const profileExtensions =
+          fatherName || age || passportNumber || drivingLicenseNumber || bloodGroup || experienceYears ||
+          subDepartment || qualification || course || university || passoutYear
+            ? {
+                ...(fatherName ? { fatherName } : {}),
+                ...(age ? { age } : {}),
+                ...(passportNumber ? { passportNumber } : {}),
+                ...(drivingLicenseNumber ? { drivingLicenseNumber } : {}),
+                ...(bloodGroup ? { bloodGroup } : {}),
+                ...(experienceYears ? { experienceYears } : {}),
+                ...(subDepartment ? { subDepartment } : {}),
+                ...(qualification ? { qualification } : {}),
+                ...(course ? { course } : {}),
+                ...(university ? { university } : {}),
+                ...(passoutYear ? { passoutYear } : {}),
+              }
+            : undefined;
+
+        const fixedGrossNum = parseFloat(String(fixedGross).replace(/,/g, '')) || 0;
+        const vehicleAllowancesNum = parseFloat(String(vehicleAllowances).replace(/,/g, '')) || 0;
+        const hasSalary = fixedGrossNum > 0 || vehicleAllowancesNum > 0;
+
+        const emergencyContacts =
+          emergencyContactName || emergencyContactNo || relationship
+            ? [{ name: emergencyContactName || '-', phone: emergencyContactNo || '-', relationship: relationship || '-' }]
+            : undefined;
+
+        const employmentTypeVal = String(getCellValue(row, ['employmentType', 'Emp Type', 'empType'])).trim().toUpperCase();
+        const employmentType = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].includes(employmentTypeVal) ? employmentTypeVal : undefined;
+
+        const existingByEmail = orgEmployees?.some((e) => e.email?.toLowerCase() === email.toLowerCase());
+        const existingByCode = employeeCode && orgEmployees?.some((e) => e.employeeCode?.toLowerCase() === employeeCode.toLowerCase());
+        if (existingByEmail || existingByCode) {
+          skipped += 1;
+          continue;
+        }
+
         try {
-          await employeeService.create({
+          const createResult = await employeeService.create({
             organizationId: effectiveOrganizationId,
             firstName,
             lastName,
             email,
             dateOfJoining,
             ...(employeeCode ? { employeeCode } : {}),
+            ...(middleName ? { middleName } : {}),
             ...(phone ? { phone } : {}),
+            ...(officialEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(officialEmail) ? { officialEmail } : {}),
             ...(personalEmail ? { personalEmail } : {}),
+            ...(dateOfBirth ? { dateOfBirth } : {}),
+            ...(gender ? { gender: gender as 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY' } : {}),
+            ...(maritalStatus ? { maritalStatus: maritalStatus as 'SINGLE' | 'MARRIED' | 'DIVORCED' | 'WIDOWED' } : {}),
+            ...(employmentType ? { employmentType: employmentType as 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN' } : {}),
+            ...(dateOfLeaving ? { dateOfLeaving } : {}),
+            ...(positionId ? { positionId } : {}),
+            ...(departmentId ? { departmentId } : {}),
+            ...(paygroupId ? { paygroupId } : {}),
+            ...(reportingManagerId ? { reportingManagerId } : {}),
+            ...(costCentreId ? { costCentreId } : {}),
+            ...(workLocation ? { workLocation } : {}),
+            ...(placeOfTaxDeduction ? { placeOfTaxDeduction } : {}),
+            ...(address && Object.keys(address).length > 0 ? { address } : {}),
+            ...(taxInformation && Object.keys(taxInformation).length > 0 ? { taxInformation } : {}),
+            ...(bankDetails && Object.keys(bankDetails).length > 0 ? { bankDetails } : {}),
+            ...(profileExtensions && Object.keys(profileExtensions).length > 0 ? { profileExtensions } : {}),
+            ...(emergencyContacts ? { emergencyContacts } : {}),
           });
           success += 1;
+          if (hasSalary && createResult?.employee?.id && dateOfJoining) {
+            const gross = fixedGrossNum + vehicleAllowancesNum;
+            try {
+              await employeeSalaryService.createSalary({
+                employeeId: createResult.employee.id,
+                effectiveDate: dateOfJoining,
+                basicSalary: Math.round(gross * 0.4),
+                grossSalary: gross,
+                netSalary: Math.round(gross * 0.75),
+                paymentFrequency: 'MONTHLY',
+                currency: 'INR',
+                components: { 'Fixed Gross': fixedGrossNum, 'Vehicle Allowances': vehicleAllowancesNum },
+              });
+            } catch (salErr: any) {
+              console.warn('Salary create failed for import row', index + 2, salErr?.response?.data?.message || salErr?.message);
+            }
+          }
         } catch (err: any) {
+          const errMsg = String(err?.response?.data?.message || err?.message || '');
+          const isDuplicate = /already exists|duplicate/i.test(errMsg);
+          if (isDuplicate) {
+            skipped += 1;
+            continue;
+          }
+          let msg = errMsg || 'Failed to create employee';
+          const errData = err?.response?.data;
+          if (errData?.errors && Array.isArray(errData.errors)) {
+            const details = errData.errors.map((e: { field?: string; message?: string }) => `${e.field || '?'}: ${e.message || ''}`).join('; ');
+            if (details) msg = `Validation: ${details}`;
+          }
           failures.push({
             row: index + 2,
             email,
-            message: err?.response?.data?.message || err?.message || 'Failed to create employee',
+            message: msg,
           });
         }
       }
 
-      setImportResult({ total, success, failures });
+      setImportResult({ total, success, skipped, failures });
 
       const params: any = {
         page: currentPage,
@@ -696,34 +979,35 @@ export default function EmployeesPage() {
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
       if (positionFilter !== 'ALL') params.positionId = positionFilter;
       await fetchEmployees(params);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Import failed';
+      const isNetwork = !err?.response && (err?.code === 'ECONNREFUSED' || err?.message?.includes('Network'));
+      alert(isNetwork ? 'Cannot connect to server. Please ensure the backend is running (npm run dev from project root).' : msg);
     } finally {
       setImportingEmployees(false);
     }
   };
 
   const handleDownloadImportTemplate = () => {
-    const templateRows = [
-      {
-        firstName: 'John',
-        lastName: 'Doe',
-        email: 'john.doe@example.com',
-        dateOfJoining: '2026-02-18',
-        employeeCode: 'EMP1001',
-        phone: '9876543210',
-        personalEmail: 'john.personal@example.com',
-      },
-      {
-        firstName: 'Priya',
-        lastName: 'Kumar',
-        email: 'priya.kumar@example.com',
-        dateOfJoining: '2026-02-19',
-        employeeCode: 'EMP1002',
-        phone: '9123456780',
-        personalEmail: 'priya.personal@example.com',
-      },
+    const COLUMNS = [
+      'S.No', 'Paygroup', 'Associate Code', 'Associate Name', 'Gender', 'Department', 'Designation', 'Father Name', 'Blood Group',
+      'Date of Birth', 'Date of Joining', 'Cost Centre', 'Pan Card Number', 'Bank Name', 'Account No', 'Bank IFSC Code',
+      'Permanent E-Mail Id', 'Official E-Mail Id', 'Permanent Address', 'Permanent City', 'Permanent State', 'Permanent Pincode', 'Permanent Phone',
+      'Current Address', 'Current City', 'Current State', 'Current Pincode', 'Current Phone',
+      'Place of Tax Deduction', 'PF Number', 'ESI Number', 'Location', 'ESI Location', 'Ptax Location', 'Marital Status',
+      'Reporting Manager', 'Associate Notice Period Days', 'LWF Location', 'Permanent District', 'Current District', 'Permanent mobile',
+      'UAN Number', 'Adhaar Number', 'Tax Regime', 'Sub Department', 'Alternate Saturday Off', 'Compoff Applicable', 'Fixed Gross', 'Vehicle Allowances',
     ];
-
-    const worksheet = XLSX.utils.json_to_sheet(templateRows);
+    const templateRows = [
+      { 'S.No': 1, 'Paygroup': 'Monthly', 'Associate Code': 'BNC1001', 'Associate Name': 'Murali Krishna', 'Gender': 'M', 'Department': 'HR', 'Designation': 'Manager', 'Father Name': 'XYZ', 'Blood Group': 'O+', 'Date of Birth': '1/1/1990', 'Date of Joining': '1/1/2024', 'Cost Centre': 'CC001', 'Pan Card Number': 'ABCDE1234F', 'Bank Name': 'HDFC Bank', 'Account No': '1234567890123456', 'Bank IFSC Code': 'HDFC0001234', 'Permanent E-Mail Id': 'murali.krishna@example.com', 'Official E-Mail Id': 'murali@bncmotors.com', 'Permanent Address': 'NO 123, 1st Street, ABC Nagar', 'Permanent City': 'Chennai', 'Permanent State': 'Tamil Nadu', 'Permanent Pincode': '600001', 'Permanent Phone': '9876543210', 'Current Address': 'NO 123, 1st Street, ABC Nagar', 'Current City': 'Chennai', 'Current State': 'Tamil Nadu', 'Current Pincode': '600001', 'Current Phone': '9876543210', 'Place of Tax Deduction': 'METRO', 'PF Number': 'TN/CHN/1234567', 'ESI Number': '31-12345-67-890', 'Location': 'Chennai', 'ESI Location': 'Chennai', 'Ptax Location': 'Chennai', 'Marital Status': 'Single', 'Reporting Manager': '', 'Associate Notice Period Days': '30', 'LWF Location': 'Chennai', 'Permanent District': 'Chennai', 'Current District': 'Chennai', 'Permanent mobile': '9876543210', 'UAN Number': '101234567890', 'Adhaar Number': '123456789012', 'Tax Regime': 'New', 'Sub Department': 'Recruitment', 'Alternate Saturday Off': 'Yes', 'Compoff Applicable': 'Yes', 'Fixed Gross': '50000', 'Vehicle Allowances': '5000' },
+      { 'S.No': 2, 'Paygroup': 'Monthly', 'Associate Code': 'BNC1002', 'Associate Name': 'Kaviya Shree', 'Gender': 'F', 'Department': 'Finance & Accounts', 'Designation': 'Executive', 'Father Name': 'ABC', 'Blood Group': 'A+', 'Date of Birth': '15/5/1992', 'Date of Joining': '1/2/2024', 'Cost Centre': 'CC002', 'Pan Card Number': 'FGHIJ5678K', 'Bank Name': 'ICICI Bank', 'Account No': '9876543210987654', 'Bank IFSC Code': 'ICIC0000987', 'Permanent E-Mail Id': 'kaviya.shree@example.com', 'Official E-Mail Id': 'kaviya@bncmotors.com', 'Permanent Address': 'NO 456, 2nd Street, XYZ Nagar', 'Permanent City': 'Chennai', 'Permanent State': 'Tamil Nadu', 'Permanent Pincode': '600002', 'Permanent Phone': '9123456780', 'Current Address': 'NO 456, 2nd Street, XYZ Nagar', 'Current City': 'Chennai', 'Current State': 'Tamil Nadu', 'Current Pincode': '600002', 'Current Phone': '9123456780', 'Place of Tax Deduction': 'METRO', 'PF Number': 'TN/CHN/7654321', 'ESI Number': '31-98765-43-210', 'Location': 'Chennai', 'ESI Location': 'Chennai', 'Ptax Location': 'Chennai', 'Marital Status': 'Married', 'Reporting Manager': 'Murali Krishna', 'Associate Notice Period Days': '30', 'LWF Location': 'Chennai', 'Permanent District': 'Chennai', 'Current District': 'Chennai', 'Permanent mobile': '9123456780', 'UAN Number': '101987654321', 'Adhaar Number': '987654321098', 'Tax Regime': 'Old', 'Sub Department': 'Accounts', 'Alternate Saturday Off': 'No', 'Compoff Applicable': 'Yes', 'Fixed Gross': '45000', 'Vehicle Allowances': '0' },
+    ];
+    const orderedRows = templateRows.map((row) => {
+      const ordered: Record<string, string | number> = {};
+      COLUMNS.forEach((col) => { ordered[col] = row[col] ?? ''; });
+      return ordered;
+    });
+    const worksheet = XLSX.utils.json_to_sheet(orderedRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Employees');
     XLSX.writeFile(workbook, `employee_import_template_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -1900,6 +2184,7 @@ export default function EmployeesPage() {
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
               <p>Total rows processed: <strong>{importResult.total}</strong></p>
               <p>Created successfully: <strong className="text-green-700">{importResult.success}</strong></p>
+              <p>Skipped (already exists): <strong className="text-amber-700">{importResult.skipped}</strong></p>
               <p>Failed: <strong className="text-red-700">{importResult.failures.length}</strong></p>
               {importResult.failures.length > 0 && (
                 <div className="mt-2 max-h-48 overflow-auto rounded border border-red-100 bg-white p-2">

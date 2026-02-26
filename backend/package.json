@@ -4,6 +4,7 @@
   "description": "HRMS Portal 2026 - Backend API",
   "main": "dist/server.js",
   "scripts": {
+    "kill-port": "npx --yes kill-port 5000 5001",
     "dev": "nodemon --exec \"ts-node -r tsconfig-paths/register\" src/server.ts",
     "dev:direct": "ts-node -r tsconfig-paths/register src/server.ts",
     "build": "tsc",
@@ -34,6 +35,8 @@
     "assign:salary": "ts-node -r tsconfig-paths/register src/scripts/assign-salary-to-mani-saravanan.ts",
     "migrate:sub-department": "ts-node -r tsconfig-paths/register src/scripts/run-sub-department-migration.ts",
     "seed:dept-subdept": "ts-node -r tsconfig-paths/register src/scripts/seed-department-subdepartment.ts",
+    "seed:bnc-motors-depts": "ts-node -r tsconfig-paths/register src/scripts/seed-bnc-motors-departments.ts",
+    "seed:bnc-motors-positions": "ts-node -r tsconfig-paths/register src/scripts/seed-bnc-motors-positions.ts",
     "seed:org-and-logins": "ts-node -r tsconfig-paths/register src/scripts/seed-organization-and-logins.ts",
     "migrate:workflow-mapping": "ts-node -r tsconfig-paths/register src/scripts/apply-workflow-mapping-migration.ts",
     "migrate:rule-setting": "ts-node -r tsconfig-paths/register src/scripts/apply-rule-setting-migration.ts",

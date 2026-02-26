@@ -10,7 +10,12 @@ export const createEmployeeSchema = z.object({
   // Personal Information
   firstName: z.string().min(2).max(100),
   middleName: z.string().max(100).optional(),
-  lastName: z.string().min(2).max(100),
+  lastName: z
+    .any()
+    .transform((v) => {
+      const s = v == null || String(v).trim().length === 0 ? 'N/A' : String(v).trim();
+      return s.slice(0, 100);
+    }),
   email: z.string().email().max(255),
   personalEmail: z.string().email().max(255).optional(),
   phone: z.string().max(20).optional(),
@@ -51,6 +56,7 @@ export const createEmployeeSchema = z.object({
   // Additional Information (JSON fields)
   address: z.object({
     street: z.string().optional(),
+    permanentAddress: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
     country: z.string().optional(),
@@ -79,7 +85,12 @@ export const createEmployeeSchema = z.object({
     taxId: z.string().optional(),
     panNumber: z.string().optional(),
     taxFilingStatus: z.string().optional(),
+    aadhaarNumber: z.string().optional(),
+    pfNumber: z.string().optional(),
+    uanNumber: z.string().optional(),
+    esiNumber: z.string().optional(),
   }).optional(),
+  profileExtensions: z.record(z.unknown()).optional(),
   documents: z.array(z.object({
     type: z.string(),
     name: z.string(),
@@ -137,6 +148,7 @@ export const updateEmployeeSchema = z.object({
   // Additional Information (JSON fields)
   address: z.object({
     street: z.string().optional(),
+    permanentAddress: z.string().optional(),
     city: z.string().optional(),
     state: z.string().optional(),
     country: z.string().optional(),
@@ -165,7 +177,12 @@ export const updateEmployeeSchema = z.object({
     taxId: z.string().optional(),
     panNumber: z.string().optional(),
     taxFilingStatus: z.string().optional(),
+    aadhaarNumber: z.string().optional(),
+    pfNumber: z.string().optional(),
+    uanNumber: z.string().optional(),
+    esiNumber: z.string().optional(),
   }).optional(),
+  profileExtensions: z.record(z.unknown()).optional(),
   documents: z.array(z.object({
     type: z.string(),
     name: z.string(),

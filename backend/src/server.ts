@@ -221,8 +221,7 @@ const server = app.listen(PORT, () => {
     logger.error(`      taskkill /PID <PID> /F`);
     logger.error(`\n   2. Or change the port in .env file:`);
     logger.error(`      PORT=5001`);
-    logger.error(`\n   3. Or use PowerShell:`);
-    logger.error(`      Get-NetTCPConnection -LocalPort ${PORT} | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }`);
+    logger.error(`\n   3. Or run: npm run kill-port`);
     process.exit(1);
   } else {
     logger.error('Server error:', err);

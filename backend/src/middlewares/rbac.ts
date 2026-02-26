@@ -201,6 +201,7 @@ export const getEmployeeFieldsByRole = (role: UserRole): any => {
   const sensitiveFields = {
     phone: true,
     personalEmail: true,
+    officialEmail: true,
     dateOfBirth: true,
     gender: true,
     maritalStatus: true,
@@ -213,6 +214,8 @@ export const getEmployeeFieldsByRole = (role: UserRole): any => {
     emergencyContacts: true,
     bankDetails: true,
     taxInformation: true,
+    costCentreId: true,
+    placeOfTaxDeduction: true,
   };
 
   switch (role) {

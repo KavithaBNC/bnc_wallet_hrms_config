@@ -44,7 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         if (error.message && error.message.includes('timeout')) {
           errorMessage = 'Request timeout. Please check your connection and try again.';
         } else if (error.message && error.message.includes('Network Error')) {
-          errorMessage = 'Cannot connect to server. Please ensure the backend is running (e.g. http://localhost:5000) and try again.';
+          errorMessage = 'Cannot connect to server. Run "npm run dev" from project root to start both backend and frontend.';
         } else if (error.message) {
           errorMessage = error.message;
         }

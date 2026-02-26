@@ -319,6 +319,7 @@ export class EmployeeService {
       confirmationDate: data.confirmationDate ? new Date(data.confirmationDate) : null,
       dateOfLeaving: data.dateOfLeaving ? new Date(data.dateOfLeaving) : null,
       faceEncoding: data.faceEncoding != null ? (data.faceEncoding as object) : undefined,
+      profileExtensions: data.profileExtensions != null ? (data.profileExtensions as Prisma.InputJsonValue) : undefined,
     });
 
     const include = {
@@ -969,6 +970,7 @@ export class EmployeeService {
         employeeData.faceEncoding === null
           ? Prisma.JsonNull
           : (employeeData.faceEncoding ?? undefined),
+      profileExtensions: employeeData.profileExtensions != null ? (employeeData.profileExtensions as Prisma.InputJsonValue) : undefined,
     };
     const updated = await prisma.employee.update({
       where: { id },
