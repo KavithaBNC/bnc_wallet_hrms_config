@@ -68,6 +68,7 @@ export const createEmployeeSchema = z.object({
     presentState: z.string().optional(),
     presentPincode: z.string().optional(),
     presentPhoneNumber: z.string().optional(),
+    permanentDistrict: z.string().optional(),
   }).optional(),
   emergencyContacts: z.array(z.object({
     name: z.string(),
@@ -89,6 +90,9 @@ export const createEmployeeSchema = z.object({
     pfNumber: z.string().optional(),
     uanNumber: z.string().optional(),
     esiNumber: z.string().optional(),
+    esiLocation: z.string().optional(),
+    ptaxLocation: z.string().optional(),
+    taxRegime: z.string().optional(),
   }).optional(),
   profileExtensions: z.record(z.unknown()).optional(),
   documents: z.array(z.object({
@@ -160,6 +164,7 @@ export const updateEmployeeSchema = z.object({
     presentState: z.string().optional(),
     presentPincode: z.string().optional(),
     presentPhoneNumber: z.string().optional(),
+    permanentDistrict: z.string().optional(),
   }).optional(),
   emergencyContacts: z.array(z.object({
     name: z.string(),
@@ -181,6 +186,9 @@ export const updateEmployeeSchema = z.object({
     pfNumber: z.string().optional(),
     uanNumber: z.string().optional(),
     esiNumber: z.string().optional(),
+    esiLocation: z.string().optional(),
+    ptaxLocation: z.string().optional(),
+    taxRegime: z.string().optional(),
   }).optional(),
   profileExtensions: z.record(z.unknown()).optional(),
   documents: z.array(z.object({

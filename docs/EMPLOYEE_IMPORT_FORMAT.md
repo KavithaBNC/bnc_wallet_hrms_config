@@ -63,13 +63,20 @@
 | Permanent mobile, Permanent Phone | employees.phone | 9876543210 |
 | Permanent Address, City, State, Pincode | address.street, city, state, postalCode | |
 | Current Address, City, State, Pincode | address.presentAddress, presentCity, presentState, presentPincode | |
-| Permanent District, Current District | address.presentDistrict | |
+| Permanent District | address.permanentDistrict | Chennai |
+| Current District | address.presentDistrict | Chennai |
 | Place of Tax Deduction | employees.place_of_tax_deduction | METRO, NON_METRO |
 | Location | employees.work_location | Chennai |
 | PF Number, ESI Number, UAN Number | taxInformation | |
 | Pan Card Number, Adhaar Number | taxInformation | |
+| ESI Location, Ptax Location | taxInformation | |
+| Tax Regime | taxInformation.taxRegime | New, Old |
 | Bank Name, Account No, Bank IFSC Code | bankDetails | |
 | Father Name, Blood Group, Sub Department | profileExtensions | |
+| Associate Notice Period Days | profileExtensions.associateNoticePeriodDays | 30 |
+| LWF Location | profileExtensions.lwfLocation | Chennai |
+| Alternate Saturday Off | profileExtensions.alternateSaturdayOff | Yes |
+| Compoff Applicable | profileExtensions.compoffApplicable | Yes |
 | Fixed Gross, Vehicle Allowances | EmployeeSalary.components | Stored in salary table for payroll |
 
 ## Alternate Column Names (also accepted)
