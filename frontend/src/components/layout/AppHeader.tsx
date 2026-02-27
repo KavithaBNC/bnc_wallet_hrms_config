@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
+import { toDisplayName, toDisplayEmail } from '../../utils/display';
 
 interface AppHeaderProps {
   title: string;
@@ -15,14 +16,15 @@ export default function AppHeader({
   onLogout,
 }: AppHeaderProps) {
   const { user } = useAuthStore();
-  const userName = user?.employee?.firstName != null ? `${user.employee.firstName} ${user.employee.lastName ?? ''}`.trim() : user?.email ?? 'Admin';
+  const fn = toDisplayName(user?.employee?.firstName);
+  const ln = toDisplayName(user?.employee?.lastName);
+  const userName = (fn || ln) ? `${fn} ${ln}`.trim() : (toDisplayEmail(user?.email) || user?.email || 'Admin');
   const userRole = user?.role || 'Admin';
-  
-  // Get user initials for avatar
+
   const getInitials = () => {
-    const firstName = user?.employee?.firstName ?? 'A';
-    const lastName = user?.employee?.lastName ?? '';
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+    if (fn || ln) return `${(fn || '').charAt(0)}${(ln || '').charAt(0)}`.toUpperCase() || '';
+    const e = toDisplayEmail(user?.email) || user?.email || '';
+    return e ? e.charAt(0).toUpperCase() : '';
   };
 
   return (

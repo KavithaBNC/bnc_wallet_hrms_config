@@ -13,6 +13,7 @@ import PaygroupSelectionModal from '../components/employees/PaygroupSelectionMod
 import { FaceCapture } from '../components/employees/FaceCapture';
 import AppHeader from '../components/layout/AppHeader';
 import { canCreateEmployee, canUpdateEmployee, canDeleteEmployee, getEditableTabsFromPermissions, canEditEmployeeByPermission, type EmployeeFormTabKey } from '../utils/rbac';
+import { toDisplayEmail, toDisplayFullName, toDisplayName, toDisplayValue } from '../utils/display';
 import permissionService from '../services/permission.service';
 import organizationService, { type Organization } from '../services/organization.service';
 import positionService from '../services/position.service';
@@ -32,6 +33,7 @@ type EmployeeImportFailure = {
   row: number;
   message: string;
   email?: string;
+  associateCode?: string;
 };
 
 function normalizeHeader(value: string): string {
@@ -102,11 +104,41 @@ function getCellValue(row: Record<string, unknown>, keys: string[]): unknown {
   return '';
 }
 
+/** Get email with fallback: try explicit keys, then any column with email/mail in header and valid email value */
+function getEmailWithFallback(row: Record<string, unknown>): string {
+  const official = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'Official E-Mail Id', 'officialEmail', 'Permanent E-Mail Id', 'permanentEmail', 'email', 'Email', 'E-Mail'])).trim();
+  if (official && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(official)) return official;
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const emailLike = normalizedEntries.find(([norm, val]) => {
+    if (!val || typeof val !== 'string') return false;
+    const str = String(val).trim();
+    return (norm.includes('email') || norm.includes('mail')) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
+  });
+  return emailLike ? String(emailLike[1]).trim() : '';
+}
+
+/** Get Associate/Employee name with fallback: try explicit keys, then fuzzy match on column headers */
+function getAssociateNameWithFallback(row: Record<string, unknown>): string {
+  const explicit = getCellValue(row, [
+    'Associate Name', 'associateName', 'associate_name', 'Name', 'Employee Name', 'Full Name', 'Emp Name',
+    'EMP NAME', 'EMP.NAME', 'Associate', 'Employee', 'Staff Name', 'Candidate Name', 'NAME',
+  ]);
+  if (explicit !== '' && explicit != null) return String(explicit).trim();
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const nameLike = normalizedEntries.find(([norm, val]) => {
+    if (val === '' || val == null) return false;
+    const str = String(val).trim();
+    if (str.length < 2) return false;
+    return norm.includes('associatename') || norm === 'associate' || norm === 'employeename' || norm === 'empname' || norm === 'fullname' || norm === 'name';
+  });
+  return nameLike ? String(nameLike[1]).trim() : '';
+}
+
 /** Get ESI Number with fallback: try explicit keys, then any column matching esi+number/no pattern */
 function getEsiNumber(row: Record<string, unknown>): string {
   const explicit = getCellValue(row, [
-    'esiNumber', 'esi_number', 'ESIC', 'ESIC No', 'ESI Number', 'ESIC NO', 'ESI NO', 'ESI No',
-    'ESIC Number', 'ESI No.', 'ESI NUMBER', 'ESI NUM', 'EMPLOYEE STATE INSURANCE NO', 'ESI',
+    'esiNumber', 'esi_number', 'ESIC', 'ESIC No', 'ESI Number', 'ESIC NO', 'ESIC Number', 'ESI NO', 'ESI No',
+    'ESI No.', 'ESI NUMBER', 'ESI NUM', 'EMPLOYEE STATE INSURANCE NO', 'ESI',
   ]);
   if (explicit !== '' && explicit != null) return String(explicit).trim();
   const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
@@ -173,6 +205,7 @@ export default function EmployeesPage() {
   const [credDesignationFilter, setCredDesignationFilter] = useState<string>('ALL');
   const [credStatusFilter, setCredStatusFilter] = useState<string>('ALL');
   const [credSearchTerm, setCredSearchTerm] = useState('');
+  const [statsActiveCount, setStatsActiveCount] = useState<number | null>(null);
 
   // Fetch current user's permissions (for permission-based edit/view per tab)
   useEffect(() => {
@@ -321,6 +354,22 @@ export default function EmployeesPage() {
     params.sortOrder = sortOrder;
     fetchEmployees(params);
   }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
+
+  // When viewing ALL status, fetch active count for accurate dashboard stats
+  useEffect(() => {
+    if (statusFilter !== 'ALL' || !effectiveOrganizationId || location.pathname !== '/employees') {
+      setStatsActiveCount(null);
+      return;
+    }
+    let cancelled = false;
+    employeeService
+      .getAll({ organizationId: effectiveOrganizationId, employeeStatus: 'ACTIVE', page: 1, limit: 1 })
+      .then((r) => {
+        if (!cancelled) setStatsActiveCount(r.pagination?.total ?? 0);
+      })
+      .catch(() => { if (!cancelled) setStatsActiveCount(null); });
+    return () => { cancelled = true; };
+  }, [statusFilter, effectiveOrganizationId, location.pathname]);
 
   // Open employee edit form when navigated with editEmployeeId or rejoinEmployeeId (from Employee Rejoin list)
   useEffect(() => {
@@ -707,10 +756,40 @@ export default function EmployeesPage() {
       let success = 0;
       let skipped = 0;
       let total = 0;
+      /** Employees created in this batch: for same-batch Reporting Manager lookup */
+      const createdInBatch: Array<{ id: string; employeeCode: string; firstName: string; lastName: string }> = [];
+      /** Rows where Reporting Manager was specified but manager not found yet (appears later in Excel) - fix in second pass */
+      const pendingReportingManager: Array<{ employeeId: string; reportingManagerName: string }> = [];
+
+      const resolveReportingManagerId = (nameOrCode: string): string | null => {
+        if (!nameOrCode?.trim()) return null;
+        const raw = nameOrCode.trim();
+        const codeFromBrackets = raw.match(/\[([^\]]+)\]/)?.[1]?.trim().toLowerCase();
+        const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').trim().toLowerCase();
+        const search = namePart || raw.toLowerCase();
+        const byCodeInBatch = createdInBatch.find((e) =>
+          e.employeeCode?.toLowerCase() === search || e.employeeCode?.toLowerCase() === codeFromBrackets
+        );
+        if (byCodeInBatch) return byCodeInBatch.id;
+        const codeToMatch = codeFromBrackets || search;
+        const byCodeInOrg = orgEmployees?.find((e) => (e as { employeeCode?: string }).employeeCode?.toLowerCase() === codeToMatch)?.id;
+        if (byCodeInOrg) return byCodeInOrg;
+        const byNameInOrg = orgEmployees?.find((e) => {
+          const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+          const alt = `${e.lastName || ''} ${e.firstName || ''}`.trim().toLowerCase();
+          return full === search || alt === search || full.includes(search) || search.includes(full);
+        })?.id;
+        if (byNameInOrg) return byNameInOrg;
+        const byNameInBatch = createdInBatch.find((e) => {
+          const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
+          return full === search || full.includes(search) || search.includes(full);
+        });
+        return byNameInBatch?.id ?? null;
+      };
 
       for (let index = 0; index < rows.length; index += 1) {
         const row = rows[index];
-        const associateName = String(getCellValue(row, ['Associate Name', 'associateName', 'associate_name', 'Name', 'Employee Name', 'Full Name', 'Emp Name'])).trim();
+        const associateName = getAssociateNameWithFallback(row);
         const firstNameCol = String(getCellValue(row, ['firstName', 'first_name', 'firstname', 'First Name', 'EMP.F.NAME'])).trim();
         const lastNameCol = String(getCellValue(row, ['lastName', 'last_name', 'lastname', 'Last Name', 'EMP.L.NAME'])).trim();
         let firstName = firstNameCol;
@@ -721,10 +800,10 @@ export default function EmployeesPage() {
           lastName = parts.length > 1 ? parts.slice(1).join(' ') : associateName;
         }
         const middleName = String(getCellValue(row, ['middleName', 'middle_name', 'EMP.M.NAME'])).trim();
-        const officialEmail = String(getCellValue(row, ['Official E-Mail Id', 'officialEmail', 'official_email', 'Official Email', 'email'])).trim();
-        const permanentEmail = String(getCellValue(row, ['Permanent E-Mail Id', 'permanentEmail', 'permanent_email', 'Permanent Email'])).trim();
-        const emailCol = String(getCellValue(row, ['email', 'emailId', 'mail', 'Email ID', 'EMAIL ID', 'Email', 'E-Mail Id', 'E-Mail'])).trim();
-        let email = emailCol || officialEmail || permanentEmail;
+        const officialEmail = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'Official E-Mail Id', 'officialEmail', 'official_email', 'Official Email', 'email', 'E-Mail', 'Email'])).trim();
+        const permanentEmail = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'Permanent E-Mail Id', 'permanentEmail', 'permanent_email', 'Permanent Email'])).trim();
+        const emailCol = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'email', 'emailId', 'mail', 'Email ID', 'EMAIL ID', 'Email', 'E-Mail Id', 'E-Mail', 'Mail', 'Official E-Mail', 'Mail Id', 'Email Address'])).trim();
+        let email = emailCol || officialEmail || permanentEmail || getEmailWithFallback(row);
         if (!email) {
           const emailLike = Object.values(row).find((v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim()));
           if (emailLike) email = String(emailLike).trim();
@@ -737,12 +816,10 @@ export default function EmployeesPage() {
         }
         const fatherName = String(getCellValue(row, ['fatherName', 'father_name', 'Father Name', 'FATHER NAME'])).trim();
         if (!lastName && fatherName) lastName = fatherName;
-        if (!lastName) lastName = 'N/A';
-        if (firstName.length < 2) firstName = (firstName + 'X').slice(0, 2);
         const personalEmailRaw = String(getCellValue(row, ['personalEmail', 'personal_email', 'Permanent E-Mail Id'])).trim()
           || (permanentEmail && permanentEmail !== email ? permanentEmail : '');
         const personalEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmailRaw) ? personalEmailRaw : '';
-        const dateOfJoining = toDateOnly(getCellValue(row, ['dateOfJoining', 'date_of_joining', 'joiningDate', 'doj', 'Date of Joining', 'DOJ', 'Joining Date']));
+        const dateOfJoining = toDateOnly(getCellValue(row, ['dateOfJoining', 'date_of_joining', 'joiningDate', 'doj', 'Date of Joining', 'DOJ', 'Joining Date', 'Appointment Date', 'Date of Appointment', 'DOJ (Date of Joining)']));
         const employeeCode = String(getCellValue(row, ['Associate Code', 'employeeCode', 'employee_code', 'empCode', 'empcode', 'empId', 'emp id', 'Emp ID', 'EMP.CODE'])).trim();
         const phone = String(getCellValue(row, ['phone', 'mobile', 'mobileNumber', 'mobile_number', 'phone_number', 'Mobile No', 'Permanent mobile', 'Permanent Phone', 'Current Phone', 'EMRG.CONTACT NO.'])).trim();
         const designation = String(getCellValue(row, ['designation', 'Designation', 'position'])).trim();
@@ -762,12 +839,12 @@ export default function EmployeesPage() {
         const countryPermanent = String(getCellValue(row, ['countryPermanent', 'Country - Permanent'])).trim();
         const countryCurrent = String(getCellValue(row, ['countryCurrent', 'Country - Current'])).trim();
         const panNumber = String(getCellValue(row, ['panNumber', 'pan_number', 'PAN', 'Pan No', 'Pan No.', 'Pan Card Number', 'PANCARD NO'])).trim();
-        const aadhaarNumber = String(getCellValue(row, ['aadhaarNumber', 'aadhar_number', 'aadhar', 'Aadhar', 'Aadhar No', 'Adhaar Number', 'AADHAR NO'])).trim();
+        const aadhaarNumber = String(getCellValue(row, ['aadhaarNumber', 'aadhar_number', 'aadhar', 'Aadhar', 'Aadhar No', 'Adhaar Number', 'Aadhar Number', 'AADHAR NO'])).trim();
         const uanNumber = String(getCellValue(row, ['uanNumber', 'uan_number', 'UAN', 'UAN No', 'UAN Number', 'UAN NO'])).trim();
         const pfNumber = String(getCellValue(row, ['pfNumber', 'pf_number', 'EPF', 'epfNumber', 'PF No', 'PF Number', 'PF NO'])).trim();
         const esiNumber = getEsiNumber(row);
         const bankName = String(getCellValue(row, ['bankName', 'bank_name', 'Bank Name', 'BANK NAME'])).trim();
-        const accountNumber = String(getCellValue(row, ['accountNumber', 'account_number', 'accountNo', 'Account No', 'Bank Account No', 'ACCOUNT NO'])).trim();
+        const accountNumber = String(getCellValue(row, ['accountNumber', 'account_number', 'accountNo', 'Account No', 'Bank Account No', 'Bank A/c No.', 'ACCOUNT NO'])).trim();
         const ifscCode = String(getCellValue(row, ['ifscCode', 'ifsc_code', 'IFSC', 'Bank IFSC Code', 'IFSC CODE'])).trim();
         const age = String(getCellValue(row, ['age', 'Age'])).trim();
         const passportNumber = String(getCellValue(row, ['passportNumber', 'passport_number', 'PASSPORT NO'])).trim();
@@ -786,7 +863,7 @@ export default function EmployeesPage() {
         const placeOfTaxRaw = String(getCellValue(row, ['Place of Tax Deduction', 'placeOfTaxDeduction', 'place_of_tax_deduction'])).trim().toUpperCase();
         const placeOfTax = placeOfTaxRaw === 'M' ? 'METRO' : placeOfTaxRaw === 'N' ? 'NON_METRO' : placeOfTaxRaw;
         const workLocation = String(getCellValue(row, ['Location', 'location', 'workLocation'])).trim();
-        const reportingManagerName = String(getCellValue(row, ['Reporting Manager', 'reportingManager', 'reporting_manager'])).trim();
+        const reportingManagerName = String(getCellValue(row, ['Reporting Manager', 'reportingManager', 'reporting_manager', 'Manager', 'Report To', 'Reporting To'])).trim();
         const costCentreCol = String(getCellValue(row, ['Cost Centre', 'costCentre', 'cost_centre', 'cost_center'])).trim();
         const fixedGross = String(getCellValue(row, ['Fixed Gross', 'fixedGross', 'fixed_gross'])).trim();
         const vehicleAllowances = String(getCellValue(row, ['Vehicle Allowances', 'vehicleAllowances', 'vehicle_allowances'])).trim();
@@ -806,14 +883,15 @@ export default function EmployeesPage() {
         }
 
         total += 1;
-        if (!firstName || !email || !dateOfJoining) {
-          failures.push({
-            row: index + 2,
-            email: email || undefined,
-            message: 'Missing required: Associate Name (or firstName), Official/Permanent E-Mail Id, Date of Joining.',
-          });
-          continue;
-        }
+
+        // Use Excel data when present; use placeholders only when backend requires values (not displayed in UI)
+        const finalFirstName = (firstName || lastName || associateName || employeeCode || `Emp${index + 1}`).trim();
+        const finalLastName = (lastName || firstName || '').trim();
+        const safeFirstName = finalFirstName.length >= 2 ? finalFirstName : (finalFirstName + ' ').slice(0, 2);
+        const finalEmail = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+          ? email.trim()
+          : `${(employeeCode || `imported${index + 2}`).replace(/[^a-zA-Z0-9]/g, '')}@imported.placeholder`;
+        const finalDateOfJoining = dateOfJoining || new Date().toISOString().slice(0, 10);
 
         const positionId = designation
           ? orgPositions?.find((p) => p.title?.toLowerCase() === designation.toLowerCase())?.id ?? null
@@ -824,15 +902,7 @@ export default function EmployeesPage() {
         const paygroupId = paygroupName
           ? orgPaygroups?.find((p) => p.name?.toLowerCase() === paygroupName.toLowerCase())?.id ?? null
           : null;
-        const reportingManagerId = reportingManagerName
-          ? orgEmployees?.find((e) => {
-              const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
-              const alt = `${e.lastName || ''} ${e.firstName || ''}`.trim().toLowerCase();
-              const search = reportingManagerName.toLowerCase();
-              const codeMatch = (e as { employeeCode?: string }).employeeCode?.toLowerCase() === search;
-              return codeMatch || full === search || alt === search || full.includes(search) || search.includes(full);
-            })?.id ?? null
-          : null;
+        const reportingManagerId = null;
         const costCentreId = costCentreCol
           ? orgCostCentres?.find(
               (c) =>
@@ -916,14 +986,14 @@ export default function EmployeesPage() {
 
         const emergencyContacts =
           emergencyContactName || emergencyContactNo || relationship
-            ? [{ name: emergencyContactName || '-', phone: emergencyContactNo || '-', relationship: relationship || '-' }]
+            ? [{ name: emergencyContactName || '', phone: emergencyContactNo || '', relationship: relationship || '' }]
             : undefined;
 
         const employmentTypeVal = String(getCellValue(row, ['employmentType', 'Emp Type', 'empType'])).trim().toUpperCase();
         const employmentType = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].includes(employmentTypeVal) ? employmentTypeVal : undefined;
 
-        const existingByEmail = orgEmployees?.some((e) => e.email?.toLowerCase() === email.toLowerCase());
-        const existingByCode = employeeCode && orgEmployees?.some((e) => e.employeeCode?.toLowerCase() === employeeCode.toLowerCase());
+        const existingByEmail = orgEmployees?.some((e) => e.email?.toLowerCase() === finalEmail.toLowerCase());
+        const existingByCode = employeeCode && orgEmployees?.some((e) => (e as { employeeCode?: string }).employeeCode?.toLowerCase() === employeeCode.toLowerCase());
         if (existingByEmail || existingByCode) {
           skipped += 1;
           continue;
@@ -932,10 +1002,10 @@ export default function EmployeesPage() {
         try {
           const createResult = await employeeService.create({
             organizationId: effectiveOrganizationId,
-            firstName,
-            lastName,
-            email,
-            dateOfJoining,
+            firstName: safeFirstName,
+            lastName: finalLastName,
+            email: finalEmail,
+            dateOfJoining: finalDateOfJoining,
             ...(employeeCode ? { employeeCode } : {}),
             ...(middleName ? { middleName } : {}),
             ...(phone ? { phone } : {}),
@@ -960,12 +1030,23 @@ export default function EmployeesPage() {
             ...(emergencyContacts ? { emergencyContacts } : {}),
           });
           success += 1;
-          if (hasSalary && createResult?.employee?.id && dateOfJoining) {
+          if (createResult?.employee?.id && (employeeCode || firstName || lastName)) {
+            createdInBatch.push({
+              id: createResult.employee.id,
+              employeeCode: employeeCode || createResult.employee.employeeCode || '',
+              firstName: safeFirstName,
+              lastName: finalLastName,
+            });
+            if (reportingManagerName) {
+              pendingReportingManager.push({ employeeId: createResult.employee.id, reportingManagerName });
+            }
+          }
+          if (hasSalary && createResult?.employee?.id && finalDateOfJoining) {
             const gross = fixedGrossNum + vehicleAllowancesNum;
             try {
               await employeeSalaryService.createSalary({
                 employeeId: createResult.employee.id,
-                effectiveDate: dateOfJoining,
+                effectiveDate: finalDateOfJoining,
                 basicSalary: Math.round(gross * 0.4),
                 grossSalary: gross,
                 netSalary: Math.round(gross * 0.75),
@@ -993,8 +1074,21 @@ export default function EmployeesPage() {
           failures.push({
             row: index + 2,
             email,
+            associateCode: employeeCode || undefined,
             message: msg,
           });
+        }
+      }
+
+      // Second pass: set Reporting Manager for rows where manager appeared later in Excel
+      for (const { employeeId, reportingManagerName } of pendingReportingManager) {
+        const managerId = resolveReportingManagerId(reportingManagerName);
+        if (managerId) {
+          try {
+            await employeeService.update(employeeId, { reportingManagerId: managerId });
+          } catch (err: any) {
+            console.warn('Failed to set reporting manager for', employeeId, err?.response?.data?.message || err?.message);
+          }
         }
       }
 
@@ -1374,17 +1468,17 @@ export default function EmployeesPage() {
                           <td className="w-[14%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 min-w-0">
                             <div className="flex items-center min-w-0">
                               <div className="min-w-0">
-                                <div className="text-sm font-medium text-gray-900 truncate">{cred.name}</div>
+                                <div className="text-sm font-medium text-gray-900 truncate">{toDisplayFullName(cred.name)}</div>
                                 <div className="text-sm text-gray-500 truncate">{cred.employeeCode}</div>
                               </div>
                             </div>
                           </td>
                           <td className="w-[16%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 min-w-0 truncate">
-                            {cred.email}
+                            {toDisplayEmail(cred.email)}
                           </td>
                           {isSuperAdmin && (
                             <td className="w-[12%] px-4 py-4 whitespace-nowrap text-sm text-gray-700 min-w-0 truncate">
-                              {(cred as { organizationName?: string }).organizationName ?? '—'}
+                              {toDisplayValue((cred as { organizationName?: string }).organizationName)}
                             </td>
                           )}
                           <td className="w-[10%] px-4 py-4 whitespace-nowrap min-w-0">
@@ -1482,10 +1576,10 @@ export default function EmployeesPage() {
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Reset Password</h2>
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
-                <strong>Employee:</strong> {resetPasswordModal.name}
+                <strong>Employee:</strong> {toDisplayFullName(resetPasswordModal.name)}
               </p>
               <p className="text-sm text-gray-600">
-                <strong>Email:</strong> {resetPasswordModal.email}
+                <strong>Email:</strong> {toDisplayEmail(resetPasswordModal.email)}
               </p>
             </div>
 
@@ -1559,10 +1653,10 @@ export default function EmployeesPage() {
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Change User Role</h2>
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
-                <strong>Employee:</strong> {roleChangeModal.name}
+                <strong>Employee:</strong> {toDisplayFullName(roleChangeModal.name)}
               </p>
               <p className="text-sm text-gray-600 mb-2">
-                <strong>Email:</strong> {roleChangeModal.email}
+                <strong>Email:</strong> {toDisplayEmail(roleChangeModal.email)}
               </p>
               <p className="text-sm text-gray-600 mb-4">
                 <strong>Current Role:</strong> <span className="font-semibold">{roleChangeModal.currentRole}</span>
@@ -1624,7 +1718,7 @@ export default function EmployeesPage() {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-2">Update face</h2>
             <p className="text-sm text-gray-600 mb-4">
-              {updateFaceModal.firstName} {updateFaceModal.lastName} ({updateFaceModal.employeeCode})
+              {toDisplayName(updateFaceModal.firstName)} {toDisplayName(updateFaceModal.lastName)} ({updateFaceModal.employeeCode})
             </p>
             <FaceCapture
               existingEncoding={(updateFaceModal as { faceEncoding?: number[] }).faceEncoding?.length === 128 ? (updateFaceModal as { faceEncoding: number[] }).faceEncoding : null}
@@ -1758,7 +1852,9 @@ export default function EmployeesPage() {
               </div>
               <div>
                 <div className="text-sm font-medium text-gray-500">Active</div>
-                <div className="text-2xl font-bold text-gray-900">{employees.filter(e => e.employeeStatus === 'ACTIVE').length}</div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {statusFilter === 'ACTIVE' ? pagination.total : statusFilter === 'ALL' ? (statsActiveCount ?? '—') : employees.filter(e => e.employeeStatus === 'ACTIVE').length}
+                </div>
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
@@ -1769,7 +1865,9 @@ export default function EmployeesPage() {
               </div>
               <div>
                 <div className="text-sm font-medium text-gray-500">InActive</div>
-                <div className="text-2xl font-bold text-gray-900">{pagination.total - employees.filter(e => e.employeeStatus === 'ACTIVE').length}</div>
+                <div className="text-2xl font-bold text-gray-900">
+                  {statusFilter === 'ACTIVE' ? 0 : statusFilter === 'ALL' ? (statsActiveCount != null ? pagination.total - statsActiveCount : '—') : pagination.total}
+                </div>
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
@@ -1885,24 +1983,22 @@ export default function EmployeesPage() {
                     {employees.map((emp) => (
                       <div key={emp.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
                         <div className="flex items-center gap-3 mb-3">
-                          <div className={`flex-shrink-0 h-12 w-12 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor(emp.firstName + ' ' + emp.lastName)}`}>
-                            {emp.firstName?.[0] || ''}{emp.lastName?.[0] || ''}
+                          <div className={`flex-shrink-0 h-12 w-12 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor((toDisplayName(emp.firstName) + ' ' + toDisplayName(emp.lastName)).trim() || emp.employeeCode || ' ')}`}>
+                            {toDisplayName(emp.firstName)?.[0] || ''}{toDisplayName(emp.lastName)?.[0] || ''}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium text-gray-900 truncate">{emp.firstName} {emp.lastName}</div>
-                            <div className="text-xs text-gray-500 truncate">{emp.position?.title || '—'}</div>
+                            <div className="text-sm font-medium text-gray-900 truncate">{toDisplayName(emp.firstName)} {toDisplayName(emp.lastName)}</div>
+                            <div className="text-xs text-gray-500 truncate">{toDisplayValue(emp.position?.title)}</div>
                             <div className="text-xs text-gray-400 font-mono">{emp.employeeCode}</div>
                           </div>
                         </div>
                         <div className="text-xs text-gray-600 space-y-1 mb-3">
-                          <div className="truncate">{emp.email}</div>
-                          {user?.role === 'SUPER_ADMIN' && (
-                            <>
-                              {emp.organization?.name && <div>Org: {emp.organization.name}</div>}
-                              {emp.entity?.name && <div>Entity: {emp.entity.name}</div>}
-                              {emp.location?.name && <div>Location: {emp.location.name}</div>}
-                            </>
-                          )}
+                          <div className="truncate">{toDisplayEmail(emp.email)}</div>
+                          {toDisplayValue(emp.department?.name) && <div>Dept: {toDisplayValue(emp.department?.name)}</div>}
+                          {toDisplayValue((emp as any)?.profileExtensions?.subDepartment) && <div>Sub Dept: {toDisplayValue((emp as any)?.profileExtensions?.subDepartment)}</div>}
+                          {toDisplayValue(emp.entity?.name) && <div>Entity: {toDisplayValue(emp.entity?.name)}</div>}
+                          {emp.reportingManager && <div>Manager: {toDisplayName(emp.reportingManager.firstName)} {toDisplayName(emp.reportingManager.lastName)}</div>}
+                          {user?.role === 'SUPER_ADMIN' && emp.organization?.name && <div>Org: {emp.organization.name}</div>}
                         </div>
                         <div className="flex flex-wrap gap-1">
                           <button type="button" onClick={() => handleView(emp)} disabled={loadingEmployee} title="View" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-50">
@@ -1987,28 +2083,23 @@ export default function EmployeesPage() {
                     <SortIcon column="firstName" />
                   </button>
                 </th>
-                <th className={`${user?.role === 'SUPER_ADMIN' ? 'w-[14%]' : 'w-[24%]'} px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-                  EMAIL
-                </th>
-                <th className={`${user?.role === 'SUPER_ADMIN' ? 'w-[12%]' : 'w-[14%]'} px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-                  Paygroup
-                </th>
+                <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub Dept</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reporting Manager</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paygroup</th>
                 {user?.role === 'SUPER_ADMIN' && (
-                  <>
-                    <th className="w-[12%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>
-                    <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
-                    <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                  </>
+                  <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>
                 )}
-                <th className="w-[12%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="w-[12%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {employees.length === 0 ? (
                 <tr>
-                  <td colSpan={user?.role === 'SUPER_ADMIN' ? 8 : 5} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={user?.role === 'SUPER_ADMIN' ? 11 : 10} className="px-4 py-8 text-center text-gray-500">
                     {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || positionFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
@@ -2020,33 +2111,29 @@ export default function EmployeesPage() {
                     <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left truncate min-w-0">
                       {emp.employeeCode}
                     </td>
-                    <td className={`${user?.role === 'SUPER_ADMIN' ? 'w-[14%]' : 'w-[24%]'} px-4 py-4 whitespace-nowrap text-left min-w-0`}>
+                    <td className="w-[14%] px-4 py-4 whitespace-nowrap text-left min-w-0">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor(emp.firstName + ' ' + emp.lastName)}`}>
-                          {emp.firstName?.[0] || ''}{emp.lastName?.[0] || ''}
+                        <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor((toDisplayName(emp.firstName) + ' ' + toDisplayName(emp.lastName)).trim() || emp.employeeCode || ' ')}`}>
+                          {toDisplayName(emp.firstName)?.[0] || ''}{toDisplayName(emp.lastName)?.[0] || ''}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium text-gray-900 truncate">
-                            {emp.firstName} {emp.lastName}
-                          </div>
-                          <div className="text-xs text-gray-500 truncate">
-                            {emp.position?.title || '—'}
+                            {toDisplayName(emp.firstName)} {toDisplayName(emp.lastName)}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className={`${user?.role === 'SUPER_ADMIN' ? 'w-[14%]' : 'w-[24%]'} px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0`}>
-                      {emp.email}
+                    <td className="w-[14%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayEmail(emp.email)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.position?.title)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.department?.name)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue((emp as any)?.profileExtensions?.subDepartment)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.entity?.name)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">
+                      {emp.reportingManager ? `${toDisplayName(emp.reportingManager.firstName)} ${toDisplayName(emp.reportingManager.lastName)}` : ''}
                     </td>
-                    <td className={`${user?.role === 'SUPER_ADMIN' ? 'w-[12%]' : 'w-[14%]'} px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0`}>
-                      {emp.paygroup?.name ?? '—'}
-                    </td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.paygroup?.name)}</td>
                     {user?.role === 'SUPER_ADMIN' && (
-                      <>
-                        <td className="w-[12%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{emp.organization?.name ?? '—'}</td>
-                        <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{emp.entity?.name ?? '—'}</td>
-                        <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{emp.location?.name ?? '—'}</td>
-                      </>
+                      <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.organization?.name)}</td>
                     )}
                     <td className="w-[12%] px-4 py-4 whitespace-nowrap text-right text-sm font-medium min-w-0">
                       <div className="flex items-center justify-end gap-1">
@@ -2187,7 +2274,7 @@ export default function EmployeesPage() {
       >
         <div className="space-y-4">
           <div className="text-sm text-gray-600">
-            Required columns: <strong>firstName</strong>, <strong>lastName</strong>, <strong>email</strong>, <strong>dateOfJoining</strong>. Optional: employeeCode, phone, personalEmail.
+            All columns optional. Use data if present; leave empty when no data. Associate Code must be unique.
           </div>
           <div>
             <button
@@ -2224,7 +2311,9 @@ export default function EmployeesPage() {
                 <div className="mt-2 max-h-48 overflow-auto rounded border border-red-100 bg-white p-2">
                   {importResult.failures.map((f, idx) => (
                     <div key={`${f.row}-${idx}`} className="text-xs text-red-700">
-                      Row {f.row}{f.email ? ` (${f.email})` : ''}: {f.message}
+                      Row {f.row}
+                      {f.associateCode ? ` [Associate: ${f.associateCode}]` : ''}
+                      {f.email ? ` (${f.email})` : ''}: {f.message}
                     </div>
                   ))}
                 </div>

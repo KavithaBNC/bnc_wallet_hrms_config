@@ -650,7 +650,7 @@ export class EmployeeService {
 
     const listView = (query as QueryEmployeesInput & { listView?: string }).listView === 'true';
 
-    // List view: minimal relations (department, position, organization, entity, location, paygroup, shift)
+    // List view: minimal relations (department, position, organization, entity, location, paygroup, shift, reportingManager)
     if (listView) {
       queryConfig.include = {
         department: { select: { id: true, name: true } },
@@ -660,6 +660,7 @@ export class EmployeeService {
         location: { select: { id: true, name: true, code: true } },
         paygroup: { select: { id: true, name: true, code: true } },
         shift: { select: { id: true, name: true, code: true } },
+        reportingManager: { select: { id: true, employeeCode: true, firstName: true, lastName: true, email: true } },
       };
     } else if (selectFields) {
       // Use select if provided (RBAC optimization)

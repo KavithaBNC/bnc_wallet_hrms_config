@@ -502,7 +502,7 @@ const PayrollPage = () => {
                     return (
                     <tr key={payslip.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {employee?.firstName || 'N/A'} {employee?.lastName || ''}
+                        {employee?.firstName || ''} {employee?.lastName || ''}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {new Date(payslip.periodStart).toLocaleDateString()} - {new Date(payslip.periodEnd).toLocaleDateString()}
@@ -696,12 +696,12 @@ const PayrollPage = () => {
                     <div>
                       <p className="text-sm font-medium text-gray-500">Employee</p>
                       <p className="text-sm text-gray-900">
-                        {payslipDetail.employee?.firstName || 'N/A'} {payslipDetail.employee?.lastName || ''}
+                        {payslipDetail.employee?.firstName || ''} {payslipDetail.employee?.lastName || ''}
                       </p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-500">Employee Code</p>
-                      <p className="text-sm text-gray-900">{payslipDetail.employee?.employeeCode || 'N/A'}</p>
+                      <p className="text-sm text-gray-900">{payslipDetail.employee?.employeeCode || ''}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-500">Period</p>
@@ -797,11 +797,11 @@ const PayrollPage = () => {
                   <div className="grid grid-cols-3 gap-4 text-sm">
                     <div>
                       <p className="font-medium text-gray-500">Paid Days</p>
-                      <p className="text-gray-900">{payslipDetail.paidDays || 'N/A'}</p>
+                      <p className="text-gray-900">{payslipDetail.paidDays ?? ''}</p>
                     </div>
                     <div>
                       <p className="font-medium text-gray-500">Unpaid Days</p>
-                      <p className="text-gray-900">{payslipDetail.unpaidDays || 'N/A'}</p>
+                      <p className="text-gray-900">{payslipDetail.unpaidDays ?? ''}</p>
                     </div>
                     <div>
                       <p className="font-medium text-gray-500">Overtime Hours</p>

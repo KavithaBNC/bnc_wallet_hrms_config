@@ -347,10 +347,10 @@ const EmployeeSalariesPage = () => {
                   return (
                     <tr key={salary.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {employee ? `${employee.firstName} ${employee.lastName}` : 'N/A'}
+                        {employee ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() : ''}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {employee?.employeeCode || 'N/A'}
+                        {employee?.employeeCode || ''}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         ₹{Number(salary.basicSalary).toLocaleString('en-IN')}
