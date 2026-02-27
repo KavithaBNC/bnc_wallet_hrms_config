@@ -134,6 +134,18 @@ function getAssociateNameWithFallback(row: Record<string, unknown>): string {
   return nameLike ? String(nameLike[1]).trim() : '';
 }
 
+/** Get Reporting Manager with fallback: try explicit keys, then any column with manager/report in header */
+function getReportingManagerWithFallback(row: Record<string, unknown>): string {
+  const explicit = getCellValue(row, ['Reporting Manager', 'reportingManager', 'reporting_manager', 'Manager', 'Report To', 'Reporting To', 'REPORTING MANAGER', 'Manager Name', 'Manager Code']);
+  if (explicit !== '' && explicit != null) return String(explicit).trim();
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const managerLike = normalizedEntries.find(([norm, val]) => {
+    if (!val || (typeof val === 'string' && !val.trim())) return false;
+    return norm.includes('manager') || norm.includes('report');
+  });
+  return managerLike ? String(managerLike[1]).trim() : '';
+}
+
 /** Get ESI Number with fallback: try explicit keys, then any column matching esi+number/no pattern */
 function getEsiNumber(row: Record<string, unknown>): string {
   const explicit = getCellValue(row, [
@@ -193,7 +205,7 @@ export default function EmployeesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importingEmployees, setImportingEmployees] = useState(false);
-  const [importResult, setImportResult] = useState<{ total: number; success: number; skipped: number; failures: EmployeeImportFailure[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ total: number; success: number; skipped: number; failures: EmployeeImportFailure[]; managersSet?: number } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
@@ -765,14 +777,20 @@ export default function EmployeesPage() {
         if (!nameOrCode?.trim()) return null;
         const raw = nameOrCode.trim();
         const codeFromBrackets = raw.match(/\[([^\]]+)\]/)?.[1]?.trim().toLowerCase();
-        const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').trim().toLowerCase();
+        const codeFromParens = raw.match(/\(([^)]+)\)/)?.[1]?.trim().toLowerCase();
+        const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase();
         const search = namePart || raw.toLowerCase();
-        const byCodeInBatch = createdInBatch.find((e) =>
-          e.employeeCode?.toLowerCase() === search || e.employeeCode?.toLowerCase() === codeFromBrackets
-        );
+        const looksLikeCode = /^[a-zA-Z]*\d+[a-z0-9]*$/i.test(raw) && raw.length <= 20;
+        const possibleCodes = [codeFromBrackets, codeFromParens, looksLikeCode ? raw.toLowerCase() : null].filter(Boolean);
+        const byCodeInBatch = createdInBatch.find((e) => {
+          const code = e.employeeCode?.toLowerCase();
+          return code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c);
+        });
         if (byCodeInBatch) return byCodeInBatch.id;
-        const codeToMatch = codeFromBrackets || search;
-        const byCodeInOrg = orgEmployees?.find((e) => (e as { employeeCode?: string }).employeeCode?.toLowerCase() === codeToMatch)?.id;
+        const byCodeInOrg = orgEmployees?.find((e) => {
+          const code = (e as { employeeCode?: string }).employeeCode?.toLowerCase();
+          return code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c);
+        })?.id;
         if (byCodeInOrg) return byCodeInOrg;
         const byNameInOrg = orgEmployees?.find((e) => {
           const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
@@ -863,7 +881,7 @@ export default function EmployeesPage() {
         const placeOfTaxRaw = String(getCellValue(row, ['Place of Tax Deduction', 'placeOfTaxDeduction', 'place_of_tax_deduction'])).trim().toUpperCase();
         const placeOfTax = placeOfTaxRaw === 'M' ? 'METRO' : placeOfTaxRaw === 'N' ? 'NON_METRO' : placeOfTaxRaw;
         const workLocation = String(getCellValue(row, ['Location', 'location', 'workLocation'])).trim();
-        const reportingManagerName = String(getCellValue(row, ['Reporting Manager', 'reportingManager', 'reporting_manager', 'Manager', 'Report To', 'Reporting To'])).trim();
+        const reportingManagerName = getReportingManagerWithFallback(row);
         const costCentreCol = String(getCellValue(row, ['Cost Centre', 'costCentre', 'cost_centre', 'cost_center'])).trim();
         const fixedGross = String(getCellValue(row, ['Fixed Gross', 'fixedGross', 'fixed_gross'])).trim();
         const vehicleAllowances = String(getCellValue(row, ['Vehicle Allowances', 'vehicleAllowances', 'vehicle_allowances'])).trim();
@@ -1080,19 +1098,21 @@ export default function EmployeesPage() {
         }
       }
 
-      // Second pass: set Reporting Manager for rows where manager appeared later in Excel
+      // Second pass: set Reporting Manager (all managers now exist - either from batch or org)
+      let managersSet = 0;
       for (const { employeeId, reportingManagerName } of pendingReportingManager) {
         const managerId = resolveReportingManagerId(reportingManagerName);
         if (managerId) {
           try {
             await employeeService.update(employeeId, { reportingManagerId: managerId });
+            managersSet += 1;
           } catch (err: any) {
             console.warn('Failed to set reporting manager for', employeeId, err?.response?.data?.message || err?.message);
           }
         }
       }
 
-      setImportResult({ total, success, skipped, failures });
+      setImportResult({ total, success, skipped, failures, managersSet });
 
       const params: any = {
         page: currentPage,
@@ -2307,6 +2327,9 @@ export default function EmployeesPage() {
               <p>Created successfully: <strong className="text-green-700">{importResult.success}</strong></p>
               <p>Skipped (already exists): <strong className="text-amber-700">{importResult.skipped}</strong></p>
               <p>Failed: <strong className="text-red-700">{importResult.failures.length}</strong></p>
+              {importResult.managersSet != null && importResult.managersSet > 0 && (
+                <p>Reporting managers set: <strong className="text-blue-700">{importResult.managersSet}</strong></p>
+              )}
               {importResult.failures.length > 0 && (
                 <div className="mt-2 max-h-48 overflow-auto rounded border border-red-100 bg-white p-2">
                   {importResult.failures.map((f, idx) => (
