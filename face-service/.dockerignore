@@ -1,0 +1,7 @@
+venv
+__pycache__
+*.pyc
+.git
+README.md
+requirements-core.txt
+kill-port-8000.ps1

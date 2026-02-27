@@ -1,0 +1,29 @@
+# Database - AWS RDS PostgreSQL
+DATABASE_URL="postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_db"
+
+# JWT Secrets (CHANGE THESE TO STRONG RANDOM STRINGS IN PRODUCTION!)
+JWT_SECRET="hrms-jwt-secret-2026-change-this-to-random-string"
+JWT_REFRESH_SECRET="hrms-refresh-secret-2026-change-this-to-random-string"
+JWT_EXPIRES_IN="1d"
+JWT_REFRESH_EXPIRES_IN="7d"
+
+# Server Configuration
+PORT=5000
+NODE_ENV=development
+BASE_URL=http://localhost:5000
+
+# CORS - Frontend URL
+CORS_ORIGIN=http://localhost:3000
+
+# Optional: If you need specific database connection settings
+# DB_MAX_CONNECTIONS=10
+# DB_CONNECTION_TIMEOUT=20000
+```
+
+---
+
+## **🚀 Next Steps:**
+
+### **1. Save this as `.env` in your backend folder:**
+```
+#D:\git\hrms_2026\backend\.env

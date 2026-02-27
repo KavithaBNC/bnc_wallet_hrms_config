@@ -1,0 +1,5 @@
+# Minimal deps to run the service (health + encode/match return "not installed" without dlib).
+# Use requirements.txt for full face encoding when dlib/face_recognition install succeeds.
+fastapi>=0.109,<1
+uvicorn[standard]>=0.27
+pydantic>=2.10,<3
