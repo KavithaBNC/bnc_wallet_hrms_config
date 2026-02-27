@@ -102,6 +102,22 @@ function getCellValue(row: Record<string, unknown>, keys: string[]): unknown {
   return '';
 }
 
+/** Get ESI Number with fallback: try explicit keys, then any column matching esi+number/no pattern */
+function getEsiNumber(row: Record<string, unknown>): string {
+  const explicit = getCellValue(row, [
+    'esiNumber', 'esi_number', 'ESIC', 'ESIC No', 'ESI Number', 'ESIC NO', 'ESI NO', 'ESI No',
+    'ESIC Number', 'ESI No.', 'ESI NUMBER', 'ESI NUM', 'EMPLOYEE STATE INSURANCE NO', 'ESI',
+  ]);
+  if (explicit !== '' && explicit != null) return String(explicit).trim();
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const esiNumLike = normalizedEntries.find(([norm]) =>
+    norm.includes('esi') && (norm.includes('number') || norm.includes('no') || norm === 'esic') &&
+    !norm.includes('location') && !norm.includes('dispensary')
+  );
+  if (esiNumLike && esiNumLike[1] !== '' && esiNumLike[1] != null) return String(esiNumLike[1]).trim();
+  return '';
+}
+
 export default function EmployeesPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -749,7 +765,7 @@ export default function EmployeesPage() {
         const aadhaarNumber = String(getCellValue(row, ['aadhaarNumber', 'aadhar_number', 'aadhar', 'Aadhar', 'Aadhar No', 'Adhaar Number', 'AADHAR NO'])).trim();
         const uanNumber = String(getCellValue(row, ['uanNumber', 'uan_number', 'UAN', 'UAN No', 'UAN Number', 'UAN NO'])).trim();
         const pfNumber = String(getCellValue(row, ['pfNumber', 'pf_number', 'EPF', 'epfNumber', 'PF No', 'PF Number', 'PF NO'])).trim();
-        const esiNumber = String(getCellValue(row, ['esiNumber', 'esi_number', 'ESIC', 'ESIC No', 'ESI Number', 'ESIC NO'])).trim();
+        const esiNumber = getEsiNumber(row);
         const bankName = String(getCellValue(row, ['bankName', 'bank_name', 'Bank Name', 'BANK NAME'])).trim();
         const accountNumber = String(getCellValue(row, ['accountNumber', 'account_number', 'accountNo', 'Account No', 'Bank Account No', 'ACCOUNT NO'])).trim();
         const ifscCode = String(getCellValue(row, ['ifscCode', 'ifsc_code', 'IFSC', 'Bank IFSC Code', 'IFSC CODE'])).trim();
@@ -774,6 +790,15 @@ export default function EmployeesPage() {
         const costCentreCol = String(getCellValue(row, ['Cost Centre', 'costCentre', 'cost_centre', 'cost_center'])).trim();
         const fixedGross = String(getCellValue(row, ['Fixed Gross', 'fixedGross', 'fixed_gross'])).trim();
         const vehicleAllowances = String(getCellValue(row, ['Vehicle Allowances', 'vehicleAllowances', 'vehicle_allowances'])).trim();
+
+        const esiLocation = String(getCellValue(row, ['ESI Location', 'esiLocation', 'esi_location'])).trim();
+        const ptaxLocation = String(getCellValue(row, ['Ptax Location', 'ptaxLocation', 'ptax_location'])).trim();
+        const associateNoticePeriodDays = String(getCellValue(row, ['Associate Notice Period Days', 'associateNoticePeriodDays', 'notice_period_days'])).trim();
+        const lwfLocation = String(getCellValue(row, ['LWF Location', 'lwfLocation', 'lwf_location'])).trim();
+        const taxRegimeRaw = String(getCellValue(row, ['Tax Regime', 'taxRegime', 'tax_regime'])).trim();
+        const taxRegime = taxRegimeRaw ? (taxRegimeRaw.toUpperCase() === 'N' || taxRegimeRaw.toUpperCase() === 'NEW' ? 'NEW' : taxRegimeRaw.toUpperCase() === 'O' || taxRegimeRaw.toUpperCase() === 'OLD' ? 'OLD' : taxRegimeRaw) : undefined;
+        const alternateSaturdayOff = String(getCellValue(row, ['Alternate Saturday Off', 'alternateSaturdayOff', 'alternate_saturday_off'])).trim();
+        const compoffApplicable = String(getCellValue(row, ['Compoff Applicable', 'compoffApplicable', 'compoff_applicable'])).trim();
 
         // Skip fully empty rows
         if (!firstName && !lastName && !email && !dateOfJoining && !employeeCode) {
@@ -833,19 +858,23 @@ export default function EmployeesPage() {
                 ...(cityCurrent ? { presentCity: cityCurrent } : {}),
                 ...(stateCurrent ? { presentState: stateCurrent } : {}),
                 ...(pincodeCurrent ? { presentPincode: pincodeCurrent } : {}),
+                ...(permanentDistrict ? { permanentDistrict } : {}),
                 ...(presentDistrict ? { presentDistrict } : {}),
                 ...(presentPhone ? { presentPhoneNumber: presentPhone } : {}),
               }
             : undefined;
 
         const taxInformation =
-          panNumber || aadhaarNumber || uanNumber || pfNumber || esiNumber
+          panNumber || aadhaarNumber || uanNumber || pfNumber || esiNumber || esiLocation || ptaxLocation || taxRegime
             ? {
                 ...(panNumber ? { panNumber } : {}),
                 ...(aadhaarNumber ? { aadhaarNumber } : {}),
                 ...(uanNumber ? { uanNumber } : {}),
                 ...(pfNumber ? { pfNumber } : {}),
                 ...(esiNumber ? { esiNumber } : {}),
+                ...(esiLocation ? { esiLocation } : {}),
+                ...(ptaxLocation ? { ptaxLocation } : {}),
+                ...(taxRegime ? { taxRegime } : {}),
               }
             : undefined;
 
@@ -860,7 +889,8 @@ export default function EmployeesPage() {
 
         const profileExtensions =
           fatherName || age || passportNumber || drivingLicenseNumber || bloodGroup || experienceYears ||
-          subDepartment || qualification || course || university || passoutYear
+          subDepartment || qualification || course || university || passoutYear ||
+          associateNoticePeriodDays || lwfLocation || alternateSaturdayOff || compoffApplicable
             ? {
                 ...(fatherName ? { fatherName } : {}),
                 ...(age ? { age } : {}),
@@ -873,6 +903,10 @@ export default function EmployeesPage() {
                 ...(course ? { course } : {}),
                 ...(university ? { university } : {}),
                 ...(passoutYear ? { passoutYear } : {}),
+                ...(associateNoticePeriodDays ? { associateNoticePeriodDays } : {}),
+                ...(lwfLocation ? { lwfLocation } : {}),
+                ...(alternateSaturdayOff ? { alternateSaturdayOff } : {}),
+                ...(compoffApplicable ? { compoffApplicable } : {}),
               }
             : undefined;
 
@@ -1002,9 +1036,9 @@ export default function EmployeesPage() {
       { 'S.No': 1, 'Paygroup': 'Monthly', 'Associate Code': 'BNC1001', 'Associate Name': 'Murali Krishna', 'Gender': 'M', 'Department': 'HR', 'Designation': 'Manager', 'Father Name': 'XYZ', 'Blood Group': 'O+', 'Date of Birth': '1/1/1990', 'Date of Joining': '1/1/2024', 'Cost Centre': 'CC001', 'Pan Card Number': 'ABCDE1234F', 'Bank Name': 'HDFC Bank', 'Account No': '1234567890123456', 'Bank IFSC Code': 'HDFC0001234', 'Permanent E-Mail Id': 'murali.krishna@example.com', 'Official E-Mail Id': 'murali@bncmotors.com', 'Permanent Address': 'NO 123, 1st Street, ABC Nagar', 'Permanent City': 'Chennai', 'Permanent State': 'Tamil Nadu', 'Permanent Pincode': '600001', 'Permanent Phone': '9876543210', 'Current Address': 'NO 123, 1st Street, ABC Nagar', 'Current City': 'Chennai', 'Current State': 'Tamil Nadu', 'Current Pincode': '600001', 'Current Phone': '9876543210', 'Place of Tax Deduction': 'METRO', 'PF Number': 'TN/CHN/1234567', 'ESI Number': '31-12345-67-890', 'Location': 'Chennai', 'ESI Location': 'Chennai', 'Ptax Location': 'Chennai', 'Marital Status': 'Single', 'Reporting Manager': '', 'Associate Notice Period Days': '30', 'LWF Location': 'Chennai', 'Permanent District': 'Chennai', 'Current District': 'Chennai', 'Permanent mobile': '9876543210', 'UAN Number': '101234567890', 'Adhaar Number': '123456789012', 'Tax Regime': 'New', 'Sub Department': 'Recruitment', 'Alternate Saturday Off': 'Yes', 'Compoff Applicable': 'Yes', 'Fixed Gross': '50000', 'Vehicle Allowances': '5000' },
       { 'S.No': 2, 'Paygroup': 'Monthly', 'Associate Code': 'BNC1002', 'Associate Name': 'Kaviya Shree', 'Gender': 'F', 'Department': 'Finance & Accounts', 'Designation': 'Executive', 'Father Name': 'ABC', 'Blood Group': 'A+', 'Date of Birth': '15/5/1992', 'Date of Joining': '1/2/2024', 'Cost Centre': 'CC002', 'Pan Card Number': 'FGHIJ5678K', 'Bank Name': 'ICICI Bank', 'Account No': '9876543210987654', 'Bank IFSC Code': 'ICIC0000987', 'Permanent E-Mail Id': 'kaviya.shree@example.com', 'Official E-Mail Id': 'kaviya@bncmotors.com', 'Permanent Address': 'NO 456, 2nd Street, XYZ Nagar', 'Permanent City': 'Chennai', 'Permanent State': 'Tamil Nadu', 'Permanent Pincode': '600002', 'Permanent Phone': '9123456780', 'Current Address': 'NO 456, 2nd Street, XYZ Nagar', 'Current City': 'Chennai', 'Current State': 'Tamil Nadu', 'Current Pincode': '600002', 'Current Phone': '9123456780', 'Place of Tax Deduction': 'METRO', 'PF Number': 'TN/CHN/7654321', 'ESI Number': '31-98765-43-210', 'Location': 'Chennai', 'ESI Location': 'Chennai', 'Ptax Location': 'Chennai', 'Marital Status': 'Married', 'Reporting Manager': 'Murali Krishna', 'Associate Notice Period Days': '30', 'LWF Location': 'Chennai', 'Permanent District': 'Chennai', 'Current District': 'Chennai', 'Permanent mobile': '9123456780', 'UAN Number': '101987654321', 'Adhaar Number': '987654321098', 'Tax Regime': 'Old', 'Sub Department': 'Accounts', 'Alternate Saturday Off': 'No', 'Compoff Applicable': 'Yes', 'Fixed Gross': '45000', 'Vehicle Allowances': '0' },
     ];
-    const orderedRows = templateRows.map((row) => {
+    const orderedRows = templateRows.map((row: Record<string, unknown>) => {
       const ordered: Record<string, string | number> = {};
-      COLUMNS.forEach((col) => { ordered[col] = row[col] ?? ''; });
+      COLUMNS.forEach((col) => { ordered[col] = (row[col] as string | number) ?? ''; });
       return ordered;
     });
     const worksheet = XLSX.utils.json_to_sheet(orderedRows);

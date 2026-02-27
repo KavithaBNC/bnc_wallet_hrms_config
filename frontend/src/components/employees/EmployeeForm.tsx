@@ -279,7 +279,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     officialMobile: (employee as any)?.officialMobile || '',
     departmentId: employee?.departmentId || '',
     subDepartmentId: (employee as any)?.subDepartmentId || '',
-    subDepartment: (employee as any)?.subDepartment || '',
+    subDepartment: ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment) || '',
     positionId: employee?.positionId || '',
     entityId: (employee as any)?.entityId || (employee as any)?.location?.entityId || '',
     locationId: (employee as any)?.locationId || '',
@@ -289,33 +289,42 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     grade: (employee as any)?.grade || '',
     placeOfTaxDeduction: (employee as any)?.placeOfTaxDeduction || '',
     jobResponsibility: (employee as any)?.jobResponsibility || '',
-    // Statutory Details
-    pfNumber: (employee as any)?.pfNumber || '',
-    esiNumber: (employee as any)?.esiNumber || '',
+    // Statutory Details (from taxInformation JSON)
+    pfNumber: ((employee as any)?.taxInformation?.pfNumber ?? (employee as any)?.pfNumber) || '',
+    esiNumber: ((employee as any)?.taxInformation?.esiNumber ?? (employee as any)?.esiNumber) || '',
     pfApplicable: (employee as any)?.pfApplicable ?? false,
     esiApplicable: (employee as any)?.esiApplicable ?? false,
     taxApplicable: (employee as any)?.taxApplicable ?? false,
-    uanNumber: (employee as any)?.uanNumber || '',
-    panNumber: (employee as any)?.panNumber || '',
-    pTaxLocation: (employee as any)?.pTaxLocation || '',
+    uanNumber: ((employee as any)?.taxInformation?.uanNumber ?? (employee as any)?.uanNumber) || '',
+    panNumber: ((employee as any)?.taxInformation?.panNumber ?? (employee as any)?.panNumber) || '',
+    pTaxLocation: ((employee as any)?.taxInformation?.ptaxLocation ?? (employee as any)?.pTaxLocation) || '',
     dateOfRetirement: (employee as any)?.dateOfRetirement
       ? (employee as any).dateOfRetirement.split('T')[0]
       : '',
     expatriate: (employee as any)?.expatriate ?? false,
     pfTransferred: (employee as any)?.pfTransferred ?? false,
-    esiDispensary: (employee as any)?.esiDispensary || '',
+    esiDispensary: ((employee as any)?.taxInformation?.esiDispensary ?? (employee as any)?.esiDispensary) || '',
     gratuityApplicable: (employee as any)?.gratuityApplicable ?? false,
     confirmationPeriod: (employee as any)?.confirmationPeriod || '',
     pfApplicableFrom: !!(employee as any)?.pfApplicableFrom,
-    lwfLocation: (employee as any)?.lwfLocation || '',
-    taxRegime: (employee as any)?.taxRegime || 'OLD',
-    aadhaarNumber: (employee as any)?.aadhaarNumber || '',
+    lwfLocation: ((employee as any)?.profileExtensions?.lwfLocation ?? (employee as any)?.lwfLocation) || '',
+    taxRegime: (() => {
+      const raw = (employee as any)?.taxInformation?.taxRegime ?? (employee as any)?.taxRegime;
+      if (!raw) return 'OLD';
+      const u = String(raw).toUpperCase();
+      if (u === 'N' || u === 'NEW') return 'NEW';
+      if (u === 'O' || u === 'OLD') return 'OLD';
+      return u; // keep as-is if already NEW/OLD
+    })(),
+    aadhaarNumber: ((employee as any)?.taxInformation?.aadhaarNumber ?? (employee as any)?.aadhaarNumber) || '',
     dateOfProbationary: employee?.probationEndDate ? employee.probationEndDate.split('T')[0] : '',
     dateOfConfirmation: employee?.confirmationDate ? employee.confirmationDate.split('T')[0] : '',
     noticePeriodDays:
-      (employee as any)?.noticePeriodDays !== undefined && (employee as any)?.noticePeriodDays !== null
-        ? String((employee as any).noticePeriodDays)
-        : '',
+      (employee as any)?.profileExtensions?.associateNoticePeriodDays !== undefined && (employee as any)?.profileExtensions?.associateNoticePeriodDays !== null
+        ? String((employee as any).profileExtensions.associateNoticePeriodDays)
+        : ((employee as any)?.noticePeriodDays !== undefined && (employee as any)?.noticePeriodDays !== null
+          ? String((employee as any).noticePeriodDays)
+          : ''),
     husbandNameOnOnlinePf: (employee as any)?.husbandNameOnOnlinePf || '',
     // Bank Details
     bankName: (employee as any)?.bankDetails?.bankName || '',
@@ -330,7 +339,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     // Permanent Address (map from API address JSON when no dedicated fields)
     permanentAddress: (employee as any)?.permanentAddress || (typeof employee?.address === 'object' && employee?.address && 'street' in employee.address ? (employee.address as { street?: string }).street : '') || '',
     permanentCity: (employee as any)?.permanentCity || (typeof employee?.address === 'object' && employee?.address && 'city' in employee.address ? (employee.address as { city?: string }).city : '') || '',
-    permanentDistrict: (employee as any)?.permanentDistrict || '',
+    permanentDistrict: ((typeof employee?.address === 'object' && employee?.address && 'permanentDistrict' in employee.address ? (employee.address as { permanentDistrict?: string }).permanentDistrict : null) ?? (employee as any)?.permanentDistrict) || '',
     permanentState: (employee as any)?.permanentState || (typeof employee?.address === 'object' && employee?.address && 'state' in employee.address ? (employee.address as { state?: string }).state : '') || '',
     permanentPincode: (employee as any)?.permanentPincode || (typeof employee?.address === 'object' && employee?.address && 'postalCode' in employee.address ? (employee.address as { postalCode?: string }).postalCode : '') || '',
     permanentPhoneNumber: (employee as any)?.permanentPhoneNumber || employee?.phone || '',
@@ -344,16 +353,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     presentState: (typeof employee?.address === 'object' && employee?.address && 'presentState' in employee.address ? (employee.address as { presentState?: string }).presentState : (employee as any)?.presentState) || '',
     presentPincode: (typeof employee?.address === 'object' && employee?.address && 'presentPincode' in employee.address ? (employee.address as { presentPincode?: string }).presentPincode : (employee as any)?.presentPincode) || '',
     presentPhoneNumber: (typeof employee?.address === 'object' && employee?.address && 'presentPhoneNumber' in employee.address ? (employee.address as { presentPhoneNumber?: string }).presentPhoneNumber : (employee as any)?.presentPhoneNumber) || '',
-    // Others
-    bloodGroup: (employee as any)?.bloodGroup || '',
-    dateOfWedding: (employee as any)?.dateOfWedding ? (employee as any).dateOfWedding.split('T')[0] : '',
-    children: (employee as any)?.children || '',
-    physicallyChallenged: (employee as any)?.physicallyChallenged ?? false,
-    physicallyChallengedRemarks: (employee as any)?.physicallyChallengedRemarks || '',
-    passportNumber: (employee as any)?.passportNumber || '',
-    passportExpiry: (employee as any)?.passportExpiry ? (employee as any).passportExpiry.split('T')[0] : '',
-    drivingLicenseNumber: (employee as any)?.drivingLicenseNumber || '',
-    drivingLicenseExpiry: (employee as any)?.drivingLicenseExpiry ? (employee as any).drivingLicenseExpiry.split('T')[0] : '',
+    // Others (from profileExtensions JSON)
+    bloodGroup: ((employee as any)?.profileExtensions?.bloodGroup ?? (employee as any)?.bloodGroup) || '',
+    dateOfWedding: (employee as any)?.profileExtensions?.dateOfWedding ? (employee as any).profileExtensions.dateOfWedding.split('T')[0] : ((employee as any)?.dateOfWedding ? (employee as any).dateOfWedding.split('T')[0] : ''),
+    children: ((employee as any)?.profileExtensions?.children ?? (employee as any)?.children) || '',
+    physicallyChallenged: (employee as any)?.profileExtensions?.physicallyChallenged ?? (employee as any)?.physicallyChallenged ?? false,
+    physicallyChallengedRemarks: ((employee as any)?.profileExtensions?.physicallyChallengedRemarks ?? (employee as any)?.physicallyChallengedRemarks) || '',
+    passportNumber: ((employee as any)?.profileExtensions?.passportNumber ?? (employee as any)?.passportNumber) || '',
+    passportExpiry: (employee as any)?.profileExtensions?.passportExpiry ? (employee as any).profileExtensions.passportExpiry.split('T')[0] : ((employee as any)?.passportExpiry ? (employee as any).passportExpiry.split('T')[0] : ''),
+    drivingLicenseNumber: ((employee as any)?.profileExtensions?.drivingLicenseNumber ?? (employee as any)?.drivingLicenseNumber) || '',
+    drivingLicenseExpiry: (employee as any)?.profileExtensions?.drivingLicenseExpiry ? (employee as any).profileExtensions.drivingLicenseExpiry.split('T')[0] : ((employee as any)?.drivingLicenseExpiry ? (employee as any).drivingLicenseExpiry.split('T')[0] : ''),
     // Employment
     employeeStatus: employee?.employeeStatus || 'ACTIVE',
     // Contact
@@ -368,8 +377,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     emergencyContactPhone: employee?.emergencyContacts?.[0]?.phone || '',
     imei: (employee as any)?.imei || '',
     pfAbrySchemeApplicable: (employee as any)?.pfAbrySchemeApplicable || '',
-    alternateSaturdayOff: (employee as any)?.alternateSaturdayOff || '',
-    compoffApplicable: (employee as any)?.compoffApplicable || '',
+    alternateSaturdayOff: ((employee as any)?.profileExtensions?.alternateSaturdayOff ?? (employee as any)?.alternateSaturdayOff) || '',
+    compoffApplicable: ((employee as any)?.profileExtensions?.compoffApplicable ?? (employee as any)?.compoffApplicable) || '',
     face_encoding: (employee as any)?.faceEncoding && Array.isArray((employee as any).faceEncoding) ? (employee as any).faceEncoding as number[] : ([] as number[]),
   });
 
@@ -412,7 +421,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const fetchSubDepartments = async () => {
       try {
         const list = await subDepartmentService.getByOrganization(organizationId);
-        setSubDepartmentOptions(list.map((s) => s.name).sort((a, b) => a.localeCompare(b)));
+        let names = list.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+        const empSubDept = ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment)?.toString?.()?.split(',')[0]?.trim();
+        if (empSubDept && !names.some((n) => n.toLowerCase() === empSubDept.toLowerCase())) {
+          names = [...names, empSubDept].sort((a, b) => a.localeCompare(b));
+        }
+        setSubDepartmentOptions(names);
       } catch {
         setSubDepartmentOptions([]);
       }
@@ -461,7 +475,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   // When editing, merge employee's sub-department name into options if not already loaded from API
   useEffect(() => {
-    const value = (employee as any)?.subDepartment;
+    const value = ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment) || '';
     if (!value || typeof value !== 'string') return;
     const name = value.split(',')[0]?.trim();
     if (!name) return;
@@ -815,8 +829,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         employeeStatus: formData.employeeStatus as EmployeeStatus,
         personalEmail: emptyToUndefined(formData.personalEmail) || null,
         address: (() => {
-          const fromPermanent = formData.permanentAddress || formData.permanentCity || formData.permanentState || formData.permanentPincode;
-          const fromPresent = formData.presentAddress || formData.presentCity || formData.presentState || formData.presentPincode;
+          const fromPermanent = formData.permanentAddress || formData.permanentCity || formData.permanentState || formData.permanentPincode || formData.permanentDistrict;
+          const fromPresent = formData.presentAddress || formData.presentCity || formData.presentState || formData.presentPincode || formData.presentDistrict;
           const base = fromPermanent ? {
             street: emptyToUndefined(formData.permanentAddress),
             city: emptyToUndefined(formData.permanentCity),
@@ -827,6 +841,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           return {
             ...base,
             sameAsPermanent: formData.sameAsPermanent,
+            permanentDistrict: emptyToUndefined(formData.permanentDistrict),
             presentAddress: emptyToUndefined(formData.presentAddress),
             presentCity: emptyToUndefined(formData.presentCity),
             presentDistrict: emptyToUndefined(formData.presentDistrict),
@@ -847,6 +862,38 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               ifscCode: emptyToUndefined(formData.bankIfscCode),
             }
           : undefined,
+        taxInformation: (() => {
+          const fromForm: Record<string, string | undefined> = {
+            pfNumber: emptyToUndefined(formData.pfNumber),
+            uanNumber: emptyToUndefined(formData.uanNumber),
+            panNumber: emptyToUndefined(formData.panNumber),
+            aadhaarNumber: emptyToUndefined(formData.aadhaarNumber),
+            esiNumber: emptyToUndefined(formData.esiNumber),
+            ptaxLocation: emptyToUndefined(formData.pTaxLocation),
+            taxRegime: emptyToUndefined(formData.taxRegime),
+            esiDispensary: emptyToUndefined(formData.esiDispensary),
+          };
+          const hasAny = Object.values(fromForm).some((v) => v != null && v !== '');
+          if (!hasAny) return undefined;
+          const existing = (employee as any)?.taxInformation && typeof (employee as any).taxInformation === 'object' ? (employee as any).taxInformation : {};
+          const merged = { ...existing };
+          Object.entries(fromForm).forEach(([k, v]) => { merged[k] = v ?? ''; });
+          return merged;
+        })(),
+        profileExtensions: (() => {
+          const fromForm: Record<string, string> = {};
+          if (formData.bloodGroup?.trim()) fromForm.bloodGroup = formData.bloodGroup.trim();
+          if (formData.lwfLocation?.trim()) fromForm.lwfLocation = formData.lwfLocation.trim();
+          if (formData.noticePeriodDays?.trim()) fromForm.associateNoticePeriodDays = formData.noticePeriodDays.trim();
+          if (formData.passportNumber?.trim()) fromForm.passportNumber = formData.passportNumber.trim();
+          if (formData.drivingLicenseNumber?.trim()) fromForm.drivingLicenseNumber = formData.drivingLicenseNumber.trim();
+          if (formData.subDepartment?.trim() || employee) fromForm.subDepartment = formData.subDepartment?.trim() ?? '';
+          if (formData.alternateSaturdayOff?.trim() || employee) fromForm.alternateSaturdayOff = formData.alternateSaturdayOff?.trim() ?? '';
+          if (formData.compoffApplicable?.trim() || employee) fromForm.compoffApplicable = formData.compoffApplicable?.trim() ?? '';
+          if (Object.keys(fromForm).length === 0) return undefined;
+          const existing = (employee as any)?.profileExtensions && typeof (employee as any).profileExtensions === 'object' ? (employee as any).profileExtensions : {};
+          return { ...existing, ...fromForm };
+        })(),
         faceEncoding: (formData as any).face_encoding?.length === 128 ? (formData as any).face_encoding : undefined,
       };
       if (initialPaygroupId) {
