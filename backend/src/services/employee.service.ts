@@ -602,6 +602,10 @@ export class EmployeeService {
       where.positionId = query.positionId;
     }
 
+    if (query.entityId) {
+      where.entityId = query.entityId;
+    }
+
     if (query.paygroupId) {
       where.paygroupId = query.paygroupId;
     }

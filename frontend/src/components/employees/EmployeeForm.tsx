@@ -393,6 +393,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   }, [initialPaygroupName]);
 
   useEffect(() => {
+    if (employee?.id) {
+      const eId = (employee as { entityId?: string; location?: { entityId?: string } }).entityId
+        || (employee as { location?: { entityId?: string } }).location?.entityId
+        || '';
+      const locId = (employee as { locationId?: string }).locationId || '';
+      setFormData((prev) =>
+        prev.entityId !== eId || prev.locationId !== locId
+          ? { ...prev, entityId: eId, locationId: locId }
+          : prev
+      );
+    }
+  }, [employee?.id, (employee as any)?.entityId, (employee as any)?.locationId]);
+
+  useEffect(() => {
     fetchDepartments(organizationId);
     fetchPositions({ organizationId, limit: 100 });
     fetchManagersForDropdown();

@@ -211,6 +211,7 @@ export const queryEmployeesSchema = z.object({
   organizationId: z.string().uuid().optional(),
   paygroupId: z.string().uuid().optional(), // Filter by paygroup (e.g. for Increment Associate dropdown)
   departmentId: z.string().uuid().optional(),
+  entityId: z.string().uuid().optional(),
   positionId: z.string().uuid().optional(),
   reportingManagerId: z.string().uuid().optional(),
   employeeId: z.string().uuid().optional(), // For EMPLOYEE self-service filtering

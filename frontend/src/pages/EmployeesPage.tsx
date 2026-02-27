@@ -20,6 +20,8 @@ import positionService from '../services/position.service';
 import departmentService from '../services/department.service';
 import paygroupService from '../services/paygroup.service';
 import costCentreService from '../services/costCentre.service';
+import entityService from '../services/entity.service';
+import { useDepartmentStore } from '../store/departmentStore';
 import { employeeSalaryService } from '../services/payroll.service';
 
 function getAvatarColor(name: string): string {
@@ -170,13 +172,18 @@ export default function EmployeesPage() {
   const { employees, pagination, loading, error, fetchEmployees, deleteEmployee } = useEmployeeStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
-  const [departmentFilter, _setDepartmentFilter] = useState<string>('ALL');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
+  const [entityFilter, setEntityFilter] = useState<string>('ALL');
+  const [paygroupFilter, setPaygroupFilter] = useState<string>('ALL');
   const [positionFilter, setPositionFilter] = useState<string>('ALL');
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'employeeCode' | 'firstName'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const { positions, fetchPositions } = usePositionStore();
+  const { departments, fetchDepartments } = useDepartmentStore();
+  const [orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [showPaygroupModal, setShowPaygroupModal] = useState(false);
   const [selectedPaygroupId, setSelectedPaygroupId] = useState<string | null>(null);
@@ -205,7 +212,7 @@ export default function EmployeesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importingEmployees, setImportingEmployees] = useState(false);
-  const [importResult, setImportResult] = useState<{ total: number; success: number; skipped: number; failures: EmployeeImportFailure[]; managersSet?: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ total: number; success: number; updated: number; skipped: number; failures: EmployeeImportFailure[]; managersSet?: number } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
@@ -344,8 +351,16 @@ export default function EmployeesPage() {
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    if (effectiveOrganizationId) fetchPositions({ organizationId: effectiveOrganizationId });
-  }, [effectiveOrganizationId, fetchPositions]);
+    if (effectiveOrganizationId) {
+      fetchPositions({ organizationId: effectiveOrganizationId });
+      fetchDepartments(effectiveOrganizationId);
+      entityService.getByOrganization(effectiveOrganizationId).then(setOrgEntities).catch(() => setOrgEntities([]));
+      paygroupService.getAll({ organizationId: effectiveOrganizationId }).then((list) => setOrgPaygroups(list || [])).catch(() => setOrgPaygroups([]));
+    } else {
+      setOrgEntities([]);
+      setOrgPaygroups([]);
+    }
+  }, [effectiveOrganizationId, fetchPositions, fetchDepartments]);
 
   // Refetch list when navigating to this page (e.g. after approval) so approved details show
   useEffect(() => {
@@ -361,11 +376,13 @@ export default function EmployeesPage() {
     if (searchTerm) params.search = searchTerm;
     params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+    if (entityFilter !== 'ALL') params.entityId = entityFilter;
+    if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
     if (positionFilter !== 'ALL') params.positionId = positionFilter;
     params.sortBy = sortBy;
     params.sortOrder = sortOrder;
     fetchEmployees(params);
-  }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
+  }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, entityFilter, paygroupFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
 
   // When viewing ALL status, fetch active count for accurate dashboard stats
   useEffect(() => {
@@ -493,6 +510,8 @@ export default function EmployeesPage() {
       if (searchTerm) params.search = searchTerm;
       params.employeeStatus = statusFilter;
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+      if (entityFilter !== 'ALL') params.entityId = entityFilter;
+      if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
       if (positionFilter !== 'ALL') params.positionId = positionFilter;
       fetchEmployees(params);
     } catch (err: any) {
@@ -517,6 +536,8 @@ export default function EmployeesPage() {
       if (searchTerm) params.search = searchTerm;
       params.employeeStatus = statusFilter;
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+      if (entityFilter !== 'ALL') params.entityId = entityFilter;
+      if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
       if (positionFilter !== 'ALL') params.positionId = positionFilter;
       fetchEmployees(params);
     } catch (err: any) {
@@ -556,6 +577,8 @@ export default function EmployeesPage() {
     if (searchTerm) params.search = searchTerm;
     params.employeeStatus = statusFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+    if (entityFilter !== 'ALL') params.entityId = entityFilter;
+    if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
     if (positionFilter !== 'ALL') params.positionId = positionFilter;
     fetchEmployees(params);
   };
@@ -741,13 +764,16 @@ export default function EmployeesPage() {
         orgPaygroups,
         { employees: orgEmployees },
         orgCostCentres,
+        orgEntitiesImport,
       ] = await Promise.all([
         positionService.getAll({ organizationId: effectiveOrganizationId, limit: 500 }),
         departmentService.getAll({ organizationId: effectiveOrganizationId, limit: 500 }),
         paygroupService.getAll({ organizationId: effectiveOrganizationId }),
         employeeService.getAll({ organizationId: effectiveOrganizationId, employeeStatus: 'ALL', limit: 5000 }),
         costCentreService.getByOrganization(effectiveOrganizationId),
+        entityService.getByOrganization(effectiveOrganizationId),
       ]);
+      const orgEntitiesList = orgEntitiesImport || [];
       const buffer = await importFile.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
       const firstSheet = workbook.SheetNames[0];
@@ -766,6 +792,7 @@ export default function EmployeesPage() {
 
       const failures: EmployeeImportFailure[] = [];
       let success = 0;
+      let updated = 0;
       let skipped = 0;
       let total = 0;
       /** Employees created in this batch: for same-batch Reporting Manager lookup */
@@ -779,28 +806,33 @@ export default function EmployeesPage() {
         const codeFromBrackets = raw.match(/\[([^\]]+)\]/)?.[1]?.trim().toLowerCase();
         const codeFromParens = raw.match(/\(([^)]+)\)/)?.[1]?.trim().toLowerCase();
         const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase();
-        const search = namePart || raw.toLowerCase();
+        const searchRaw = namePart || raw.toLowerCase();
+        const search = searchRaw.replace(/\s+/g, ' ').trim();
         const looksLikeCode = /^[a-zA-Z]*\d+[a-z0-9]*$/i.test(raw) && raw.length <= 20;
         const possibleCodes = [codeFromBrackets, codeFromParens, looksLikeCode ? raw.toLowerCase() : null].filter(Boolean);
+        const normalizeForMatch = (s: string) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const nameMatches = (full: string, alt: string) =>
+          full === search || alt === search || full.includes(search) || search.includes(full) || alt.includes(search) || search.includes(alt);
         const byCodeInBatch = createdInBatch.find((e) => {
-          const code = e.employeeCode?.toLowerCase();
-          return code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c);
+          const code = e.employeeCode?.toLowerCase()?.trim();
+          return code && (code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c));
         });
         if (byCodeInBatch) return byCodeInBatch.id;
         const byCodeInOrg = orgEmployees?.find((e) => {
-          const code = (e as { employeeCode?: string }).employeeCode?.toLowerCase();
-          return code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c);
+          const code = (e as { employeeCode?: string }).employeeCode?.toLowerCase()?.trim();
+          return code && (code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c));
         })?.id;
         if (byCodeInOrg) return byCodeInOrg;
         const byNameInOrg = orgEmployees?.find((e) => {
-          const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
-          const alt = `${e.lastName || ''} ${e.firstName || ''}`.trim().toLowerCase();
-          return full === search || alt === search || full.includes(search) || search.includes(full);
+          const full = normalizeForMatch(`${e.firstName || ''} ${e.lastName || ''}`);
+          const alt = normalizeForMatch(`${e.lastName || ''} ${e.firstName || ''}`);
+          return nameMatches(full, alt);
         })?.id;
         if (byNameInOrg) return byNameInOrg;
         const byNameInBatch = createdInBatch.find((e) => {
-          const full = `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase();
-          return full === search || full.includes(search) || search.includes(full);
+          const full = normalizeForMatch(`${e.firstName || ''} ${e.lastName || ''}`);
+          const alt = normalizeForMatch(`${e.lastName || ''} ${e.firstName || ''}`);
+          return nameMatches(full, alt);
         });
         return byNameInBatch?.id ?? null;
       };
@@ -917,6 +949,10 @@ export default function EmployeesPage() {
         const departmentId = department
           ? orgDepartments?.find((d) => d.name?.toLowerCase() === department.toLowerCase())?.id ?? null
           : null;
+        const entityCol = String(getCellValue(row, ['entity', 'Entity', 'ENTITY', 'entityName'])).trim();
+        const entityId = entityCol
+          ? orgEntitiesList.find((e) => e.name?.toLowerCase() === entityCol.toLowerCase() || e.code?.toLowerCase() === entityCol.toLowerCase())?.id ?? null
+          : null;
         const paygroupId = paygroupName
           ? orgPaygroups?.find((p) => p.name?.toLowerCase() === paygroupName.toLowerCase())?.id ?? null
           : null;
@@ -1011,8 +1047,37 @@ export default function EmployeesPage() {
         const employmentType = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].includes(employmentTypeVal) ? employmentTypeVal : undefined;
 
         const existingByEmail = orgEmployees?.some((e) => e.email?.toLowerCase() === finalEmail.toLowerCase());
-        const existingByCode = employeeCode && orgEmployees?.some((e) => (e as { employeeCode?: string }).employeeCode?.toLowerCase() === employeeCode.toLowerCase());
-        if (existingByEmail || existingByCode) {
+        const existingEmpByCode = employeeCode && orgEmployees?.find((e) => (e as { employeeCode?: string }).employeeCode?.toLowerCase() === employeeCode.toLowerCase());
+
+        if (existingEmpByCode) {
+          const empId = existingEmpByCode.id;
+          const updatePayload: Record<string, unknown> = {};
+          if (positionId) updatePayload.positionId = positionId;
+          if (departmentId) updatePayload.departmentId = departmentId;
+          if (entityId) updatePayload.entityId = entityId;
+          if (paygroupId) updatePayload.paygroupId = paygroupId;
+          if (costCentreId) updatePayload.costCentreId = costCentreId;
+          if (workLocation) updatePayload.workLocation = workLocation;
+          if (placeOfTaxDeduction) updatePayload.placeOfTaxDeduction = placeOfTaxDeduction;
+          if (reportingManagerName) pendingReportingManager.push({ employeeId: empId, reportingManagerName });
+          if (profileExtensions && Object.keys(profileExtensions).length > 0) {
+            const existingExt = (existingEmpByCode as { profileExtensions?: Record<string, unknown> }).profileExtensions as Record<string, unknown> | null | undefined;
+            const merged = { ...(existingExt || {}), ...profileExtensions };
+            updatePayload.profileExtensions = merged;
+          }
+          try {
+            if (Object.keys(updatePayload).length > 0) {
+              await employeeService.update(empId, updatePayload);
+            }
+            updated += 1;
+          } catch (err: any) {
+            console.warn('Failed to update existing employee', empId, err?.response?.data?.message || err?.message);
+            failures.push({ row: index + 2, email, associateCode: employeeCode || undefined, message: err?.response?.data?.message || 'Failed to update existing employee' });
+          }
+          continue;
+        }
+
+        if (existingByEmail) {
           skipped += 1;
           continue;
         }
@@ -1036,6 +1101,7 @@ export default function EmployeesPage() {
             ...(dateOfLeaving ? { dateOfLeaving } : {}),
             ...(positionId ? { positionId } : {}),
             ...(departmentId ? { departmentId } : {}),
+            ...(entityId ? { entityId } : {}),
             ...(paygroupId ? { paygroupId } : {}),
             ...(reportingManagerId ? { reportingManagerId } : {}),
             ...(costCentreId ? { costCentreId } : {}),
@@ -1112,7 +1178,7 @@ export default function EmployeesPage() {
         }
       }
 
-      setImportResult({ total, success, skipped, failures, managersSet });
+      setImportResult({ total, success, updated, skipped, failures, managersSet });
 
       const params: any = {
         page: currentPage,
@@ -1125,6 +1191,8 @@ export default function EmployeesPage() {
       if (searchTerm) params.search = searchTerm;
       params.employeeStatus = statusFilter;
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+      if (entityFilter !== 'ALL') params.entityId = entityFilter;
+      if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
       if (positionFilter !== 'ALL') params.positionId = positionFilter;
       await fetchEmployees(params);
     } catch (err: any) {
@@ -1785,7 +1853,7 @@ export default function EmployeesPage() {
 
       {/* Filters Bar - equal-width boxes, labels above, match reference */}
       {!showCredentials && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
           {isSuperAdmin && (
             <div className="flex flex-col">
               <label className="text-sm font-medium text-gray-500 mb-1.5">Organization</label>
@@ -1802,6 +1870,32 @@ export default function EmployeesPage() {
             </div>
           )}
           <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Department</label>
+            <select
+              value={departmentFilter}
+              onChange={(e) => { setDepartmentFilter(e.target.value); setCurrentPage(1); }}
+              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="ALL">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Entity</label>
+            <select
+              value={entityFilter}
+              onChange={(e) => { setEntityFilter(e.target.value); setCurrentPage(1); }}
+              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="ALL">All Entities</option>
+              {orgEntities.map((e) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
             <label className="text-sm font-medium text-gray-500 mb-1.5">Designation</label>
             <select
               value={positionFilter}
@@ -1811,6 +1905,19 @@ export default function EmployeesPage() {
               <option value="ALL">All Designations</option>
               {positions.map((p) => (
                 <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Paygroup</label>
+            <select
+              value={paygroupFilter}
+              onChange={(e) => { setPaygroupFilter(e.target.value); setCurrentPage(1); }}
+              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="ALL">All Paygroups</option>
+              {orgPaygroups.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>
@@ -1917,6 +2024,8 @@ export default function EmployeesPage() {
               if (searchTerm) params.search = searchTerm;
               params.employeeStatus = statusFilter;
               if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+              if (entityFilter !== 'ALL') params.entityId = entityFilter;
+              if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
               if (positionFilter !== 'ALL') params.positionId = positionFilter;
               fetchEmployees(params);
             }}
@@ -1994,7 +2103,7 @@ export default function EmployeesPage() {
               <div className="p-4">
                 {employees.length === 0 ? (
                   <div className="py-12 text-center text-gray-500">
-                    {searchTerm || statusFilter !== 'ACTIVE' || positionFilter !== 'ALL'
+                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || entityFilter !== 'ALL' || paygroupFilter !== 'ALL' || positionFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
                   </div>
@@ -2120,7 +2229,7 @@ export default function EmployeesPage() {
               {employees.length === 0 ? (
                 <tr>
                   <td colSpan={user?.role === 'SUPER_ADMIN' ? 11 : 10} className="px-4 py-8 text-center text-gray-500">
-                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || positionFilter !== 'ALL'
+                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || entityFilter !== 'ALL' || paygroupFilter !== 'ALL' || positionFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
                   </td>
@@ -2325,6 +2434,9 @@ export default function EmployeesPage() {
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
               <p>Total rows processed: <strong>{importResult.total}</strong></p>
               <p>Created successfully: <strong className="text-green-700">{importResult.success}</strong></p>
+              {importResult.updated != null && importResult.updated > 0 && (
+                <p>Updated (existing by code): <strong className="text-blue-700">{importResult.updated}</strong></p>
+              )}
               <p>Skipped (already exists): <strong className="text-amber-700">{importResult.skipped}</strong></p>
               <p>Failed: <strong className="text-red-700">{importResult.failures.length}</strong></p>
               {importResult.managersSet != null && importResult.managersSet > 0 && (
