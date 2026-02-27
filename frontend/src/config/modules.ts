@@ -25,8 +25,9 @@ export const APP_MODULES: AppModule[] = [
   { path: '/organizations', label: 'Organization Management', resource: 'organizations', visibility: 'super_admin_only' },
   { path: '/permissions', label: 'Module Permission', resource: 'permissions', visibility: 'module_permission_only' },
   { path: '/employees', label: 'Employees', resource: 'employees', visibility: 'all' },
-  { path: '/departments', label: 'Department', resource: 'departments', visibility: 'all' },
-  { path: '/positions', label: 'Position', resource: 'positions', visibility: 'all' },
+  // Department and Position menus hidden per requirement
+  // { path: '/departments', label: 'Department', resource: 'departments', visibility: 'all' },
+  // { path: '/positions', label: 'Position', resource: 'positions', visibility: 'all' },
   { path: '/core-hr', label: 'Core HR', resource: 'core_hr', visibility: 'all' },
   { path: '/core-hr/overview', label: 'Overview', resource: 'core_hr', visibility: 'all', parentPath: '/core-hr' },
   { path: '/core-hr/compound-creation', label: 'Component Creation', resource: 'compound_creation', visibility: 'all', parentPath: '/core-hr' },

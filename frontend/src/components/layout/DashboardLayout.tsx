@@ -386,7 +386,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       } else if (mod.visibility === 'super_admin_only') {
         if (isSuperAdmin) items.push(mod);
       } else if (mod.visibility === 'module_permission_only') {
-        if (isSuperAdmin || hasView('permissions')) items.push(mod);
+        if (isSuperAdmin || hasView('permissions') || isHrOrOrgAdmin) items.push(mod);
       } else {
         const hasThisView = hasView(mod.resource);
         const isTimeAttendanceParent = mod.path === '/time-attendance';
@@ -557,7 +557,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       : currentModule.visibility === 'super_admin_only'
         ? isSuperAdmin
         : currentModule.visibility === 'module_permission_only'
-          ? isSuperAdmin || hasView('permissions')
+          ? isSuperAdmin || hasView('permissions') || isHrOrOrgAdmin
           : isTimeAttendanceArea
             ? hasTimeAttendanceAccess
             : isEventApplyPath
