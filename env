@@ -1,5 +1,5 @@
 # Database - AWS RDS PostgreSQL
-DATABASE_URL="postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_db"
+DATABASE_URL="postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_db_backup"
 
 # JWT Secrets (CHANGE THESE TO STRONG RANDOM STRINGS IN PRODUCTION!)
 JWT_SECRET="hrms-jwt-secret-2026-change-this-to-random-string"

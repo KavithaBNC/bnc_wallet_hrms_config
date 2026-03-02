@@ -42,7 +42,7 @@ export const config: AppConfig = {
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
 
   // Database
-  databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/hrms_db',
+  databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/hrms_db_backup',
 
   // Redis
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
