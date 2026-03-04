@@ -403,7 +403,11 @@ export class AuthService {
   async logout(userId: string) {
     await prisma.user.update({
       where: { id: userId },
-      data: { refreshToken: null },
+      data: {
+        refreshToken: null,
+        configuratorAccessToken: null,
+        configuratorRefreshToken: null,
+      },
     });
 
     return { message: 'Logged out successfully' };

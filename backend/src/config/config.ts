@@ -30,6 +30,11 @@ interface AppConfig {
   defaultPageSize: number;
   maxPageSize: number;
   frontendUrl: string;
+  configuratorApiUrl: string;
+  configuratorHrmsProjectId: number;
+  configuratorDefaultCompanyId: number;
+  configuratorDefaultRole: string;
+  configuratorPlaceholderPasswordHash: string;
 }
 
 export const config: AppConfig = {
@@ -83,4 +88,13 @@ export const config: AppConfig = {
 
   // Frontend URL (for email links, etc.)
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+
+  // Configurator API - Login: http://bnc-ai.com:8001/api/v1/auth/login
+  configuratorApiUrl: 'http://bnc-ai.com:8001',
+  configuratorHrmsProjectId: 5,
+  configuratorDefaultCompanyId: parseInt(process.env.CONFIGURATOR_DEFAULT_COMPANY_ID || '59', 10),
+  configuratorDefaultRole: process.env.CONFIGURATOR_DEFAULT_ROLE || 'ORG_ADMIN',
+  configuratorPlaceholderPasswordHash:
+    process.env.CONFIGURATOR_PLACEHOLDER_PASSWORD_HASH ||
+    '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
 };

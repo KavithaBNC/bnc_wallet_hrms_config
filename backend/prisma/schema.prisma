@@ -12,6 +12,7 @@ datasource db {
 
 model Organization {
   id                           String                         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configuratorCompanyId        Int?                           @unique @map("configurator_company_id")
   name                         String                         @db.VarChar(255)
   legalName                    String?                        @map("legal_name") @db.VarChar(255)
   industry                     String?                        @db.VarChar(100)
@@ -153,6 +154,7 @@ model OrganizationModule {
 
 model User {
   id                      String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configuratorUserId      Int?                    @unique @map("configurator_user_id")
   email                   String                  @unique @db.VarChar(255)
   passwordHash            String                  @map("password_hash") @db.VarChar(255)
   role                    UserRole
@@ -168,6 +170,8 @@ model User {
   twoFactorEnabled        Boolean                 @default(false) @map("two_factor_enabled")
   twoFactorSecret         String?                 @map("two_factor_secret") @db.VarChar(255)
   refreshToken            String?                 @map("refresh_token")
+  configuratorAccessToken String?                 @map("configurator_access_token") @db.Text
+  configuratorRefreshToken String?                @map("configurator_refresh_token") @db.Text
   createdAt               DateTime                @default(now()) @map("created_at")
   updatedAt               DateTime                @updatedAt @map("updated_at")
   approvedChangeRequests  EmployeeChangeRequest[] @relation("EmployeeChangeRequestApprovals")
@@ -209,10 +213,11 @@ model RolePermission {
 }
 
 model Department {
-  id                   String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  organizationId       String                @map("organization_id") @db.Uuid
-  name                 String                @db.VarChar(255)
-  code                 String?               @unique @db.VarChar(50)
+  id                        String                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configuratorDepartmentId  Int?                  @map("configurator_department_id")
+  organizationId            String                @map("organization_id") @db.Uuid
+  name                      String                @db.VarChar(255)
+  code                      String?               @unique @db.VarChar(50)
   description          String?
   parentDepartmentId   String?               @map("parent_department_id") @db.Uuid
   managerId            String?               @map("manager_id") @db.Uuid
@@ -237,9 +242,10 @@ model Department {
 }
 
 model SubDepartment {
-  id             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  name           String       @db.VarChar(255)
+  id                             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configuratorSubDepartmentId    Int?         @map("configurator_sub_department_id")
+  organizationId                 String       @map("organization_id") @db.Uuid
+  name                           String       @db.VarChar(255)
   isActive       Boolean      @default(true) @map("is_active")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -314,12 +320,13 @@ model Entity {
 }
 
 model Location {
-  id             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  entityId       String       @map("entity_id") @db.Uuid
-  name           String       @db.VarChar(255)
-  code           String?      @db.VarChar(50)
-  isActive       Boolean      @default(true) @map("is_active")
+  id                     String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configuratorBranchId   Int?         @map("configurator_branch_id")
+  organizationId         String       @map("organization_id") @db.Uuid
+  entityId               String       @map("entity_id") @db.Uuid
+  name                   String       @db.VarChar(255)
+  code                   String?      @db.VarChar(50)
+  isActive               Boolean      @default(true) @map("is_active")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   employees      Employee[]
@@ -331,10 +338,11 @@ model Location {
 }
 
 model CostCentre {
-  id             String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  name           String       @db.VarChar(255)
-  code           String?      @unique @db.VarChar(50)
+  id                          String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configuratorCostCentreId    Int?         @map("configurator_cost_centre_id")
+  organizationId              String       @map("organization_id") @db.Uuid
+  name                        String       @db.VarChar(255)
+  code                        String?      @unique @db.VarChar(50)
   isActive       Boolean      @default(true) @map("is_active")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -349,6 +357,11 @@ model Employee {
   organizationId               String                         @map("organization_id") @db.Uuid
   employeeCode                 String                         @unique @map("employee_code") @db.VarChar(50)
   userId                       String                         @unique @map("user_id") @db.Uuid
+  configuratorUserId           Int?                           @unique @map("configurator_user_id")
+  departmentConfiguratorId     Int?                           @map("department_configurator_id")
+  subDepartmentConfiguratorId  Int?                           @map("sub_department_configurator_id")
+  costCentreConfiguratorId     Int?                           @map("cost_centre_configurator_id")
+  branchConfiguratorId         Int?                           @map("branch_configurator_id")
   paygroupId                   String?                        @map("paygroup_id") @db.Uuid
   firstName                    String                         @map("first_name") @db.VarChar(100)
   middleName                   String?                        @map("middle_name") @db.VarChar(100)

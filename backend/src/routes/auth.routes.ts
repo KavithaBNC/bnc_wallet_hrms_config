@@ -5,6 +5,8 @@ import { authenticate, authorize } from '../middlewares/auth';
 import {
   registerSchema,
   loginSchema,
+  configuratorLoginSchema,
+  configuratorRefreshSchema,
   refreshTokenSchema,
   verifyEmailSchema,
   forgotPasswordSchema,
@@ -28,13 +30,48 @@ router.post(
 
 /**
  * @route   POST /api/v1/auth/login
- * @desc    Login user
+ * @desc    Login user (HRMS DB - legacy)
  * @access  Public
  */
 router.post(
   '/login',
   validate(loginSchema),
   authController.login.bind(authController)
+);
+
+/**
+ * @route   POST /api/v1/auth/configurator/login
+ * @desc    Login via Configurator API - returns tokens + assigned modules
+ * @access  Public
+ * @body    { username, password, company_id }
+ */
+router.post(
+  '/configurator/login',
+  validate(configuratorLoginSchema),
+  authController.configuratorLogin.bind(authController)
+);
+
+/**
+ * @route   GET /api/v1/auth/configurator/modules
+ * @desc    Get modules for user (pass Configurator Bearer token in Authorization header)
+ * @access  Public (token in header)
+ * @query   project_id (optional)
+ */
+router.get(
+  '/configurator/modules',
+  authController.getConfiguratorModules.bind(authController)
+);
+
+/**
+ * @route   POST /api/v1/auth/configurator/refresh
+ * @desc    Refresh Configurator token
+ * @access  Public
+ * @body    { refresh_token }
+ */
+router.post(
+  '/configurator/refresh',
+  validate(configuratorRefreshSchema),
+  authController.configuratorRefreshToken.bind(authController)
 );
 
 /**

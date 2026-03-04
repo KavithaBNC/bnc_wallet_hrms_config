@@ -21,6 +21,7 @@ export interface RegisterData {
 export interface LoginData {
   email: string;
   password: string;
+  company_id?: number;
 }
 
 export interface ForgotPasswordData {
@@ -75,16 +76,25 @@ class AuthService {
   }
 
   /**
-   * Login user
+   * Login user - uses Configurator API
+   * company_id hardcoded to 59 (BNC Motors); TODO: add dropdown later
    */
   async login(data: LoginData): Promise<AuthResponse> {
-    const response = await api.post('/auth/login', data);
-    const { user, tokens } = response.data.data;
+    const companyId = data.company_id ?? 59;
+    const response = await api.post('/auth/configurator/login', {
+      username: data.email,
+      password: data.password,
+      company_id: companyId,
+    });
+    const { user, tokens, modules } = response.data.data;
 
     // Save tokens to localStorage
     localStorage.setItem('accessToken', tokens.accessToken);
     localStorage.setItem('refreshToken', tokens.refreshToken);
     localStorage.setItem('user', JSON.stringify(user));
+    if (modules?.length) {
+      localStorage.setItem('modules', JSON.stringify(modules));
+    }
 
     return { user, tokens };
   }
@@ -102,6 +112,7 @@ class AuthService {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
+      localStorage.removeItem('modules');
     }
   }
 

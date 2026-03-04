@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuthStore } from '../store/authStore';
 import employeeService from '../services/employee.service';
 import organizationService from '../services/organization.service';
@@ -11,6 +11,10 @@ import DepartmentEmployeesChart from '../components/dashboard/DepartmentEmployee
 import LeaveRequestsChart from '../components/dashboard/LeaveRequestsChart';
 import PayrollDistributionChart from '../components/dashboard/PayrollDistributionChart';
 import { usePermissions } from '../hooks/usePermissions';
+import {
+  getAssignedModules,
+  CONFIGURATOR_CODE_TO_CARD,
+} from '../config/configurator-module-mapping';
 
 interface DashboardStats {
   totalEmployees: number;
@@ -385,202 +389,108 @@ const DashboardPage = () => {
           </div>
         )}
 
-        {/* Modules Grid - Leave Management hidden; for EMPLOYEE role only show Attendance */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {getModules(canManagePermissions)
-            .filter((m) => m.name !== 'Leave Management')
-            .filter((m) => !isEmployee || ['Attendance'].includes(m.name))
-            .map((module, index) => {
-            const isPermissionsModule = module.name === 'Permissions';
-            const shouldShow = module.enabled && module.route;
-            const isDisabled = isPermissionsModule && !canManagePermissions;
-            
-            if (isDisabled) {
-              return (
-                <div
-                  key={`permissions-disabled-${index}`}
-                  className="bg-white/70 backdrop-blur-lg rounded-xl shadow p-6 opacity-60 cursor-not-allowed border border-white/20"
-                  title="You don't have permission to access this module"
-                >
-                  <div className="flex items-center mb-4">
-                    <span className="text-4xl mr-4">{module.icon}</span>
-                    <h3 className="text-xl font-semibold text-gray-900">
-                      {module.name}
-                    </h3>
-                  </div>
-                  <p className="text-gray-600 text-sm">{module.description}</p>
-                  <div className="mt-4">
-                    <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                      {module.status}
-                    </span>
-                  </div>
-                </div>
-              );
-            }
-            
-            return shouldShow ? (
-              <Link
-                key={`module-${module.name}-${index}`}
-                to={module.route}
-                className="bg-white/70 backdrop-blur-lg rounded-xl shadow hover:shadow-lg transition p-6 cursor-pointer border border-white/20"
-              >
-                <div className="flex items-center mb-4">
-                  <span className="text-4xl mr-4">{module.icon}</span>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    {module.name}
-                  </h3>
-                </div>
-                <p className="text-gray-600 text-sm">{module.description}</p>
-                <div className="mt-4">
-                  <span className="inline-block px-3 py-1 bg-blue-100 text-blue-600 text-xs rounded-full font-medium">
-                    {module.status}
-                  </span>
-                </div>
-              </Link>
-            ) : (
-              <div
-                key={`module-disabled-${module.name}-${index}`}
-                className="bg-white/70 backdrop-blur-lg rounded-xl shadow p-6 opacity-60 cursor-not-allowed border border-white/20"
-              >
-                <div className="flex items-center mb-4">
-                  <span className="text-4xl mr-4">{module.icon}</span>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    {module.name}
-                  </h3>
-                </div>
-                <p className="text-gray-600 text-sm">{module.description}</p>
-                <div className="mt-4">
-                  <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                    {module.status}
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {/* Assigned Modules Grid - from Config DB modules table, filtered by role_module_permissions */}
+        <AssignedModulesGrid
+          canManagePermissions={canManagePermissions}
+          isEmployee={isEmployee}
+        />
       </main>
     </div>
   );
 };
 
-// Modules configuration - will be filtered by user role
-const getModules = (canManagePermissions: boolean) => {
-  const modules = [
-    {
-      name: 'Employee Management',
-      icon: '👥',
-      description: 'Manage employee profiles, departments, and hierarchy',
-      status: 'Phase 2',
-      route: '/employees',
-      enabled: true,
-    },
-    {
-      name: 'Attendance',
-      icon: '📅',
-      description: 'Track attendance and check-in/out',
-      status: 'Phase 3',
-      route: '/attendance',
-      enabled: true,
-    },
-    {
-      name: 'Leave Management',
-      icon: '🏖️',
-      description: 'Manage leave requests and policies',
-      status: 'Phase 3',
-      route: '/leave',
-      enabled: true,
-    },
-  {
-    name: 'Payroll',
-    icon: '💰',
-    description: 'Process payroll and manage salary structures',
-    status: 'Phase 4',
-    route: '/payroll',
-    enabled: true,
-  },
-  {
-    name: 'Salary Structures',
-    icon: '📊',
-    description: 'Manage salary structures and components',
-    status: 'Phase 4',
-    route: '/salary-structures',
-    enabled: canManagePermissions,
-  },
-  {
-    name: 'Employee Salaries',
-    icon: '💵',
-    description: 'Assign and view employee salaries',
-    status: 'Phase 4',
-    route: '/employee-salaries',
-    enabled: canManagePermissions,
-  },
-  {
-    name: 'Transaction',
-    icon: '🔄',
-    description: 'View and manage transactions',
-    status: 'Active',
-    route: '/transaction',
-    enabled: true,
-  },
-  {
-    name: 'Recruitment (ATS)',
-    icon: '🎯',
-    description: 'AI-powered applicant tracking and hiring',
-    status: 'Phase 5',
-    route: null,
-    enabled: false,
-  },
-  {
-    name: 'AI Chatbot',
-    icon: '🤖',
-    description: 'Employee self-service chatbot',
-    status: 'Phase 6',
-    route: null,
-    enabled: false,
-  },
-  {
-    name: 'Performance',
-    icon: '📊',
-    description: 'Performance reviews and goal tracking',
-    status: 'Phase 7',
-    route: null,
-    enabled: false,
-  },
-  {
-    name: 'Documents',
-    icon: '📄',
-    description: 'Document management and digital signatures',
-    status: 'Phase 8',
-    route: null,
-    enabled: false,
-  },
-  {
-    name: 'Reports & Analytics',
-    icon: '📈',
-    description: 'Generate reports and view analytics',
-    status: 'Phase 9',
-    route: null,
-    enabled: false,
-  },
-    {
-      name: 'Permissions',
-      icon: '🔐',
-      description: 'Manage role permissions and access control',
-      status: 'Available',
-      route: '/permissions',
-      enabled: true,
-    },
-    {
-      name: 'Settings',
-      icon: '⚙️',
-      description: 'System configuration and preferences',
-      status: 'Available',
-      route: null,
-      enabled: false,
-    },
-  ];
-  
-  return modules;
-};
+/** Assigned modules from Config DB (project_modules) filtered by role_module_permissions */
+function AssignedModulesGrid({
+  canManagePermissions,
+  isEmployee,
+}: {
+  canManagePermissions: boolean;
+  isEmployee: boolean;
+}) {
+  const assignedModules = useMemo(() => {
+    const raw = getAssignedModules();
+    return raw
+      .filter((m) => {
+        const code = (m.code || '').toUpperCase().trim();
+        const card = CONFIGURATOR_CODE_TO_CARD[code];
+        if (!card?.path) return false;
+        if (code === 'PERMISSIONS' && !canManagePermissions) return false;
+        const employeeAllowedCodes = ['ATTENDANCE', 'EVENT', 'LEAVES', 'LEAVE_MANAGEMENT'];
+        if (isEmployee && !employeeAllowedCodes.includes(code)) return false;
+        return true;
+      })
+      .map((m) => {
+        const code = (m.code || '').toUpperCase().trim();
+        const card = CONFIGURATOR_CODE_TO_CARD[code] || {
+          path: '/dashboard',
+          icon: '📋',
+          description: m.description || m.name,
+        };
+        return {
+          ...m,
+          route: card.path,
+          icon: card.icon,
+          description: card.description,
+        };
+      });
+  }, [canManagePermissions, isEmployee]);
+
+  if (assignedModules.length === 0) {
+    return (
+      <div className="rounded-xl bg-amber-50 border border-amber-200 p-6 text-amber-800 text-sm">
+        No modules assigned. Contact your admin to assign modules in Configurator (role-module-permissions).
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {assignedModules.map((module, index) => {
+        const isPermissionsModule = (module.code || '').toUpperCase() === 'PERMISSIONS';
+        const isDisabled = isPermissionsModule && !canManagePermissions;
+
+        if (isDisabled) {
+          return (
+            <div
+              key={`permissions-disabled-${module.id}-${index}`}
+              className="bg-white/70 backdrop-blur-lg rounded-xl shadow p-6 opacity-60 cursor-not-allowed border border-white/20"
+              title="You don't have permission to access this module"
+            >
+              <div className="flex items-center mb-4">
+                <span className="text-4xl mr-4">{module.icon}</span>
+                <h3 className="text-xl font-semibold text-gray-900">{module.name}</h3>
+              </div>
+              <p className="text-gray-600 text-sm">{module.description}</p>
+              <div className="mt-4">
+                <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
+                  Assigned
+                </span>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <Link
+            key={`module-${module.id}-${index}`}
+            to={module.route}
+            className="bg-white/70 backdrop-blur-lg rounded-xl shadow hover:shadow-lg transition p-6 cursor-pointer border border-white/20"
+          >
+            <div className="flex items-center mb-4">
+              <span className="text-4xl mr-4">{module.icon}</span>
+              <h3 className="text-xl font-semibold text-gray-900">{module.name}</h3>
+            </div>
+            <p className="text-gray-600 text-sm">{module.description}</p>
+            <div className="mt-4">
+              <span className="inline-block px-3 py-1 bg-blue-100 text-blue-600 text-xs rounded-full font-medium">
+                Assigned
+              </span>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export default DashboardPage;
