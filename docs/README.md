@@ -2,7 +2,8 @@
 
 A comprehensive Human Resource Management System built with modern technologies, featuring Core HR, Payroll, AI-powered Applicant Tracking System (ATS), and an AI Chatbot for employee self-service.
 
-## 🚀 Features
+## 🚀 Features 
+
 
 - **Core HR Management**: Employee profiles, departments, organizational hierarchy
 - **Attendance & Leave Management**: Track attendance, manage leave requests
