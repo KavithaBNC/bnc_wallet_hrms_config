@@ -46,6 +46,16 @@ export interface ConfiguratorRefreshRequest {
   refresh_token: string;
 }
 
+/** Role module permission from GET /api/v1/user-role-modules/ */
+export interface ConfiguratorRoleModulePermission {
+  id: number;
+  company_id: number;
+  role_id: number;
+  project_id: number;
+  module_id: number;
+  is_enabled: boolean;
+}
+
 /** Decoded Configurator JWT payload (sub = user id) */
 export interface ConfiguratorTokenPayload {
   sub: string;
@@ -133,26 +143,56 @@ export class ConfiguratorService {
 
   /**
    * Get modules for HRMS project
-   * GET /api/v1/modules?project_id=X
-   * Requires Authorization: Bearer <access_token>
+   * Tries GET /api/v1/modules?project_id=X and GET /api/v1/project-modules?project_id=X
    * Returns modules from Config DB project_modules table.
-   * When called with user token, Configurator should return only modules assigned to user's role
-   * (filtered by role_module_permissions where is_enabled=true).
    */
   async getModules(accessToken: string, projectId?: number): Promise<ConfiguratorModule[]> {
     const pid = projectId ?? HRMS_PROJECT_ID;
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    const urls = [
+      `${CONFIGURATOR_BASE}/api/v1/modules`,
+      `${CONFIGURATOR_BASE}/api/v1/project-modules`,
+    ];
+    for (const url of urls) {
+      try {
+        const res = await axios.get<ConfiguratorModule[] | { modules?: ConfiguratorModule[] }>(
+          url,
+          { params: { project_id: pid }, headers, timeout: 15000 }
+        );
+        const arr = Array.isArray(res.data) ? res.data : (res.data as any)?.modules;
+        if (Array.isArray(arr)) return arr;
+      } catch {
+        // Try next URL
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Get role-module permissions from Configurator
+   * GET /api/v1/user-role-modules/?role_id=X
+   * API may support company_id, project_id; we filter response by company_id, project_id
+   */
+  async getUserRoleModules(
+    accessToken: string,
+    roleId: number,
+    companyId: number,
+    projectId?: number
+  ): Promise<ConfiguratorRoleModulePermission[]> {
+    const pid = projectId ?? HRMS_PROJECT_ID;
     try {
-      const res = await axios.get<ConfiguratorModule[]>(
-        `${CONFIGURATOR_BASE}/api/v1/modules`,
+      const params: Record<string, number> = { role_id: roleId };
+      const res = await axios.get<ConfiguratorRoleModulePermission[] | { data?: ConfiguratorRoleModulePermission[] }>(
+        `${CONFIGURATOR_BASE}/api/v1/user-role-modules/`,
         {
-          params: { project_id: pid },
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+          params,
+          headers: { Authorization: `Bearer ${accessToken}` },
           timeout: 15000,
         }
       );
-      return Array.isArray(res.data) ? res.data : [];
+      const raw = res.data;
+      const list = Array.isArray(raw) ? raw : (Array.isArray((raw as any)?.data) ? (raw as any).data : []);
+      return list.filter((p: ConfiguratorRoleModulePermission) => p.company_id === companyId && p.project_id === pid);
     } catch (err) {
       const axiosErr = err as AxiosError;
       if (axiosErr.response?.status === 401) {
@@ -162,37 +202,43 @@ export class ConfiguratorService {
         throw new AppError('Configurator service unavailable.', 503);
       }
       throw new AppError(
-        'Failed to fetch modules',
+        'Failed to fetch role modules',
         axiosErr.response?.status || 500
       );
     }
   }
 
   /**
-   * Get user-assigned modules (role-module-permission filtered).
-   * Tries GET /api/v1/user/modules first; falls back to getModules.
-   * Configurator should return only modules from project_modules where
-   * role_module_permissions has is_enabled=true for user's roles.
+   * Get user-assigned modules using /api/v1/user-role-modules/ + /api/v1/modules
+   * 1. Get role_module_permissions for user's role (is_enabled=true)
+   * 2. Get all project modules
+   * 3. Return only modules that are enabled for the role
    */
   async getUserAssignedModules(
     accessToken: string,
+    roleId: number,
+    companyId: number,
     projectId?: number
   ): Promise<ConfiguratorModule[]> {
     const pid = projectId ?? HRMS_PROJECT_ID;
-    try {
-      const res = await axios.get<ConfiguratorModule[]>(
-        `${CONFIGURATOR_BASE}/api/v1/user/modules`,
-        {
-          params: { project_id: pid },
-          headers: { Authorization: `Bearer ${accessToken}` },
-          timeout: 15000,
-        }
-      );
-      if (Array.isArray(res.data)) return res.data;
-    } catch {
-      // Fallback: /user/modules may not exist; use /modules (Configurator may filter by token)
+
+    // 1. Get role-module permissions (is_enabled=true for this role, company, project)
+    const permissions = await this.getUserRoleModules(accessToken, roleId, companyId, projectId);
+    const enabledModuleIds = new Set(
+      permissions
+        .filter((p) => p.company_id === companyId && p.project_id === pid && p.is_enabled)
+        .map((p) => p.module_id)
+    );
+
+    if (enabledModuleIds.size === 0) {
+      return [];
     }
-    return this.getModules(accessToken, projectId);
+
+    // 2. Get all project modules (may need token; some APIs are public for project modules)
+    const allModules = await this.getModules(accessToken, projectId);
+
+    // 3. Filter to only enabled modules
+    return allModules.filter((m) => enabledModuleIds.has(m.id));
   }
 }
 

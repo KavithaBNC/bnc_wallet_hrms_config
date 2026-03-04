@@ -34,6 +34,7 @@ interface AppConfig {
   configuratorHrmsProjectId: number;
   configuratorDefaultCompanyId: number;
   configuratorDefaultRole: string;
+  configuratorRoleIds: Record<string, number>;
   configuratorPlaceholderPasswordHash: string;
 }
 
@@ -94,6 +95,15 @@ export const config: AppConfig = {
   configuratorHrmsProjectId: 5,
   configuratorDefaultCompanyId: parseInt(process.env.CONFIGURATOR_DEFAULT_COMPANY_ID || '59', 10),
   configuratorDefaultRole: process.env.CONFIGURATOR_DEFAULT_ROLE || 'ORG_ADMIN',
+  /** HRMS role -> Configurator role_id (for user-role-modules API). Set via CONFIGURATOR_ROLE_IDS JSON. */
+  configuratorRoleIds: (() => {
+    try {
+      const raw = process.env.CONFIGURATOR_ROLE_IDS || '{"ORG_ADMIN":31,"HR_MANAGER":30,"MANAGER":29,"EMPLOYEE":28}';
+      return JSON.parse(raw) as Record<string, number>;
+    } catch {
+      return { ORG_ADMIN: 31, HR_MANAGER: 30, MANAGER: 29, EMPLOYEE: 28 };
+    }
+  })(),
   configuratorPlaceholderPasswordHash:
     process.env.CONFIGURATOR_PLACEHOLDER_PASSWORD_HASH ||
     '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',

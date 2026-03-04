@@ -44,6 +44,7 @@ export class AuthController {
       const decoded = configuratorService.decodeToken(loginRes.access_token);
       const configuratorUserId = decoded?.sub ? parseInt(decoded.sub, 10) : null;
       const email = decoded?.email || username;
+      const companyId = decoded?.company_id ?? company_id;
 
       // Prefer email lookup (from token) - it's the actual logged-in user
       let hrmsUser = await prisma.user.findFirst({
@@ -197,8 +198,21 @@ export class AuthController {
         throw new AppError('Your employment has been separated. You cannot log in.', 401);
       }
 
-      // Fetch user-assigned modules from Config DB (role_module_permissions filtered)
-      const modules = await configuratorService.getUserAssignedModules(loginRes.access_token);
+      // Fetch user-assigned modules via /api/v1/user-role-modules/ (role_module_permissions)
+      let modules: any[] = [];
+      try {
+        const roleId =
+          loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
+        if (roleId != null && companyId != null) {
+          modules = await configuratorService.getUserAssignedModules(
+            loginRes.access_token,
+            roleId,
+            companyId
+          );
+        }
+      } catch (modErr: any) {
+        console.warn('Configurator modules fetch failed, returning empty:', modErr?.message);
+      }
 
       const payload: JwtPayload = {
         userId: hrmsUser.id,
