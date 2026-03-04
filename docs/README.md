@@ -5,6 +5,8 @@ A comprehensive Human Resource Management System built with modern technologies,
 ## 🚀 Features 
 
 
+
+
 - **Core HR Management**: Employee profiles, departments, organizational hierarchy
 - **Attendance & Leave Management**: Track attendance, manage leave requests
 - **Payroll Processing**: Automated payroll with multi-jurisdiction tax compliance
