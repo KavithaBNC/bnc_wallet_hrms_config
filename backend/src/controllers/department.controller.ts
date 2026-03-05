@@ -1,14 +1,32 @@
 import { Request, Response, NextFunction } from 'express';
 import { departmentService } from '../services/department.service';
+import { prisma } from '../utils/prisma';
 
 export class DepartmentController {
   /**
-   * Create new department
+   * Create new department (stores in Config DB when org has configuratorCompanyId)
    * POST /api/v1/departments
    */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const department = await departmentService.create(req.body);
+      let configSync: { accessToken: string; companyId: number } | undefined;
+      const orgId = req.body?.organizationId;
+      if (orgId && req.user?.userId) {
+        const [org, user] = await Promise.all([
+          prisma.organization.findUnique({
+            where: { id: orgId },
+            select: { configuratorCompanyId: true },
+          }),
+          prisma.user.findUnique({
+            where: { id: req.user.userId },
+            select: { configuratorAccessToken: true },
+          }),
+        ]);
+        if (org?.configuratorCompanyId != null && user?.configuratorAccessToken) {
+          configSync = { accessToken: user.configuratorAccessToken, companyId: org.configuratorCompanyId };
+        }
+      }
+      const department = await departmentService.create(req.body, configSync);
 
       res.status(201).json({
         status: 'success',
@@ -26,7 +44,7 @@ export class DepartmentController {
    */
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await departmentService.getAll(req.query as any);
+      const result = await departmentService.getAll(req.query as any, req.user?.userId);
 
       res.status(200).json({
         status: 'success',

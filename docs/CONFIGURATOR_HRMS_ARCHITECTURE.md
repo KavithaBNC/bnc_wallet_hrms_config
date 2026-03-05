@@ -368,3 +368,17 @@ From BNC Configurator UI:
 - **Project Modules** → Modules for HRMS (e.g. Leave, Accepted leave)
 
 All of these are in Configurator. HRMS only stores `configurator_id` references where needed.
+
+---
+
+## 12. Sync Config DB → HRMS (Bulk)
+
+When data is created/managed in Configurator, sync to HRMS:
+
+```bash
+cd backend
+npm run sync:config-to-hrms 59
+# Or: CONFIGURATOR_AUTH_TOKEN=<token> npx ts-node -r tsconfig-paths/register src/scripts/sync-config-to-hrms.ts 59
+```
+
+Syncs: Cost Centres, Departments, Sub-Departments from Config API (`/api/v1/departments/`, `/api/v1/sub-departments/`, `/api/v1/cost-centres/`) → HRMS tables with `configurator_*_id`.

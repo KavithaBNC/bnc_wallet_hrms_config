@@ -1,15 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import permissionService from '../../services/permission.service';
-import { APP_MODULES } from '../../config/modules';
-import type { AppModule } from '../../config/modules';
+import { getAssignedModules } from '../../config/configurator-module-mapping';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
-/** Icons for sidebar – keyed by path. New menus added to APP_MODULES need an icon here. */
+/** Default icon when path not in ICONS_BY_PATH – used for dynamic modules from Config */
+const DEFAULT_ICON = (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+  </svg>
+);
+
+/** Icons for sidebar – keyed by path (Config DB modules). Fallback: DEFAULT_ICON for unknown paths. */
 const ICONS_BY_PATH: Record<string, React.ReactNode> = {
   '/dashboard': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -317,204 +322,66 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const [userPermissionKeys, setUserPermissionKeys] = useState<Set<string>>(new Set());
-  const [permissionsLoadFailed, setPermissionsLoadFailed] = useState(false);
-
   const role = (user?.role != null ? String(user.role) : '').toUpperCase();
   const isSuperAdmin = role === 'SUPER_ADMIN';
-  const canSeeAllModules = isSuperAdmin; // Only Super Admin sees all; Org Admin / HR Manager use assigned permissions
 
-  useEffect(() => {
-    if (!user) {
-      setUserPermissionKeys(new Set());
-      setPermissionsLoadFailed(false);
-      return;
-    }
-    if (canSeeAllModules) {
-      setUserPermissionKeys(new Set(['*']));
-      setPermissionsLoadFailed(false);
-      return;
-    }
-    setPermissionsLoadFailed(false);
-    permissionService
-      .getUserPermissions()
-      .then((perms) => {
-        const keys = new Set(perms.map((p) => `${p.resource}.${p.action}`));
-        setUserPermissionKeys(keys);
-        setPermissionsLoadFailed(false);
-      })
-      .catch(() => {
-        setUserPermissionKeys(new Set());
-        setPermissionsLoadFailed(true);
-      });
-  }, [user?.id, user?.role, canSeeAllModules]);
-
-  const hasView = useMemo(() => {
-    return (resource: string) => {
-      if (canSeeAllModules) return true;
-      return userPermissionKeys.has('*') || userPermissionKeys.has(`${resource}.read`);
-    };
-  }, [canSeeAllModules, userPermissionKeys]);
-
-  // Super Admin always sees all menus; Dashboard is always visible for authenticated users (landing page).
-  // Time attendance: show if user has time_attendance/shifts, or if HR/Org Admin with any permissions (fallback so menu appears after sync).
-  const isHrOrOrgAdmin = role === 'HR_MANAGER' || role === 'ORG_ADMIN';
-  const isManager = role === 'MANAGER';
-  const isHr = role === 'HR_MANAGER';
-  const isEmployee = role === 'EMPLOYEE';
-  const canAccessEventByRole = isManager || isHr || isEmployee;
-  const canAccessEventApprovalByRole = isManager || isHr;
-  const hasAnyReadPermission = useMemo(
-    () => Array.from(userPermissionKeys).some((k) => k.endsWith('.read')),
-    [userPermissionKeys]
-  );
+  // Modules from Config DB (localStorage, set at login / loadUser)
   const visibleNavItems = useMemo(() => {
-    const items: AppModule[] = [];
-    for (const mod of APP_MODULES) {
-      if (mod.path === '/attendance/excess-time-approval' && !canAccessEventApprovalByRole) continue;
-      if (
-        (mod.path === '/leave/approvals' ||
-          mod.path === '/attendance/my-requests/excess-time-request') &&
-        !canAccessEventByRole
-      ) {
-        continue;
-      }
-      if (mod.path === '/attendance/apply-event' && !canAccessEventByRole) continue;
-      const isDashboard = mod.path === '/dashboard';
-      if (isDashboard) {
-        items.push(mod); // Always show Dashboard for authenticated users
-      } else if (mod.visibility === 'super_admin_only') {
-        if (isSuperAdmin) items.push(mod);
-      } else if (mod.visibility === 'module_permission_only') {
-        if (isSuperAdmin || hasView('permissions')) items.push(mod);
-      } else {
-        const hasThisView = hasView(mod.resource);
-        const isTimeAttendanceParent = mod.path === '/time-attendance';
-        const isLeaveModule = mod.path === '/leave' || mod.parentPath === '/leave';
-        const isEventApply = mod.path === '/attendance/apply-event';
-        const isEventRequest = mod.path === '/event/requests';
-        const isEventApproval = mod.path === '/leave/approvals';
-        const isEventBalanceEntry = mod.path === '/event/balance-entry';
-        const isExcessTimeRequest = mod.path === '/attendance/my-requests/excess-time-request';
-        const isExcessTimeApproval = mod.path === '/attendance/excess-time-approval';
-        const showTimeAttendance =
-          isTimeAttendanceParent &&
-          (hasView('time_attendance') || hasView('shifts') || (isHrOrOrgAdmin && hasAnyReadPermission));
-        const showEventModule = isLeaveModule && canAccessEventByRole;
-        const showEventApply = isEventApply && canAccessEventByRole;
-        const showEventRequest = isEventRequest && canAccessEventByRole;
-        const showEventApproval = isEventApproval && canAccessEventApprovalByRole;
-        const showEventBalanceEntry = isEventBalanceEntry && isHr;
-        const showExcessTimeRequest = isExcessTimeRequest && canAccessEventByRole;
-        const showExcessTimeApproval = isExcessTimeApproval && canAccessEventApprovalByRole;
-        const isHrActivitiesModule = mod.path === '/hr-activities' || mod.parentPath === '/hr-activities';
-        const showHrActivities = isHrActivitiesModule && isHrOrOrgAdmin;
-        const isCoreHrModule = mod.path === '/core-hr' || mod.parentPath === '/core-hr';
-        const showCoreHr = isCoreHrModule && isHrOrOrgAdmin;
-        if (
-          hasThisView ||
-          showTimeAttendance ||
-          showEventModule ||
-          showEventApply ||
-          showEventRequest ||
-          showEventApproval ||
-          showEventBalanceEntry ||
-          showExcessTimeRequest ||
-          showExcessTimeApproval ||
-          showHrActivities ||
-          showCoreHr
-        ) {
-          items.push(mod);
+    const configModules = getAssignedModules();
+    const pathToLabel: Record<string, string> = { '/dashboard': 'Dashboard' };
+    const items: { path: string; label: string; parentPath?: string }[] = [
+      { path: '/dashboard', label: 'Dashboard' },
+    ];
+    for (const m of configModules) {
+      const path = m.path || `/${(m.code || '').toLowerCase().replace(/_/g, '-')}`;
+      if (path && path !== '/dashboard') {
+        const parts = path.split('/').filter(Boolean);
+        const parentPath = parts.length > 1 ? `/${parts.slice(0, -1).join('/')}` : undefined;
+        pathToLabel[path] = m.name || m.code;
+        if (parentPath && !pathToLabel[parentPath]) {
+          pathToLabel[parentPath] = parentPath.split('/').pop() || parentPath;
         }
+        items.push({ path, label: m.name || m.code, parentPath });
+      }
+    }
+    // Ensure parent paths exist as top-level items for dropdowns
+    const existingPaths = new Set(items.map((i) => i.path));
+    for (const item of items) {
+      if (item.parentPath && !existingPaths.has(item.parentPath)) {
+        existingPaths.add(item.parentPath);
+        items.push({
+          path: item.parentPath,
+          label: pathToLabel[item.parentPath] || item.parentPath.split('/').pop() || item.parentPath,
+          parentPath: undefined,
+        });
       }
     }
     return items;
-  }, [isSuperAdmin, hasView, isHrOrOrgAdmin, hasAnyReadPermission, canAccessEventByRole, canAccessEventApprovalByRole, isHr]);
+  }, [user?.id]);
 
-  // Payroll Master dropdown: open when current path is under its children (e.g. /payroll/employee-separation)
-  const payrollMasterDropdownOpen = location.pathname.startsWith('/payroll/');
-  const [payrollMasterExpanded, setPayrollMasterExpanded] = useState(payrollMasterDropdownOpen);
+  // Generic dropdown state: any parent path with children can expand/collapse
+  const parentPaths = useMemo(
+    () => new Set(visibleNavItems.filter((m) => m.parentPath).map((m) => m.parentPath!).filter(Boolean)),
+    [visibleNavItems]
+  );
+  const getDropdownOpen = (path: string) =>
+    path && (location.pathname === path || location.pathname.startsWith(path + '/'));
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const p of parentPaths) {
+      if (p && getDropdownOpen(p)) s.add(p);
+    }
+    return s;
+  });
   useEffect(() => {
-    if (payrollMasterDropdownOpen) setPayrollMasterExpanded(true);
-  }, [payrollMasterDropdownOpen]);
-
-  // Transaction dropdown: open when current path is under /transaction
-  const transactionDropdownOpen = location.pathname.startsWith('/transaction');
-  const [transactionExpanded, setTransactionExpanded] = useState(transactionDropdownOpen);
-  useEffect(() => {
-    if (transactionDropdownOpen) setTransactionExpanded(true);
-  }, [transactionDropdownOpen]);
-  useEffect(() => {
-    if (location.pathname.startsWith('/transaction')) setTransactionExpanded(true);
-  }, [location.pathname]);
-
-  // Time attendance dropdown: open when current path is under /time-attendance
-  const timeAttendanceDropdownOpen = location.pathname.startsWith('/time-attendance');
-  const [timeAttendanceExpanded, setTimeAttendanceExpanded] = useState(timeAttendanceDropdownOpen);
-  useEffect(() => {
-    if (timeAttendanceDropdownOpen) setTimeAttendanceExpanded(true);
-  }, [timeAttendanceDropdownOpen]);
-
-  // ESOP dropdown: open when current path is under /esop
-  const esopDropdownOpen = location.pathname.startsWith('/esop');
-  const [esopExpanded, setEsopExpanded] = useState(esopDropdownOpen);
-  useEffect(() => {
-    if (esopDropdownOpen) setEsopExpanded(true);
-  }, [esopDropdownOpen]);
-
-  // Event Configuration dropdown: open when current path is under /event-configuration
-  const eventConfigurationDropdownOpen = location.pathname.startsWith('/event-configuration');
-  const [eventConfigurationExpanded, setEventConfigurationExpanded] = useState(eventConfigurationDropdownOpen);
-  useEffect(() => {
-    if (eventConfigurationDropdownOpen) setEventConfigurationExpanded(true);
-  }, [eventConfigurationDropdownOpen]);
-
-  // Attendance Policy dropdown: open when current path is under /attendance-policy
-  const attendancePolicyDropdownOpen = location.pathname.startsWith('/attendance-policy');
-  const [attendancePolicyExpanded, setAttendancePolicyExpanded] = useState(attendancePolicyDropdownOpen);
-  useEffect(() => {
-    if (attendancePolicyDropdownOpen) setAttendancePolicyExpanded(true);
-  }, [attendancePolicyDropdownOpen]);
-
-  // HR Activities dropdown: open when current path is under /hr-activities
-  const hrActivitiesDropdownOpen = location.pathname.startsWith('/hr-activities');
-  const [hrActivitiesExpanded, setHrActivitiesExpanded] = useState(hrActivitiesDropdownOpen);
-  useEffect(() => {
-    if (hrActivitiesDropdownOpen) setHrActivitiesExpanded(true);
-  }, [hrActivitiesDropdownOpen]);
-
-  // Others Configuration dropdown: open when current path is under /others-configuration
-  const othersConfigurationDropdownOpen = location.pathname.startsWith('/others-configuration');
-  const [othersConfigurationExpanded, setOthersConfigurationExpanded] = useState(othersConfigurationDropdownOpen);
-  useEffect(() => {
-    if (othersConfigurationDropdownOpen) setOthersConfigurationExpanded(true);
-  }, [othersConfigurationDropdownOpen]);
-
-  // Core HR dropdown: open when current path is under /core-hr
-  const coreHrDropdownOpen = location.pathname.startsWith('/core-hr');
-  const [coreHrExpanded, setCoreHrExpanded] = useState(coreHrDropdownOpen);
-  useEffect(() => {
-    if (coreHrDropdownOpen) setCoreHrExpanded(true);
-  }, [coreHrDropdownOpen]);
-
-  // Attendance dropdown: open when current path is under /attendance/
-  const attendanceDropdownOpen = location.pathname.startsWith('/attendance/');
-  const [attendanceExpanded, setAttendanceExpanded] = useState(attendanceDropdownOpen);
-  useEffect(() => {
-    if (attendanceDropdownOpen) setAttendanceExpanded(true);
-  }, [attendanceDropdownOpen]);
-
-  // Event dropdown (old leave menu): open for leave/event and excess-time event pages.
-  const leaveDropdownOpen =
-    location.pathname.startsWith('/leave') ||
-    location.pathname.startsWith('/event/') ||
-    location.pathname === '/attendance/apply-event' ||
-    location.pathname.startsWith('/attendance/my-requests/excess-time-request') ||
-    location.pathname.startsWith('/attendance/excess-time-approval');
-  const [leaveExpanded, setLeaveExpanded] = useState(leaveDropdownOpen);
-  useEffect(() => {
-    if (leaveDropdownOpen) setLeaveExpanded(true);
-  }, [leaveDropdownOpen]);
+    setExpandedPaths((prev) => {
+      const next = new Set(prev);
+      for (const p of parentPaths) {
+        if (p && getDropdownOpen(p)) next.add(p);
+      }
+      return next;
+    });
+  }, [location.pathname, parentPaths]);
 
   const topLevelNavItems = useMemo(() => visibleNavItems.filter((m) => !m.parentPath), [visibleNavItems]);
 
@@ -523,70 +390,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     navigate('/login');
   };
 
-  // Page access: redirect to dashboard if user has no view permission for current module.
-  // Dashboard and profile are always allowed for authenticated users (landing and settings).
-  // Time attendance: allow if user has time_attendance/shifts or is HR/Org Admin with any permission.
-  const currentModule = APP_MODULES.find((m) => m.path === location.pathname);
+  // Page access: allow if path is in assigned modules (Config DB) or dashboard/profile
   const isDashboardOrProfile = location.pathname === '/dashboard' || location.pathname === '/profile';
-  const isTimeAttendanceArea = currentModule?.path === '/time-attendance' || currentModule?.parentPath === '/time-attendance';
-  const isLeaveArea = currentModule?.path === '/leave' || currentModule?.parentPath === '/leave';
-  const isHrActivitiesArea = currentModule?.path === '/hr-activities' || currentModule?.parentPath === '/hr-activities';
-  const hasHrActivitiesAccess =
-    hasView('hr_activities') || hasView('validation_process') || isHrOrOrgAdmin;
-  const isCoreHrArea = currentModule?.path === '/core-hr' || currentModule?.parentPath === '/core-hr';
-  const hasCoreHrAccess = hasView('core_hr') || hasView('compound_creation') || isHrOrOrgAdmin;
-  const hasTimeAttendanceAccess =
-    hasView('time_attendance') || hasView('shifts') || (isHrOrOrgAdmin && hasAnyReadPermission);
-  const isEventApplyPath = currentModule?.path === '/attendance/apply-event';
-  const isEventRequestPath = currentModule?.path === '/event/requests';
-  const isEventApprovalPath = currentModule?.path === '/leave/approvals';
-  const isEventBalanceEntryPath = currentModule?.path === '/event/balance-entry';
-  const isExcessTimeRequestPath = currentModule?.path === '/attendance/my-requests/excess-time-request';
-  const isExcessTimeApprovalPath = currentModule?.path === '/attendance/excess-time-approval';
-  const hasLeaveAccess = canAccessEventByRole;
-  const hasEventApplyAccess = canAccessEventByRole;
-  const hasEventRequestAccess = canAccessEventByRole;
-  const hasEventApprovalAccess = canAccessEventApprovalByRole;
-  const hasEventBalanceEntryAccess = isHr;
-  const hasExcessTimeRequestAccess = canAccessEventByRole;
-  const hasExcessTimeApprovalAccess = canAccessEventApprovalByRole;
-  const allowed = isDashboardOrProfile
-    ? true
-    : !currentModule
-      ? true
-      : currentModule.visibility === 'super_admin_only'
-        ? isSuperAdmin
-        : currentModule.visibility === 'module_permission_only'
-          ? isSuperAdmin || hasView('permissions')
-          : isTimeAttendanceArea
-            ? hasTimeAttendanceAccess
-            : isEventApplyPath
-              ? hasEventApplyAccess
-              : isEventRequestPath
-                ? hasEventRequestAccess
-              : isEventApprovalPath
-                ? hasEventApprovalAccess
-                : isEventBalanceEntryPath
-                  ? hasEventBalanceEntryAccess
-                : isExcessTimeRequestPath
-                  ? hasExcessTimeRequestAccess
-                  : isExcessTimeApprovalPath
-                    ? hasExcessTimeApprovalAccess
-            : isLeaveArea
-              ? hasLeaveAccess
-              : isHrActivitiesArea
-                ? hasHrActivitiesAccess
-                : isCoreHrArea
-                  ? hasCoreHrAccess
-                  : hasView(currentModule.resource);
+  const assignedPaths = useMemo(
+    () => new Set(visibleNavItems.flatMap((m) => [m.path, m.parentPath].filter(Boolean))),
+    [visibleNavItems]
+  );
+  const hasPathAccess = useMemo(() => {
+    return (path: string) =>
+      assignedPaths.has(path) ||
+      Array.from(assignedPaths).some((p) => p && path.startsWith(p + '/'));
+  }, [assignedPaths]);
+  const allowed = isDashboardOrProfile || hasPathAccess(location.pathname);
 
   useEffect(() => {
-    if (!isDashboardOrProfile && currentModule && !allowed) {
+    if (!isDashboardOrProfile && !allowed) {
       navigate('/dashboard', { replace: true });
     }
-  }, [isDashboardOrProfile, currentModule, allowed, navigate]);
+  }, [isDashboardOrProfile, allowed, navigate]);
 
-  const content = currentModule && !allowed ? null : children;
+  const content = !allowed ? null : children;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-gray-100">
@@ -597,30 +420,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         <nav className="flex-1 py-4 px-4 space-y-2 overflow-y-auto">
           {topLevelNavItems.map((mod) => {
             const isActive =
-              location.pathname === mod.path ||
-              (mod.path === '/leave' &&
-                (location.pathname.startsWith('/leave/') ||
-                  location.pathname.startsWith('/event/') ||
-                  location.pathname === '/attendance/apply-event' ||
-                  location.pathname.startsWith('/attendance/my-requests/excess-time-request') ||
-                  location.pathname.startsWith('/attendance/excess-time-approval')));
-            const icon = ICONS_BY_PATH[mod.path];
+              location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'));
+            const icon = ICONS_BY_PATH[mod.path] ?? DEFAULT_ICON;
             const childItems = visibleNavItems.filter((m) => m.parentPath === mod.path);
             const isParentWithChildren = childItems.length > 0;
-            const isPayrollMaster = mod.path === '/payroll-master';
-            const isTransaction = mod.path === '/transaction';
-            const isTimeAttendance = mod.path === '/time-attendance';
-            const isLeave = mod.path === '/leave';
-            const isEsop = mod.path === '/esop';
-            const isAttendancePolicy = mod.path === '/attendance-policy';
-            const isAttendance = mod.path === '/attendance';
-            const isEventConfiguration = mod.path === '/event-configuration';
-            const isHrActivities = mod.path === '/hr-activities';
-            const isOthersConfiguration = mod.path === '/others-configuration';
-            const isCoreHr = mod.path === '/core-hr';
-            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isLeave ? leaveExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isAttendance ? attendanceExpanded : isEventConfiguration ? eventConfigurationExpanded : isHrActivities ? hrActivitiesExpanded : isOthersConfiguration ? othersConfigurationExpanded : isCoreHr ? coreHrExpanded : false;
-            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isLeave ? setLeaveExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isAttendance ? setAttendanceExpanded : isEventConfiguration ? setEventConfigurationExpanded : isHrActivities ? setHrActivitiesExpanded : isOthersConfiguration ? setOthersConfigurationExpanded : isCoreHr ? setCoreHrExpanded : () => {};
-            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isLeave ? leaveDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isAttendance ? attendanceDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : isHrActivities ? hrActivitiesDropdownOpen : isOthersConfiguration ? othersConfigurationDropdownOpen : isCoreHr ? coreHrDropdownOpen : false;
+            const expanded = expandedPaths.has(mod.path);
+            const dropdownOpen = mod.path ? getDropdownOpen(mod.path) : false;
 
             if (isParentWithChildren) {
               return (
@@ -632,50 +437,34 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                         : 'text-gray-900 hover:bg-gray-100 hover:text-black'
                     }`}
                     onClick={() => {
-                      if (mod.path === '/attendance') {
-                        if (location.pathname === '/attendance') {
-                          setExpanded((e: boolean) => !e);
-                        } else {
-                          setExpanded(true);
-                          navigate('/attendance');
-                        }
-                        return;
+                      if (location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'))) {
+                        setExpandedPaths((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(mod.path)) next.delete(mod.path);
+                          else next.add(mod.path);
+                          return next;
+                        });
+                      } else {
+                        setExpandedPaths((prev) => new Set(prev).add(mod.path));
+                        navigate(mod.path);
                       }
-                      if (mod.path === '/core-hr') {
-                        if (location.pathname.startsWith('/core-hr')) {
-                          setExpanded((e: boolean) => !e);
-                        } else {
-                          setExpanded(true);
-                          navigate('/core-hr');
-                        }
-                        return;
-                      }
-                      setExpanded((e: boolean) => !e);
                     }}
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        if (mod.path === '/attendance') {
-                          if (location.pathname === '/attendance') {
-                            setExpanded((x: boolean) => !x);
-                          } else {
-                            setExpanded(true);
-                            navigate('/attendance');
-                          }
-                          return;
+                        if (location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'))) {
+                          setExpandedPaths((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(mod.path)) next.delete(mod.path);
+                            else next.add(mod.path);
+                            return next;
+                          });
+                        } else {
+                          setExpandedPaths((prev) => new Set(prev).add(mod.path));
+                          navigate(mod.path);
                         }
-                        if (mod.path === '/core-hr') {
-                          if (location.pathname.startsWith('/core-hr')) {
-                            setExpanded((x: boolean) => !x);
-                          } else {
-                            setExpanded(true);
-                            navigate('/core-hr');
-                          }
-                          return;
-                        }
-                        setExpanded((x: boolean) => !x);
                       }
                     }}
                   >
@@ -694,7 +483,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     <div className="pl-4 space-y-1 border-l-2 border-gray-200 ml-4">
                       {childItems.map((child) => {
                         const childActive = location.pathname === child.path;
-                        const childIcon = ICONS_BY_PATH[child.path];
+                        const childIcon = ICONS_BY_PATH[child.path] ?? DEFAULT_ICON;
                         return (
                           <Link
                             key={child.path}
@@ -764,9 +553,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-auto">
-        {permissionsLoadFailed && !isSuperAdmin && (
+        {visibleNavItems.length <= 1 && !isSuperAdmin && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
-            Menus could not be loaded. Ask your Super Admin to run &quot;Sync shift module for all orgs&quot; in Organization Management, or try refreshing the page.
+            No modules assigned. Contact your admin to assign modules in Configurator (role_module_permissions).
           </div>
         )}
         {content}

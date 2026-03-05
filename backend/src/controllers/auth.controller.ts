@@ -1,10 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services/auth.service';
-import { configuratorService } from '../services/configurator.service';
+import { configuratorService, type ConfiguratorModule } from '../services/configurator.service';
 import { AppError } from '../middlewares/errorHandler';
 import { generateTokenPair, JwtPayload } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
 import { config } from '../config/config';
+
+/** Enrich Config modules with path. Prefer Config DB page_name, then path, then MODULE_CODE_TO_PATH fallback. */
+function enrichModulesWithPath(modules: ConfiguratorModule[]): ConfiguratorModule[] {
+  const mapping = config.configuratorModulePathMapping;
+  return modules.map((m) => {
+    const code = (m.code || '').toUpperCase().trim();
+    const path =
+      (m as any).page_name ?? (m as any).pageName ?? (m as any).path ?? mapping[code] ?? `/${code.toLowerCase().replace(/_/g, '-')}`;
+    return { ...m, path };
+  });
+}
 
 export class AuthController {
   /**
@@ -32,12 +43,10 @@ export class AuthController {
    */
   async configuratorLogin(req: Request, res: Response, next: NextFunction) {
     try {
-      let { username, password, company_id } = req.body;
-      if (!company_id && config.configuratorDefaultCompanyId) {
-        company_id = config.configuratorDefaultCompanyId;
-      }
+      const { username, password, company_id: bodyCompanyId } = req.body;
+      const company_id = bodyCompanyId ?? config.configuratorDefaultCompanyId;
       if (!company_id) {
-        throw new AppError('company_id is required. Set CONFIGURATOR_DEFAULT_COMPANY_ID in .env or pass in request.', 400);
+        throw new AppError('company_id is required. Pass in request or set CONFIGURATOR_DEFAULT_COMPANY_ID in .env.', 400);
       }
       const loginRes = await configuratorService.login({ username, password, company_id });
 
@@ -45,6 +54,8 @@ export class AuthController {
       const configuratorUserId = decoded?.sub ? parseInt(decoded.sub, 10) : null;
       const email = decoded?.email || username;
       const companyId = decoded?.company_id ?? company_id;
+      const configRoles = loginRes.user?.roles ?? [];
+      const primaryConfigRole = configRoles[0];
 
       // Prefer email lookup (from token) - it's the actual logged-in user
       let hrmsUser = await prisma.user.findFirst({
@@ -67,11 +78,26 @@ export class AuthController {
         },
       });
 
-      if (hrmsUser && configuratorUserId != null && hrmsUser.configuratorUserId !== configuratorUserId) {
-        await prisma.user.update({
-          where: { id: hrmsUser.id },
-          data: { configuratorUserId },
-        });
+      if (hrmsUser) {
+        const updates: { configuratorUserId?: number; role?: import('@prisma/client').UserRole } = {};
+        if (configuratorUserId != null && hrmsUser.configuratorUserId !== configuratorUserId) {
+          updates.configuratorUserId = configuratorUserId;
+        }
+        let roleCode: string | undefined = primaryConfigRole?.code;
+        if (!roleCode && typeof (loginRes as any).user_role_id === 'number') {
+          const roleRes = await configuratorService.getUserRole(loginRes.access_token, (loginRes as any).user_role_id);
+          roleCode = roleRes?.code;
+        }
+        if (roleCode && hrmsUser.role !== roleCode) {
+          updates.role = roleCode as import('@prisma/client').UserRole;
+        }
+        if (Object.keys(updates).length > 0) {
+          await prisma.user.update({
+            where: { id: hrmsUser.id },
+            data: updates,
+          });
+          if (updates.role) (hrmsUser as any).role = updates.role;
+        }
       }
 
       if (!hrmsUser) {
@@ -118,10 +144,18 @@ export class AuthController {
               500
             );
           }
-          if (!config.configuratorDefaultRole) {
+          let configRole: string | undefined = primaryConfigRole?.code;
+          if (!configRole) {
+            const roleId = primaryConfigRole?.id ?? (loginRes as any).user_role_id ?? (loginRes.user as any)?.role_id;
+            if (typeof roleId === 'number') {
+              const roleRes = await configuratorService.getUserRole(loginRes.access_token, roleId);
+              configRole = roleRes?.code;
+            }
+          }
+          if (!configRole) {
             throw new AppError(
-              'CONFIGURATOR_DEFAULT_ROLE must be set in .env for auto-creating users',
-              500
+              'User has no role assigned. Assign a role in Configurator and try again.',
+              403
             );
           }
           const nameParts = email.split('@')[0].split(/[._]/);
@@ -141,7 +175,7 @@ export class AuthController {
               data: {
                 email,
                 passwordHash: config.configuratorPlaceholderPasswordHash,
-                role: config.configuratorDefaultRole as any,
+                role: configRole as any,
                 organizationId: org.id,
                 configuratorUserId: configuratorUserId ?? undefined,
                 isEmailVerified: true,
@@ -198,26 +232,38 @@ export class AuthController {
         throw new AppError('Your employment has been separated. You cannot log in.', 401);
       }
 
-      // Fetch user-assigned modules via /api/v1/user-role-modules/ (role_module_permissions)
-      let modules: any[] = [];
-      try {
-        const roleId =
-          loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
-        if (roleId != null && companyId != null) {
-          modules = await configuratorService.getUserAssignedModules(
+      let roleFromConfig = primaryConfigRole?.code ?? hrmsUser.role;
+      if (!roleFromConfig) {
+        const roleId = (loginRes as any).user_role_id ?? primaryConfigRole?.id;
+        if (typeof roleId === 'number') {
+          const roleRes = await configuratorService.getUserRole(loginRes.access_token, roleId);
+          roleFromConfig = roleRes?.code ?? hrmsUser.role;
+        }
+      }
+
+      // Fetch modules from Config DB via /api/v1/user-role-modules/{role_id}/{project_id}
+      let modules: ConfiguratorModule[] = [];
+      let roleIds = configRoles.map((r) => r.id).filter((id): id is number => typeof id === 'number');
+      if (roleIds.length === 0 && typeof (loginRes as any).user_role_id === 'number') {
+        roleIds = [(loginRes as any).user_role_id];
+      }
+      if (roleIds.length > 0 && companyId != null) {
+        try {
+          modules = await configuratorService.getUserAssignedModulesForRoles(
             loginRes.access_token,
-            roleId,
+            roleIds,
             companyId
           );
+          modules = enrichModulesWithPath(modules);
+        } catch (modErr: any) {
+          console.warn('Configurator modules fetch failed, returning empty:', modErr?.message);
         }
-      } catch (modErr: any) {
-        console.warn('Configurator modules fetch failed, returning empty:', modErr?.message);
       }
 
       const payload: JwtPayload = {
         userId: hrmsUser.id,
         email: hrmsUser.email,
-        role: hrmsUser.role,
+        role: roleFromConfig,
       };
       const tokens = generateTokenPair(payload);
 
@@ -236,7 +282,7 @@ export class AuthController {
       const userResponse = {
         id: hrmsUser.id,
         email: hrmsUser.email,
-        role: hrmsUser.role,
+        role: roleFromConfig,
         isEmailVerified: hrmsUser.isEmailVerified,
         employee: hrmsUser.employee,
       };
@@ -253,8 +299,15 @@ export class AuthController {
           modules,
         },
       });
-    } catch (error) {
-      return next(error);
+    } catch (error: any) {
+      console.error('[configuratorLogin]', error?.message || error);
+      if (error instanceof AppError) return next(error);
+      return next(
+        new AppError(
+          error?.message || 'Login failed. Please try again.',
+          error?.statusCode || 500
+        )
+      );
     }
   }
 
@@ -436,6 +489,24 @@ export class AuthController {
       return next(error);
     }
   }
+
+  /**
+   * Get assigned modules for current user from Config DB
+   * GET /api/v1/auth/modules
+   * Requires auth. Uses stored configurator token. Modules are from login response (localStorage);
+   * this endpoint returns empty when role IDs are not persisted (run add-configurator-role-ids.sql to enable).
+   */
+  async getMyModules(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Not authenticated', 401);
+      }
+      return res.status(200).json({ status: 'success', data: { modules: [] } });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
 
   /**
    * Admin reset password for employee

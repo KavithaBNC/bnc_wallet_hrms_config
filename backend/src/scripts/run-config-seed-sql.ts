@@ -29,7 +29,7 @@ async function main() {
       path.join(SCRIPTS_DIR, 'check-config-db-before-seed.sql'),
       'utf8'
     );
-    const checkResult = await client.query(checkSql);
+    await client.query(checkSql);
     console.log('Check done.\n');
 
     // 2. Seed

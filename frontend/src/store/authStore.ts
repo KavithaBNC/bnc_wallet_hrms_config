@@ -38,29 +38,35 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
     } catch (error: any) {
       let errorMessage = 'Login failed. Please try again.';
-      
-      // Handle network errors
+      const data = error.response?.data;
+
+      // Handle network errors (no response = backend unreachable)
       if (!error.response) {
-        if (error.message && error.message.includes('timeout')) {
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
           errorMessage = 'Request timeout. Please check your connection and try again.';
-        } else if (error.message && error.message.includes('Network Error')) {
-          errorMessage = 'Cannot connect to server. Run "npm run dev" from project root to start both backend and frontend.';
+        } else if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+          errorMessage = 'Backend is not running. Start it with: cd backend && npm run dev';
         } else if (error.message) {
           errorMessage = error.message;
         }
-      } else if (error.response?.data) {
-        // Check for validation errors (Zod/backend)
-        if (error.response.data.errors && Array.isArray(error.response.data.errors)) {
-          errorMessage = error.response.data.errors
-            .map((err: any) => err.message || err.msg)
-            .join(', ');
-        } else if (error.response.data.message) {
-          errorMessage = error.response.data.message;
-        } else if (error.response.data.error?.message) {
-          errorMessage = error.response.data.error.message;
+      } else if (error.response?.status === 502) {
+        errorMessage = 'Backend is not running. Start it with: cd backend && npm run dev';
+      } else if (data) {
+        // Backend returned error - extract message
+        if (data.errors && Array.isArray(data.errors)) {
+          errorMessage = data.errors.map((e: any) => e.message || e.msg).join(', ');
+        } else if (typeof data.message === 'string') {
+          errorMessage = data.message;
+        } else if (data.error?.message) {
+          errorMessage = data.error.message;
+        } else if (typeof data.detail === 'string') {
+          errorMessage = data.detail;
+        } else if (error.response?.status === 500) {
+          errorMessage = data.message || 'Server error. Check backend terminal for details.';
         }
-      } else if (error.message) {
-        errorMessage = error.message;
+      }
+      if (errorMessage === 'Request failed with status code 500') {
+        errorMessage = 'Server error. Ensure backend is running (npm run dev from project root).';
       }
       
       console.error('Login error:', error);
@@ -100,7 +106,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
 
       set({ isLoading: true, error: null });
-      const user = await authService.getCurrentUser();
+      const [user] = await Promise.all([
+        authService.getCurrentUser(),
+        authService.getModules(),
+      ]);
       console.log('Loaded user data:', user);
       set({ user, isAuthenticated: true, isLoading: false, error: null });
     } catch (error: any) {

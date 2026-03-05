@@ -11,7 +11,7 @@ export class EmployeeController {
    */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await employeeService.create(req.body);
+      const result = await employeeService.create(req.body, req.user?.userId);
       const { temporaryPassword, ...employee } = result;
 
       const response: any = {
@@ -157,7 +157,7 @@ export class EmployeeController {
         }
       }
 
-      const employee = await employeeService.update(id, req.body);
+      const employee = await employeeService.update(id, req.body, req.user?.userId);
 
       res.status(200).json({
         status: 'success',

@@ -133,6 +133,13 @@ router.post('/logout', authenticate, authController.logout.bind(authController))
 router.get('/me', authenticate, authController.getCurrentUser.bind(authController));
 
 /**
+ * @route   GET /api/v1/auth/modules
+ * @desc    Get assigned modules for current user from Config DB
+ * @access  Private
+ */
+router.get('/modules', authenticate, authController.getMyModules.bind(authController));
+
+/**
  * @route   POST /api/v1/auth/admin/reset-password/:employeeId
  * @desc    Admin reset password for employee
  * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)

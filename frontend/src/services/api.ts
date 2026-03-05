@@ -1,10 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
-// In dev: use relative /api/v1 so Vite proxy forwards to backend (avoids CORS, single port)
-// In prod or when VITE_API_BASE_URL is set: use that
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? '/api/v1' : 'http://localhost:5000/api/v1');
+import { API_BASE_URL } from '@/config/env';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -75,8 +71,8 @@ api.interceptors.response.use(
       console.error('Network Error:', error.message);
       if (error.code === 'ECONNABORTED') {
         error.message = 'Request timeout. Please check your connection and try again.';
-      } else if (error.message === 'Network Error') {
-        error.message = 'Cannot connect to server. Please ensure the backend server is running.';
+      } else if (error.message === 'Network Error' || error.code === 'ECONNREFUSED') {
+        error.message = 'Backend is not running. Start it with: cd backend && npm run dev';
       }
     }
 

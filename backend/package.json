@@ -4,7 +4,8 @@
   "description": "HRMS Portal 2026 - Backend API",
   "main": "dist/server.js",
   "scripts": {
-    "kill-port": "npx --yes kill-port 5000 5001",
+    "kill-port": "npx --yes kill-port 5000 5001 5002",
+    "kill-port:fast": "powershell -ExecutionPolicy Bypass -File ./kill-port.ps1",
     "dev": "nodemon --exec \"ts-node -r tsconfig-paths/register\" src/server.ts",
     "dev:direct": "ts-node -r tsconfig-paths/register src/server.ts",
     "build": "tsc",
@@ -55,7 +56,10 @@
     "migrate:face-encoding": "ts-node -r tsconfig-paths/register src/scripts/add-face-encoding-column.ts",
     "test:lop": "ts-node -r tsconfig-paths/register src/scripts/test-lop-calculation.ts",
     "check:saravanan": "ts-node -r tsconfig-paths/register src/scripts/check-saravanan-attendance-summary.ts",
-    "set:lop-unpaid": "ts-node -r tsconfig-paths/register src/scripts/set-lop-leave-type-unpaid.ts"
+    "set:lop-unpaid": "ts-node -r tsconfig-paths/register src/scripts/set-lop-leave-type-unpaid.ts",
+    "sync:org-configurator-59": "ts-node -r tsconfig-paths/register src/scripts/sync-organization-configurator-59.ts",
+    "test:config-dropdowns": "ts-node -r tsconfig-paths/register src/scripts/test-config-dropdowns-and-employee.ts",
+    "sync:config-to-hrms": "ts-node -r tsconfig-paths/register src/scripts/sync-config-to-hrms.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -104,6 +108,7 @@
     "eslint": "^8.56.0",
     "jest": "^29.7.0",
     "nodemon": "^3.0.2",
+    "pg": "^8.11.3",
     "prettier": "^3.1.1",
     "prisma": "^5.8.0",
     "ts-jest": "^29.1.1",

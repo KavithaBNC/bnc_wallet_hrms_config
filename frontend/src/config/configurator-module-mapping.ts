@@ -9,6 +9,7 @@ export interface ConfiguratorModule {
   code: string;
   description?: string;
   is_active?: boolean;
+  path?: string;
 }
 
 /** Configurator code → { path, icon, description } for dashboard cards */
