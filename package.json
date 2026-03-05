@@ -7,7 +7,8 @@
     "dev:backend": "cd backend && cross-env PORT=5001 npm run dev",
     "dev:frontend": "cd frontend && cross-env VITE_API_PORT=5001 npm run dev",
     "build": "cd backend && npm run build && cd ../frontend && npm run build",
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "seed:config-modules": "cd backend && npm run seed:config-modules"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
