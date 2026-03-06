@@ -206,22 +206,20 @@ app.use(errorHandler);
 // SERVER
 // ============================================================================
 
-const PORT = config.port || 5000;
+const port = config.port;
+if (!port || port <= 0) {
+  logger.error('PORT must be set in backend/.env');
+  process.exit(1);
+}
 
-const server = app.listen(PORT, () => {
-  logger.info(`🚀 Server running in ${config.nodeEnv} mode on port ${PORT}`);
+const server = app.listen(port, () => {
+  logger.info(`🚀 Server running in ${config.nodeEnv} mode on port ${port}`);
   logger.info(`📍 Base URL: ${config.baseUrl}`);
   logger.info(`🔗 Health check: ${config.baseUrl}/health`);
-}).on('error', (err: NodeJS.ErrnoException) => {
+});
+server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    logger.error(`\n❌ Port ${PORT} is already in use!`);
-    logger.error(`\n💡 To fix this, run one of these commands:`);
-    logger.error(`   1. Find and kill the process:`);
-    logger.error(`      netstat -ano | findstr :${PORT}`);
-    logger.error(`      taskkill /PID <PID> /F`);
-    logger.error(`\n   2. Or change the port in .env file:`);
-    logger.error(`      PORT=5001`);
-    logger.error(`\n   3. Or run: npm run kill-port`);
+    logger.error(`\n❌ Port ${port} is in use. Kill the process using it or run: npm run kill-port`);
     process.exit(1);
   } else {
     logger.error('Server error:', err);

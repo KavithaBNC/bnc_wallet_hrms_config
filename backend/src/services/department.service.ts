@@ -1,17 +1,19 @@
-
 import { AppError } from '../middlewares/errorHandler';
 import { prisma } from '../utils/prisma';
+import { configuratorService } from './configurator.service';
 import {
   CreateDepartmentInput,
   UpdateDepartmentInput,
   QueryDepartmentsInput,
 } from '../utils/department.validation';
 
+export type ConfigSyncContext = { accessToken: string; companyId: number };
+
 export class DepartmentService {
   /**
-   * Create new department
+   * Create new department. Optionally sync to Config DB when configSync provided.
    */
-  async create(data: CreateDepartmentInput) {
+  async create(data: CreateDepartmentInput, configSync?: ConfigSyncContext) {
     // Check if code is unique (if provided)
     if (data.code) {
       const existing = await prisma.department.findUnique({
@@ -54,11 +56,47 @@ export class DepartmentService {
       }
     }
 
+    let configuratorDepartmentId: number | undefined;
+    if (configSync) {
+      try {
+        const [manager, costCentre] = await Promise.all([
+          data.managerId
+            ? prisma.employee.findUnique({
+                where: { id: data.managerId },
+                select: { configuratorUserId: true },
+              })
+            : null,
+          data.costCenter
+            ? prisma.costCentre.findFirst({
+                where: { organizationId: data.organizationId, code: data.costCenter },
+                select: { configuratorCostCentreId: true },
+              })
+            : null,
+        ]);
+        const configDept = await configuratorService.createDepartment(configSync.accessToken, {
+          name: data.name,
+          code: data.code ?? undefined,
+          company_id: configSync.companyId,
+          cost_centre_id: (costCentre as any)?.configuratorCostCentreId ?? undefined,
+          cost_centre_name: data.costCenter ?? undefined,
+          description: data.description ?? undefined,
+          manager_id: (manager as any)?.configuratorUserId ?? undefined,
+          location: data.location ?? undefined,
+        });
+        configuratorDepartmentId = configDept.id;
+      } catch (err: any) {
+        console.warn('Config department create failed:', err?.message);
+      }
+    }
+
     const department = await prisma.department.create({
-      data,
+      data: {
+        ...data,
+        ...(configuratorDepartmentId != null && { configuratorDepartmentId }),
+      },
       include: {
         organization: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, configuratorCompanyId: true },
         },
         manager: {
           select: {
@@ -66,10 +104,11 @@ export class DepartmentService {
             firstName: true,
             lastName: true,
             email: true,
+            configuratorUserId: true,
           },
         },
         parentDepartment: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, configuratorDepartmentId: true },
         },
       },
     });
@@ -78,9 +117,44 @@ export class DepartmentService {
   }
 
   /**
-   * Get all departments with filtering and pagination
+   * Get all departments. Config only - when org linked + token: Config API. Else: no data.
+   * Never uses HRMS departments for list/dropdown.
    */
-  async getAll(query: QueryDepartmentsInput) {
+  async getAll(query: QueryDepartmentsInput, userId?: string) {
+    if (query.organizationId && userId) {
+      const org = await prisma.organization.findUnique({
+        where: { id: query.organizationId },
+        select: { configuratorCompanyId: true },
+      });
+      if (org?.configuratorCompanyId != null) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { configuratorAccessToken: true },
+        });
+        if (user?.configuratorAccessToken) {
+          const configList = await configuratorService.getDepartments(user.configuratorAccessToken, {
+            companyId: org.configuratorCompanyId,
+          });
+          const departments = configList.map((d: any) => ({
+            id: String(typeof d === 'object' ? d.id : d),
+            name: typeof d === 'object' ? (d.name ?? d.Name ?? '') : String(d),
+            code: typeof d === 'object' ? (d.code ?? d.Code ?? '') : undefined,
+          }));
+          const total = departments.length;
+          const limit = parseInt(query.limit || '100');
+          const page = parseInt(query.page || '1');
+          const skip = (page - 1) * limit;
+          const paginated = departments.slice(skip, skip + limit);
+          return {
+            departments: paginated,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+          };
+        }
+      }
+      // Config not available (org not linked or no token) → no data
+      return { departments: [], pagination: { page: 1, limit: 100, total: 0, totalPages: 0 } };
+    }
+
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
     const skip = (page - 1) * limit;

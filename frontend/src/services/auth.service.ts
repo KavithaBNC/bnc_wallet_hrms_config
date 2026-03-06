@@ -76,11 +76,10 @@ class AuthService {
   }
 
   /**
-   * Login user - uses Configurator API
-   * company_id hardcoded to 59 (BNC Motors); TODO: add dropdown later
+   * Login user - uses Configurator API (Config DB for auth, role, modules)
    */
   async login(data: LoginData): Promise<AuthResponse> {
-    const companyId = data.company_id ?? 59;
+    const companyId = data.company_id;
     const response = await api.post('/auth/configurator/login', {
       username: data.email,
       password: data.password,
@@ -132,6 +131,23 @@ class AuthService {
     } catch (error: any) {
       console.error('getCurrentUser error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get assigned modules from Config DB (refreshes localStorage)
+   */
+  async getModules(): Promise<{ id: number; name: string; code: string; path?: string }[]> {
+    try {
+      const response = await api.get('/auth/modules');
+      const modules = response.data?.data?.modules ?? [];
+      if (Array.isArray(modules) && modules.length > 0) {
+        localStorage.setItem('modules', JSON.stringify(modules));
+      }
+      return modules;
+    } catch (error: any) {
+      console.warn('getModules error:', error);
+      return [];
     }
   }
 

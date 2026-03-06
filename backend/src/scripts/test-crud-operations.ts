@@ -1,8 +1,7 @@
 import axios from 'axios';
-import { config } from '../config/config';
-
-const BASE_URL = config.baseUrl || 'http://localhost:5000';
-const API_BASE = `${BASE_URL}/api/v1`;
+import { API_BASE_URL, SERVER_BASE_URL } from '../config/constants';
+const BASE_URL = SERVER_BASE_URL;
+const API_BASE = API_BASE_URL;
 
 interface TestResult {
   module: string;

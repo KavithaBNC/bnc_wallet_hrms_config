@@ -170,8 +170,8 @@ model User {
   twoFactorEnabled        Boolean                 @default(false) @map("two_factor_enabled")
   twoFactorSecret         String?                 @map("two_factor_secret") @db.VarChar(255)
   refreshToken            String?                 @map("refresh_token")
-  configuratorAccessToken String?                 @map("configurator_access_token") @db.Text
-  configuratorRefreshToken String?                @map("configurator_refresh_token") @db.Text
+  configuratorAccessToken  String?                @map("configurator_access_token") @db.Text
+  configuratorRefreshToken String?               @map("configurator_refresh_token") @db.Text
   createdAt               DateTime                @default(now()) @map("created_at")
   updatedAt               DateTime                @updatedAt @map("updated_at")
   approvedChangeRequests  EmployeeChangeRequest[] @relation("EmployeeChangeRequestApprovals")

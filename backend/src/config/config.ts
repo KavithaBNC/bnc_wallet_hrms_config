@@ -33,16 +33,17 @@ interface AppConfig {
   configuratorApiUrl: string;
   configuratorHrmsProjectId: number;
   configuratorDefaultCompanyId: number;
-  configuratorDefaultRole: string;
-  configuratorRoleIds: Record<string, number>;
+  /** Module code → path mapping. Load from MODULE_CODE_TO_PATH JSON env. Config DB path preferred when available. */
+  configuratorModulePathMapping: Record<string, string>;
   configuratorPlaceholderPasswordHash: string;
 }
 
 export const config: AppConfig = {
-  // Server (default 5001 to match root "npm run dev" and frontend proxy)
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '5001', 10),
-  baseUrl: process.env.BASE_URL || 'http://localhost:5001',
+  port: process.env.PORT ? parseInt(process.env.PORT, 10) : 0,
+  baseUrl:
+    process.env.BASE_URL ||
+    (process.env.PORT ? `http://localhost:${process.env.PORT}` : ''),
 
   // CORS
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -90,18 +91,21 @@ export const config: AppConfig = {
   // Frontend URL (for email links, etc.)
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 
-  // Configurator API - Login: http://bnc-ai.com:8001/api/v1/auth/login
-  configuratorApiUrl: 'http://bnc-ai.com:8001',
-  configuratorHrmsProjectId: 5,
-  configuratorDefaultCompanyId: parseInt(process.env.CONFIGURATOR_DEFAULT_COMPANY_ID || '59', 10),
-  configuratorDefaultRole: process.env.CONFIGURATOR_DEFAULT_ROLE || 'ORG_ADMIN',
-  /** HRMS role -> Configurator role_id (for user-role-modules API). Set via CONFIGURATOR_ROLE_IDS JSON. */
-  configuratorRoleIds: (() => {
+  // Configurator API - single source: CONFIGURATOR_API_URL or RAG_API_URL (legacy)
+  configuratorApiUrl:
+    process.env.CONFIGURATOR_API_URL ||
+    process.env.RAG_API_URL ||
+    'http://bnc-ai.com:8001',
+  configuratorHrmsProjectId: process.env.CONFIGURATOR_HRMS_PROJECT_ID ? parseInt(process.env.CONFIGURATOR_HRMS_PROJECT_ID, 10) : 0,
+  configuratorDefaultCompanyId: process.env.CONFIGURATOR_DEFAULT_COMPANY_ID ? parseInt(process.env.CONFIGURATOR_DEFAULT_COMPANY_ID, 10) : 0,
+  /** Module code → path fallback. Optional when Config DB project_modules.page_name is populated. */
+  configuratorModulePathMapping: (() => {
     try {
-      const raw = process.env.CONFIGURATOR_ROLE_IDS || '{"ORG_ADMIN":31,"HR_MANAGER":30,"MANAGER":29,"EMPLOYEE":28}';
-      return JSON.parse(raw) as Record<string, number>;
+      const raw = process.env.MODULE_CODE_TO_PATH;
+      if (!raw) return {};
+      return JSON.parse(raw) as Record<string, string>;
     } catch {
-      return { ORG_ADMIN: 31, HR_MANAGER: 30, MANAGER: 29, EMPLOYEE: 28 };
+      return {};
     }
   })(),
   configuratorPlaceholderPasswordHash:

@@ -32,14 +32,18 @@ export const createEmployeeSchema = z.object({
   officialEmail: z.string().email().max(255).optional().nullable(),
   officialMobile: z.string().max(20).optional().nullable(),
 
-  // Employment Information
-  departmentId: z.string().uuid().optional().nullable(),
+  // Employment Information (departmentId/costCentreId can be UUID or Config id as string)
+  departmentId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
+  departmentConfiguratorId: z.number().optional().nullable(),
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
   workLocation: z.string().max(255).optional(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
-  costCentreId: z.string().uuid().optional().nullable(),
+  costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
+  costCentreConfiguratorId: z.number().optional().nullable(),
+  subDepartmentConfiguratorId: z.number().optional().nullable(),
+  configuratorRoleId: z.number().optional().nullable(), // Config user_roles.id for POST /api/v1/users/
   grade: z.string().max(50).optional().nullable(),
   placeOfTaxDeduction: z.enum(['METRO', 'NON_METRO']).optional().nullable(),
   jobResponsibility: z.string().max(2000).optional().nullable(),
@@ -129,13 +133,17 @@ export const updateEmployeeSchema = z.object({
   officialEmail: z.string().email().max(255).optional().nullable(),
   officialMobile: z.string().max(20).optional().nullable(),
 
-  departmentId: z.string().uuid().optional().nullable(),
+  departmentId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
+  departmentConfiguratorId: z.number().optional().nullable(),
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
   workLocation: z.string().max(255).optional(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
-  costCentreId: z.string().uuid().optional().nullable(),
+  costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
+  costCentreConfiguratorId: z.number().optional().nullable(),
+  subDepartmentConfiguratorId: z.number().optional().nullable(),
+  configuratorRoleId: z.number().optional().nullable(), // Config user_roles.id for PUT /api/v1/users/{id}
   grade: z.string().max(50).optional().nullable(),
   placeOfTaxDeduction: z.enum(['METRO', 'NON_METRO']).optional().nullable(),
   jobResponsibility: z.string().max(2000).optional().nullable(),
