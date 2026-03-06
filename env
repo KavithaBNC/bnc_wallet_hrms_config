@@ -1,29 +1,25 @@
-# Database - AWS RDS PostgreSQL
-DATABASE_URL="postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_db_backup"
+# Database
+DATABASE_URL=postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_db_backup
 
-# JWT Secrets (CHANGE THESE TO STRONG RANDOM STRINGS IN PRODUCTION!)
-JWT_SECRET="hrms-jwt-secret-2026-change-this-to-random-string"
-JWT_REFRESH_SECRET="hrms-refresh-secret-2026-change-this-to-random-string"
-JWT_EXPIRES_IN="1d"
-JWT_REFRESH_EXPIRES_IN="7d"
+# JWT (CHANGE IN PRODUCTION!)
+JWT_SECRET=Nemi_tech
+JWT_REFRESH_SECRET=hrms-refresh-secret-2026-change-this-to-random-string
+JWT_EXPIRES_IN=1d
+JWT_REFRESH_EXPIRES_IN=7d
 
-# Server Configuration
-PORT=5000
+# Server - use 5001 to match root "npm run dev" and frontend proxy
+PORT=5001
 NODE_ENV=development
-BASE_URL=http://localhost:5000
+BASE_URL=http://localhost:5001
 
-# CORS - Frontend URL
+# CORS
 CORS_ORIGIN=http://localhost:3000
 
-# Optional: If you need specific database connection settings
-# DB_MAX_CONNECTIONS=10
-# DB_CONNECTION_TIMEOUT=20000
-```
-
----
-
-## **🚀 Next Steps:**
-
-### **1. Save this as `.env` in your backend folder:**
-```
-#D:\git\hrms_2026\backend\.env
+# Configurator API (auth, modules from Config DB)
+CONFIGURATOR_API_URL=http://bnc-ai.com:8001
+CONFIGURATOR_DEFAULT_COMPANY_ID=59
+CONFIGURATOR_HRMS_PROJECT_ID=6
+# Role comes from Config login (user.roles) or GET /api/v1/user-roles/{role_id}
+# Module code -> path mapping (Config DB path preferred when available)
+# Optional fallback when Config DB project_modules.page_name is empty. Now using page_name from Config.
+# MODULE_CODE_TO_PATH={"EMPLOYEES":"/employees","EVENT":"/leave",...}

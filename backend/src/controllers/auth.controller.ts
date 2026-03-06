@@ -27,6 +27,7 @@ export class AuthController {
 
   /**
    * Configurator login - authenticate via Configurator API, sync with HRMS, return HRMS tokens + modules
+   * Falls back to local HRMS login when Configurator is unavailable (5xx, connection error, DB error)
    * POST /api/v1/auth/configurator/login
    * Body: { username, password, company_id }
    */
@@ -39,9 +40,41 @@ export class AuthController {
       if (!company_id) {
         throw new AppError('company_id is required. Set CONFIGURATOR_DEFAULT_COMPANY_ID in .env or pass in request.', 400);
       }
-      const loginRes = await configuratorService.login({ username, password, company_id });
 
-      const decoded = configuratorService.decodeToken(loginRes.access_token);
+      let loginRes;
+      let useLocalFallback = false;
+      try {
+        loginRes = await configuratorService.login({ username, password, company_id });
+      } catch (configErr: any) {
+        // Always fall back to local HRMS login when Configurator fails (any reason)
+        console.warn('Configurator login failed, trying local HRMS login:', configErr?.message);
+        useLocalFallback = true;
+      }
+
+      // ── Local HRMS fallback ──────────────────────────────────────────────
+      if (useLocalFallback) {
+        try {
+          const localResult = await authService.login({ email: username, password });
+          return res.status(200).json({
+            status: 'success',
+            message: 'Login successful',
+            data: {
+              user: localResult.user,
+              tokens: {
+                accessToken: localResult.tokens.accessToken,
+                refreshToken: localResult.tokens.refreshToken,
+              },
+              modules: [],
+            },
+          });
+        } catch (localErr: any) {
+          // Both Configurator and local failed — return clear error
+          throw new AppError('Invalid email or password', 401);
+        }
+      }
+      // ── End fallback ─────────────────────────────────────────────────────
+
+      const decoded = configuratorService.decodeToken(loginRes!.access_token);
       const configuratorUserId = decoded?.sub ? parseInt(decoded.sub, 10) : null;
       const email = decoded?.email || username;
       const companyId = decoded?.company_id ?? company_id;
@@ -202,10 +235,10 @@ export class AuthController {
       let modules: any[] = [];
       try {
         const roleId =
-          loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
+          loginRes!.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
         if (roleId != null && companyId != null) {
           modules = await configuratorService.getUserAssignedModules(
-            loginRes.access_token,
+            loginRes!.access_token,
             roleId,
             companyId
           );
@@ -225,8 +258,8 @@ export class AuthController {
         where: { id: hrmsUser.id },
         data: {
           refreshToken: tokens.refreshToken,
-          configuratorAccessToken: loginRes.access_token,
-          configuratorRefreshToken: loginRes.refresh_token,
+          configuratorAccessToken: loginRes!.access_token,
+          configuratorRefreshToken: loginRes!.refresh_token,
           lastLoginAt: new Date(),
           loginAttempts: 0,
           lockedUntil: null,
