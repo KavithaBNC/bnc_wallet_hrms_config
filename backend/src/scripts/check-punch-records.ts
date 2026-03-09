@@ -22,6 +22,30 @@ async function main() {
     console.log('  No device found with this serial.');
   }
 
+  console.log('\n--- 1b. attendance_logs (by device serial CQZ7224460246 on 2026-03-09) ---');
+  if (!device) {
+    console.log('  Skipped (device not found).');
+  } else {
+    const logsByDevice = await prisma.attendanceLog.findMany({
+      where: {
+        deviceId: device.id,
+        punchTimestamp: { gte: PUNCH_DAY_START, lt: PUNCH_DAY_END },
+      },
+      orderBy: { punchTimestamp: 'desc' },
+      take: 20,
+    });
+    if (logsByDevice.length === 0) {
+      console.log('  No attendance_logs for this device on 2026-03-09.');
+    } else {
+      console.log(`  Found ${logsByDevice.length} row(s) (showing up to 20):`);
+      logsByDevice.forEach((r) => {
+        console.log(
+          `    id=${r.id} user_id=${r.userId} punch=${r.punchTimestamp.toISOString()} status=${r.status} employee_id=${r.employeeId ?? 'null'}`
+        );
+      });
+    }
+  }
+
   console.log('\n--- 2. attendance_logs (user_id=N001, punch ~10:41 on 2026-03-09) ---');
   const logs = await prisma.attendanceLog.findMany({
     where: {
