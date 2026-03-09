@@ -9,6 +9,12 @@ import * as iclockController from '../controllers/iclock.controller';
 
 const router = Router();
 
+// Health check for iclock — use to verify the route is reachable from device network
+// GET /iclock/ping → "iclock OK"
+router.get('/ping', (_req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.status(200).send('iclock OK');
+});
 
 router.get('/cdata', iclockController.getCdata);
 // Body is already parsed as text by app-level middleware (accepts any Content-Type)

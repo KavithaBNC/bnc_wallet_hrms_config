@@ -20,8 +20,11 @@ const app: Application = express();
 // MIDDLEWARE
 // ============================================================================
 
-// Security middleware
-app.use(helmet());
+// Security middleware — skip helmet for biometric device routes (eSSL devices choke on CSP/HSTS headers)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/iclock')) return next();
+  return helmet()(req, res, next);
+});
 
 // CORS configuration
 const corsOptions = {
