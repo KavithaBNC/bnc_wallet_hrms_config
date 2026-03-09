@@ -282,7 +282,6 @@ async function syncAttendanceRecordFromLogs(employeeId: string, punchDate: Date)
  */
 export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ processed: number; skipped: number; errors: string[] }> {
   const result = { processed: 0, skipped: 0, errors: [] as string[] };
-  console.log('Attempting to insert into DB:', records);
 
   // Must loop: device can send up to MaxLogCount (e.g. 50) records in one POST
   for (const rec of records) {
@@ -356,15 +355,28 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
     const employeeId = await resolveEmployeeId(rec.userId, device.companyId);
     logger.info(`[iclock] Employee resolution: userId="${rec.userId}" companyId=${device.companyId} → employeeId=${employeeId ?? 'NULL (not matched)'}`);
 
-    try {
-      // Store punch_timestamp as literal string so DB has exact device date/time (Prisma would convert to UTC)
-      // Also store created_at in Local Time (IST) explicitly
-      const createdAtLiteral = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).replace('T', ' ');
+    const userIdTrimmed = (rec.userId || '').trim();
+    if (!userIdTrimmed) {
+      result.skipped++;
+      result.errors.push('Missing or empty userId in punch record');
+      continue;
+    }
 
-      await prisma.$executeRaw`
-        INSERT INTO attendance_logs (device_id, user_id, punch_timestamp, status, employee_id, punch_source, created_at)
-        VALUES (${device.id}::uuid, ${rec.userId.trim()}, ${literalTs}::timestamp, ${rec.status.trim()}, ${employeeId ?? null}::uuid, 'BIOMETRIC', ${createdAtLiteral}::timestamp)
-      `;
+    try {
+      // Use Prisma create so user_id and employee_id are stored reliably (raw SQL binding was leaving them null for some payloads)
+      // Interpret device timestamp as IST for consistent storage
+      const punchTimestampDate = new Date(literalTs.replace(' ', 'T') + '+05:30');
+
+      await prisma.attendanceLog.create({
+        data: {
+          deviceId: device.id,
+          userId: userIdTrimmed,
+          punchTimestamp: punchTimestampDate,
+          status: (rec.status || '0').trim(),
+          employeeId: employeeId ?? undefined,
+          punchSource: 'BIOMETRIC',
+        },
+      });
       result.processed++;
 
       // Also insert into attendance_punches so calendar (and universal punch list) shows the device punch
