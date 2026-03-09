@@ -367,7 +367,7 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
       // Interpret device timestamp as IST for consistent storage
       const punchTimestampDate = new Date(literalTs.replace(' ', 'T') + '+05:30');
 
-      await prisma.attendanceLog.create({
+      const createdLog = await prisma.attendanceLog.create({
         data: {
           deviceId: device.id,
           userId: userIdTrimmed,
@@ -377,6 +377,9 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
           punchSource: 'BIOMETRIC',
         },
       });
+      logger.info(
+        `[iclock] attendance_logs inserted id=${createdLog.id} userId=${userIdTrimmed} employeeId=${employeeId ?? 'null'} deviceId=${device.id}`
+      );
       result.processed++;
 
       // Also insert into attendance_punches so calendar (and universal punch list) shows the device punch
@@ -412,7 +415,11 @@ export async function processAdmsRecords(records: AdmsPunchRecord[]): Promise<{ 
       const msg = err instanceof Error ? err.message : String(err);
       result.errors.push(msg);
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger.warn(`iclock/cdata: insert failed userId=${rec.userId} serialNumber=${rec.serialNumber} - ${errMsg}`);
+      const errStack = err instanceof Error ? err.stack : undefined;
+      logger.error(
+        `[iclock] attendance_logs insert failed userId=${rec.userId} serialNumber=${rec.serialNumber} deviceId=${device.id} employeeId=${employeeId ?? 'null'} literalTs=${literalTs} - ${errMsg}`
+      );
+      if (errStack) logger.error(errStack);
     }
   }
 

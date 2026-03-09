@@ -149,7 +149,12 @@ export async function postCdata(req: Request, res: Response, next: NextFunction)
     }
 
     const records = parseAdmsBody(rawBody);
-    logger.info(`[iclock] POST parsed ${records.length} record(s) from body (${rawBody.length} chars)`);
+    const sample = records[0]
+      ? ` userId=${records[0].userId} ts=${records[0].timestamp} status=${records[0].status} sn=${records[0].serialNumber || querySn || '-'}`
+      : '';
+    logger.info(
+      `[iclock] POST parsed ${records.length} record(s) from body (${rawBody.length} chars).${sample}`
+    );
     if (records.length === 0) {
       return res.status(200).send('OK');
     }
@@ -161,7 +166,13 @@ export async function postCdata(req: Request, res: Response, next: NextFunction)
       }
     }
 
-    await processAdmsRecords(records);
+    const result = await processAdmsRecords(records);
+    logger.info(
+      `[iclock] POST processed=${result.processed} skipped=${result.skipped} errors=${result.errors.length}`
+    );
+    if (result.errors.length > 0) {
+      logger.warn(`[iclock] POST processing errors sample: ${result.errors.slice(0, 3).join(' | ')}`);
+    }
     // Respond with OK so device clears its buffer (many eSSL/iClock devices expect "OK" only)
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('OK');
