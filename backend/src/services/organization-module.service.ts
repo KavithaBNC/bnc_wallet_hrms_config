@@ -32,12 +32,21 @@ export const ASSIGNABLE_MODULE_RESOURCES = [
   'employee_separations',
   'employee_rejoin',
   'salary_structures',
+  'salary_templates',
   'employee_salaries',
   'hr_audit_settings',
   'employee_master_approval',
   'esop',
   'transfer_promotions',
   'transfer_promotion_entry',
+  'fnf_settlements',
+  'employee_loans',
+  'statutory_compliance',
+  'epf_processing',
+  'esic_processing',
+  'professional_tax',
+  'tds_income_tax',
+  'reports',
 ] as const;
 
 export type AssignableModuleResource = (typeof ASSIGNABLE_MODULE_RESOURCES)[number];

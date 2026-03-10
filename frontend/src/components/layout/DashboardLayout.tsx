@@ -237,9 +237,19 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
     </svg>
   ),
+  '/salary-structure': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  ),
   '/salary-structures': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>
+  ),
+  '/salary-templates': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
     </svg>
   ),
   '/employee-salaries': (
@@ -300,6 +310,46 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
   '/transaction/paygroup-transfer': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+    </svg>
+  ),
+  '/reports': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/payroll-register': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/epf': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/esic': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/professional-tax': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/tds-working': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/form16': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  ),
+  '/reports/fnf-settlement': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
 };
@@ -432,11 +482,44 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [isSuperAdmin, hasView, isHrOrOrgAdmin, hasAnyReadPermission, canAccessEventByRole, canAccessEventApprovalByRole, isHr]);
 
   // Payroll Master dropdown: open when current path is under its children (e.g. /payroll/employee-separation)
-  const payrollMasterDropdownOpen = location.pathname.startsWith('/payroll/');
+  const payrollMasterDropdownOpen =
+    location.pathname.startsWith('/payroll/employee-separation') ||
+    location.pathname.startsWith('/payroll/fnf-settlement') ||
+    location.pathname.startsWith('/payroll/loans') ||
+    location.pathname.startsWith('/payroll/employee-rejoin');
   const [payrollMasterExpanded, setPayrollMasterExpanded] = useState(payrollMasterDropdownOpen);
   useEffect(() => {
     if (payrollMasterDropdownOpen) setPayrollMasterExpanded(true);
   }, [payrollMasterDropdownOpen]);
+
+  // Payroll dropdown: open when current path is under its sub-items
+  const payrollDropdownOpen =
+    location.pathname === '/payroll/dashboard' ||
+    location.pathname === '/payroll/run' ||
+    location.pathname === '/payroll/history' ||
+    location.pathname.startsWith('/payroll/employee/') ||
+    location.pathname.startsWith('/payroll/payslip/');
+  const [payrollExpanded, setPayrollExpanded] = useState(payrollDropdownOpen);
+  useEffect(() => {
+    if (payrollDropdownOpen) setPayrollExpanded(true);
+  }, [payrollDropdownOpen]);
+
+  // Statutory Compliance dropdown
+  const statutoryDropdownOpen = location.pathname.startsWith('/statutory');
+  const [statutoryExpanded, setStatutoryExpanded] = useState(statutoryDropdownOpen);
+  useEffect(() => {
+    if (statutoryDropdownOpen) setStatutoryExpanded(true);
+  }, [statutoryDropdownOpen]);
+
+  // Salary Structure dropdown: open when current path is under /salary-structures, /salary-templates, or /employee-salaries
+  const salaryStructureDropdownOpen =
+    location.pathname.startsWith('/salary-structures') ||
+    location.pathname.startsWith('/salary-templates') ||
+    location.pathname.startsWith('/employee-salaries');
+  const [salaryStructureExpanded, setSalaryStructureExpanded] = useState(salaryStructureDropdownOpen);
+  useEffect(() => {
+    if (salaryStructureDropdownOpen) setSalaryStructureExpanded(true);
+  }, [salaryStructureDropdownOpen]);
 
   // Transaction dropdown: open when current path is under /transaction
   const transactionDropdownOpen = location.pathname.startsWith('/transaction');
@@ -496,6 +579,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   useEffect(() => {
     if (coreHrDropdownOpen) setCoreHrExpanded(true);
   }, [coreHrDropdownOpen]);
+
+  // Reports dropdown: open when current path is under /reports
+  const reportsDropdownOpen = location.pathname.startsWith('/reports');
+  const [reportsExpanded, setReportsExpanded] = useState(reportsDropdownOpen);
+  useEffect(() => {
+    if (reportsDropdownOpen) setReportsExpanded(true);
+  }, [reportsDropdownOpen]);
 
   // Attendance dropdown: open when current path is under /attendance/
   const attendanceDropdownOpen = location.pathname.startsWith('/attendance/');
@@ -607,7 +697,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const icon = ICONS_BY_PATH[mod.path];
             const childItems = visibleNavItems.filter((m) => m.parentPath === mod.path);
             const isParentWithChildren = childItems.length > 0;
+            const isPayroll = mod.path === '/payroll';
             const isPayrollMaster = mod.path === '/payroll-master';
+            const isStatutory = mod.path === '/statutory';
             const isTransaction = mod.path === '/transaction';
             const isTimeAttendance = mod.path === '/time-attendance';
             const isLeave = mod.path === '/leave';
@@ -618,9 +710,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             const isHrActivities = mod.path === '/hr-activities';
             const isOthersConfiguration = mod.path === '/others-configuration';
             const isCoreHr = mod.path === '/core-hr';
-            const expanded = isPayrollMaster ? payrollMasterExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isLeave ? leaveExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isAttendance ? attendanceExpanded : isEventConfiguration ? eventConfigurationExpanded : isHrActivities ? hrActivitiesExpanded : isOthersConfiguration ? othersConfigurationExpanded : isCoreHr ? coreHrExpanded : false;
-            const setExpanded = isPayrollMaster ? setPayrollMasterExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isLeave ? setLeaveExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isAttendance ? setAttendanceExpanded : isEventConfiguration ? setEventConfigurationExpanded : isHrActivities ? setHrActivitiesExpanded : isOthersConfiguration ? setOthersConfigurationExpanded : isCoreHr ? setCoreHrExpanded : () => {};
-            const dropdownOpen = isPayrollMaster ? payrollMasterDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isLeave ? leaveDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isAttendance ? attendanceDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : isHrActivities ? hrActivitiesDropdownOpen : isOthersConfiguration ? othersConfigurationDropdownOpen : isCoreHr ? coreHrDropdownOpen : false;
+            const isSalaryStructure = mod.path === '/salary-structure';
+            const isReports = mod.path === '/reports';
+            const expanded = isPayroll ? payrollExpanded : isPayrollMaster ? payrollMasterExpanded : isStatutory ? statutoryExpanded : isTransaction ? transactionExpanded : isTimeAttendance ? timeAttendanceExpanded : isLeave ? leaveExpanded : isEsop ? esopExpanded : isAttendancePolicy ? attendancePolicyExpanded : isAttendance ? attendanceExpanded : isEventConfiguration ? eventConfigurationExpanded : isHrActivities ? hrActivitiesExpanded : isOthersConfiguration ? othersConfigurationExpanded : isCoreHr ? coreHrExpanded : isSalaryStructure ? salaryStructureExpanded : isReports ? reportsExpanded : false;
+            const setExpanded = isPayroll ? setPayrollExpanded : isPayrollMaster ? setPayrollMasterExpanded : isStatutory ? setStatutoryExpanded : isTransaction ? setTransactionExpanded : isTimeAttendance ? setTimeAttendanceExpanded : isLeave ? setLeaveExpanded : isEsop ? setEsopExpanded : isAttendancePolicy ? setAttendancePolicyExpanded : isAttendance ? setAttendanceExpanded : isEventConfiguration ? setEventConfigurationExpanded : isHrActivities ? setHrActivitiesExpanded : isOthersConfiguration ? setOthersConfigurationExpanded : isCoreHr ? setCoreHrExpanded : isSalaryStructure ? setSalaryStructureExpanded : isReports ? setReportsExpanded : () => {};
+            const dropdownOpen = isPayroll ? payrollDropdownOpen : isPayrollMaster ? payrollMasterDropdownOpen : isStatutory ? statutoryDropdownOpen : isTransaction ? transactionDropdownOpen : isTimeAttendance ? timeAttendanceDropdownOpen : isLeave ? leaveDropdownOpen : isEsop ? esopDropdownOpen : isAttendancePolicy ? attendancePolicyDropdownOpen : isAttendance ? attendanceDropdownOpen : isEventConfiguration ? eventConfigurationDropdownOpen : isHrActivities ? hrActivitiesDropdownOpen : isOthersConfiguration ? othersConfigurationDropdownOpen : isCoreHr ? coreHrDropdownOpen : isSalaryStructure ? salaryStructureDropdownOpen : isReports ? reportsDropdownOpen : false;
 
             if (isParentWithChildren) {
               return (

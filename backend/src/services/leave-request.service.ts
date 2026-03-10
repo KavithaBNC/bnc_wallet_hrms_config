@@ -768,6 +768,11 @@ export class LeaveRequestService {
     const startDate = this.parseDateOnly(data.startDate);
     const endDate = this.parseDateOnly(data.endDate);
 
+    // Validate date order
+    if (endDate < startDate) {
+      throw new AppError('Leave end date cannot be earlier than start date', 400);
+    }
+
     // Validate dates
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -1587,6 +1592,20 @@ export class LeaveRequestService {
       });
     }
 
+    // Auto-rebuild attendance summary for affected months (if summary already exists)
+    const affectedMonths = new Set<string>();
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      affectedMonths.add(`${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`);
+    }
+    for (const key of affectedMonths) {
+      const [y, m] = key.split('-').map(Number);
+      await monthlyAttendanceSummaryService.tryRebuildSummaryForDate(
+        leaveRequest.employee.organizationId,
+        leaveRequest.employeeId,
+        new Date(y, m - 1, 15) // mid-month date to derive year/month
+      );
+    }
+
     // Send approval notification to employee
     try {
       await emailService.sendLeaveRequestApprovedEmail(
@@ -1640,12 +1659,16 @@ export class LeaveRequestService {
       throw new AppError('Leave request not found', 404);
     }
 
-    if (leaveRequest.status !== LeaveStatus.PENDING) {
+    // Allow rejecting PENDING or APPROVED leaves (not CANCELLED, REJECTED, or EXPIRED)
+    const rejectableStatuses: LeaveStatus[] = [LeaveStatus.PENDING, LeaveStatus.APPROVED];
+    if (!rejectableStatuses.includes(leaveRequest.status)) {
       throw new AppError(
         `Cannot reject leave request. Current status: ${leaveRequest.status}`,
         400
       );
     }
+
+    const wasApproved = leaveRequest.status === LeaveStatus.APPROVED;
 
     await this.validateReviewerAccess(reviewerId, reviewerRole, leaveRequest);
 
@@ -1697,6 +1720,95 @@ export class LeaveRequestService {
         },
       },
     });
+
+    // ── Revert attendance records and leave balance if the leave was APPROVED ──
+    if (wasApproved) {
+      // 1. Restore leave balance
+      const year = new Date(leaveRequest.startDate).getUTCFullYear();
+      try {
+        const balance = await prisma.employeeLeaveBalance.findUnique({
+          where: {
+            employeeId_leaveTypeId_year: {
+              employeeId: leaveRequest.employeeId,
+              leaveTypeId: leaveRequest.leaveTypeId,
+              year,
+            },
+          },
+        });
+
+        if (balance) {
+          const restoredUsed = Math.max(
+            0,
+            parseFloat(balance.used.toString()) - parseFloat(leaveRequest.totalDays.toString())
+          );
+          const restoredAvailable =
+            parseFloat(balance.available.toString()) + parseFloat(leaveRequest.totalDays.toString());
+
+          await prisma.employeeLeaveBalance.update({
+            where: {
+              employeeId_leaveTypeId_year: {
+                employeeId: leaveRequest.employeeId,
+                leaveTypeId: leaveRequest.leaveTypeId,
+                year,
+              },
+            },
+            data: {
+              used: new Prisma.Decimal(restoredUsed),
+              available: new Prisma.Decimal(restoredAvailable),
+            },
+          });
+        }
+      } catch (balanceError) {
+        logger.error(
+          `Failed to restore leave balance for employee ${leaveRequest.employeeId} on rejection:`,
+          balanceError
+        );
+      }
+
+      // 2. Revert attendance records for each day in the leave period
+      const start = new Date(leaveRequest.startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(leaveRequest.endDate);
+      end.setHours(0, 0, 0, 0);
+
+      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateOnly = new Date(d);
+        dateOnly.setHours(0, 0, 0, 0);
+
+        const record = await prisma.attendanceRecord.findUnique({
+          where: {
+            employeeId_date: { employeeId: leaveRequest.employeeId, date: dateOnly },
+          },
+        });
+
+        if (record && (record.status === AttendanceStatus.LEAVE || record.status === AttendanceStatus.HALF_DAY)) {
+          // Check if employee had actual punch data — if so, restore to PRESENT
+          const hasPunchData = record.checkIn != null;
+          await prisma.attendanceRecord.update({
+            where: { id: record.id },
+            data: {
+              status: hasPunchData ? AttendanceStatus.PRESENT : AttendanceStatus.ABSENT,
+              notes: `Leave rejected — status reverted from ${record.status}`,
+            },
+          });
+        }
+      }
+
+      // 3. Auto-rebuild attendance summaries for affected months
+      const affectedMonths = new Set<string>();
+      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        affectedMonths.add(`${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`);
+      }
+      for (const key of affectedMonths) {
+        const [y, m] = key.split('-').map(Number);
+        await monthlyAttendanceSummaryService.tryRebuildSummaryForDate(
+          leaveRequest.employee.organizationId,
+          leaveRequest.employeeId,
+          new Date(y, m - 1, 15)
+        );
+      }
+    }
+    // ── End revert ──
 
     // Send rejection notification to employee
     try {

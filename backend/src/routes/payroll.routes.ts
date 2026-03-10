@@ -103,6 +103,13 @@ router.delete(
 // Employee Salary Routes
 // ============================================================================
 router.post(
+  '/employee-salaries/enhanced',
+  authenticate,
+  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  employeeSalaryController.createSalaryEnhanced.bind(employeeSalaryController)
+);
+
+router.post(
   '/employee-salaries',
   authenticate,
   authorize('ORG_ADMIN', 'HR_MANAGER'),
@@ -183,6 +190,13 @@ router.get(
   authenticate,
   authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
   payrollController.getAll.bind(payrollController)
+);
+
+router.get(
+  '/payroll-cycles/:id/pre-run-check',
+  authenticate,
+  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  payrollController.preRunCheck.bind(payrollController)
 );
 
 router.get(

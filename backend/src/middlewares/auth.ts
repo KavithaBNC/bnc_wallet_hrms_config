@@ -3,6 +3,7 @@ import { verifyToken, JwtPayload } from '../utils/jwt';
 import { AppError } from './errorHandler';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { isTokenBlacklisted } from '../utils/token-blacklist';
 
 const isDatabaseConnectivityError = (error: unknown): boolean => {
   const prismaErr = error as { code?: string; message?: string };
@@ -45,6 +46,11 @@ export const authenticate = async (
     }
 
     const token = authHeader.split(' ')[1];
+
+    // Reject tokens that have been blacklisted (e.g. logged out)
+    if (isTokenBlacklisted(token)) {
+      throw new AppError('Token has been invalidated. Please log in again.', 401);
+    }
 
     // Verify token
     const decoded = verifyToken(token);

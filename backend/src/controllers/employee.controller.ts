@@ -1,8 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
-import { employeeService } from '../services/employee.service';
+import { employeeService, decryptSensitiveEmployeeData, maskSensitiveEmployeeData } from '../services/employee.service';
 import { getEmployeeFieldsByRole } from '../middlewares/rbac';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+
+/** Returns fully decrypted data for SUPER_ADMIN, masked data for all other roles. */
+function applyDataSensitivity(employee: Record<string, any>, role: string | undefined): Record<string, any> {
+  if (role === 'SUPER_ADMIN') return decryptSensitiveEmployeeData(employee);
+  return maskSensitiveEmployeeData(employee);
+}
 
 export class EmployeeController {
   /**
@@ -12,21 +18,15 @@ export class EmployeeController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await employeeService.create(req.body);
-      const { temporaryPassword, ...employee } = result;
+      // Strip temporaryPassword from response — it is sent via email only.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { temporaryPassword: _pw, ...employee } = result;
 
-      const response: any = {
+      res.status(201).json({
         status: 'success',
-        message: 'Employee created successfully',
-        data: { employee },
-      };
-
-      // Include temporary password in response if it was generated
-      if (temporaryPassword) {
-        response.data.temporaryPassword = temporaryPassword;
-        response.message += '. Please save the temporary password below.';
-      }
-
-      res.status(201).json(response);
+        message: 'Employee created successfully. Login credentials have been sent to the employee\'s email.',
+        data: { employee: applyDataSensitivity(employee as any, req.user?.role) },
+      });
     } catch (error) {
       next(error);
     }
@@ -46,17 +46,13 @@ export class EmployeeController {
               select: { organizationId: true },
             }))?.organizationId ?? undefined;
       const result = await employeeService.rejoin(req.body, allowedOrganizationId);
-      const { temporaryPassword, ...employee } = result;
-      const response: any = {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { temporaryPassword: _pw, ...employee } = result;
+      res.status(201).json({
         status: 'success',
-        message: 'Employee rejoin successful. New employee record created.',
-        data: { employee },
-      };
-      if (temporaryPassword) {
-        response.data.temporaryPassword = temporaryPassword;
-        response.message += ' Please save the temporary password below.';
-      }
-      res.status(201).json(response);
+        message: 'Employee rejoin successful. Login credentials have been sent to the employee\'s email.',
+        data: { employee: applyDataSensitivity(employee as any, req.user?.role) },
+      });
     } catch (error) {
       next(error);
     }
@@ -130,7 +126,7 @@ export class EmployeeController {
 
       res.status(200).json({
         status: 'success',
-        data: { employee },
+        data: { employee: applyDataSensitivity(employee as any, req.user?.role) },
       });
       return;
     } catch (error) {
@@ -145,7 +141,7 @@ export class EmployeeController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      
+
       // Verify organization access before updating
       if (req.rbac?.organizationId) {
         const existing = await employeeService.getById(id);
@@ -162,7 +158,7 @@ export class EmployeeController {
       res.status(200).json({
         status: 'success',
         message: 'Employee updated successfully',
-        data: { employee },
+        data: { employee: applyDataSensitivity(employee as any, req.user?.role) },
       });
       return;
     } catch (error) {

@@ -66,11 +66,30 @@ import AssociateShiftChangePage from './pages/AssociateShiftChangePage';
 import AssociateShiftGridPage from './pages/AssociateShiftGridPage';
 import PayrollPage from './pages/PayrollPage';
 import PayrollMasterPage from './pages/PayrollMasterPage';
+import PayrollDashboardPage from './pages/PayrollDashboardPage';
+import RunPayrollPage from './pages/RunPayrollPage';
+import EmployeePayrollDetailsPage from './pages/EmployeePayrollDetailsPage';
+import PayslipPage from './pages/PayslipPage';
+import PayrollHistoryPage from './pages/PayrollHistoryPage';
+import StatutoryCompliancePage from './pages/StatutoryCompliancePage';
+import EpfProcessingPage from './pages/EpfProcessingPage';
+import EsicProcessingPage from './pages/EsicProcessingPage';
+import ProfessionalTaxPage from './pages/ProfessionalTaxPage';
+import TdsIncomeTaxPage from './pages/TdsIncomeTaxPage';
 import EmployeeSeparationPage from './pages/EmployeeSeparationPage';
+import FnfDashboardPage from './pages/FnfDashboardPage';
+import FnfInitiationPage from './pages/FnfInitiationPage';
+import FnfCalculationPage from './pages/FnfCalculationPage';
+import FnfApprovalPage from './pages/FnfApprovalPage';
+import FnfStatementPage from './pages/FnfStatementPage';
+import FnfHistoryPage from './pages/FnfHistoryPage';
+import LoanPage from './pages/LoanPage';
 import EmployeeRejoinPage from './pages/EmployeeRejoinPage';
 import EmployeeRejoinEditPage from './pages/EmployeeRejoinEditPage';
 import SalaryStructurePage from './pages/SalaryStructurePage';
+import SalaryTemplatePage from './pages/SalaryTemplatePage';
 import EmployeeSalariesPage from './pages/EmployeeSalariesPage';
+import EmployeeSalaryDetailPage from './pages/EmployeeSalaryDetailPage';
 import TransactionPage from './pages/TransactionPage';
 import TransferAndPromotionsPage from './pages/TransferAndPromotionsPage';
 import TransferPromotionEntryPage from './pages/TransferPromotionEntryPage';
@@ -91,6 +110,14 @@ import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
 import NotFoundPage from './pages/NotFoundPage';
 import VariableInputPage from './pages/VariableInputPage';
 import VariableInputEntryPage from './pages/VariableInputEntryPage';
+import ReportsDashboardPage from './pages/ReportsDashboardPage';
+import PayrollRegisterReportPage from './pages/PayrollRegisterReportPage';
+import EpfReportPage from './pages/EpfReportPage';
+import EsicReportPage from './pages/EsicReportPage';
+import PtReportPage from './pages/PtReportPage';
+import TdsWorkingReportPage from './pages/TdsWorkingReportPage';
+import Form16ReportPage from './pages/Form16ReportPage';
+import FnfReportPage from './pages/FnfReportPage';
 
 function App() {
   const { isAuthenticated, loadUser } = useAuthStore();
@@ -969,6 +996,106 @@ function App() {
             }
           />
           <Route
+            path="/payroll/dashboard"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PayrollDashboardPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/run"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <RunPayrollPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/history"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PayrollHistoryPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/statutory"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <StatutoryCompliancePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/statutory/epf"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EpfProcessingPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/statutory/esic"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EsicProcessingPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/statutory/professional-tax"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ProfessionalTaxPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/statutory/tds"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <TdsIncomeTaxPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/employee/:employeeId"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeePayrollDetailsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/payslip/:payslipId"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PayslipPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/payroll-master"
             element={
               <ProtectedRoute>
@@ -984,6 +1111,76 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <EmployeeSeparationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/fnf-settlement"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfDashboardPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/fnf-settlement/history"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfHistoryPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/fnf-settlement/initiate"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfInitiationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/fnf-settlement/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfCalculationPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/fnf-settlement/:id/approval"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfApprovalPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/fnf-settlement/:id/statement"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfStatementPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/payroll/loans"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LoanPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
@@ -1019,11 +1216,31 @@ function App() {
             }
           />
           <Route
+            path="/salary-templates"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <SalaryTemplatePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/employee-salaries"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
                   <EmployeeSalariesPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employee-salaries/:employeeId"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeSalaryDetailPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
@@ -1174,6 +1391,88 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <EmployeeMasterApprovalPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Reports Module */}
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ReportsDashboardPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/payroll-register"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PayrollRegisterReportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/epf"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EpfReportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/esic"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EsicReportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/professional-tax"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <PtReportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/tds-working"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <TdsWorkingReportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/form16"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <Form16ReportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports/fnf-settlement"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <FnfReportPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

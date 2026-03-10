@@ -13,7 +13,18 @@
  */
 
 import { Prisma } from '@prisma/client';
+import { decryptField } from './crypto-utils';
 import { SalaryComponent, calculateComponentValue, getTaxableIncome } from './salary-components';
+import type {
+  FullStatutoryConfig,
+  PfConfig,
+  EsiConfig,
+  PtSlabConfig,
+  TdsSlabConfig,
+  StandardDeductionConfig,
+  RebateConfig,
+} from '../services/statutory-config.service';
+import { resolvePtaxStateKey } from '../services/statutory-config.service';
 
 // ============================================================================
 // Types
@@ -54,57 +65,131 @@ export interface PayrollCalculationResult {
   basicSalary: number;
   grossSalary: number;
   netSalary: number;
-  
+
   // Earnings breakdown
   earnings: Array<{
     component: string;
     amount: number;
     isTaxable: boolean;
   }>;
-  
+
   // Deductions breakdown
   deductions: Array<{
     component: string;
     amount: number;
     type: string;
   }>;
-  
+
   // Attendance adjustments
   lopAmount: number; // Loss of Pay
   overtimeAmount: number;
-  
+
   // Tax details
   taxDetails: {
     taxableIncome: number;
     incomeTax: number;
     regime: 'OLD' | 'NEW';
+    panStatus: 'VALID' | 'MISSING' | 'INVALID';
+    higherTdsApplied: boolean;
     breakdown: Array<{
       slab: string;
       rate: number;
       amount: number;
     }>;
   };
-  
+
   // Statutory deductions
   statutoryDeductions: {
     pf: number;
+    employerEpf: number;
+    employerEps: number;
+    employerEdli: number;
+    employerAdmin: number;
     esi: number;
+    employerEsi: number;
     professionalTax: number;
     total: number;
+    employerTotal: number;
     breakdown: Array<{
       type: string;
       amount: number;
+      side: 'employee' | 'employer';
     }>;
   };
-  
+
   // Pro-rata information
   prorationFactor: number;
   paidDays: number;
   totalWorkingDays: number;
-  
+
   // Summary
   totalEarnings: number;
   totalDeductions: number;
+}
+
+// ============================================================================
+// PAN Validation
+// ============================================================================
+
+/** Validate PAN format: AAAAA0000A (5 letters, 4 digits, 1 letter) */
+export function validatePAN(pan?: string | null): 'VALID' | 'MISSING' | 'INVALID' {
+  if (!pan || pan.trim().length === 0) return 'MISSING';
+  const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+  return panRegex.test(pan.trim().toUpperCase()) ? 'VALID' : 'INVALID';
+}
+
+/** Higher TDS rate (20%) applied when PAN is missing/invalid per Section 206AA */
+const HIGHER_TDS_RATE = 0.20;
+
+// ============================================================================
+// HRA Calculation (Section 10(13A))
+// ============================================================================
+
+export interface HRAInput {
+  basicSalary: number;
+  hraReceived: number;
+  rentPaid: number;
+  isMetroCity: boolean; // Delhi, Mumbai, Kolkata, Chennai
+}
+
+/**
+ * Calculate HRA exemption under Section 10(13A) of IT Act
+ * Exempt = Minimum of:
+ *   1. Actual HRA received
+ *   2. Rent paid - 10% of Basic
+ *   3. 50% of Basic (metro) or 40% of Basic (non-metro)
+ */
+export function calculateHRAExemption(input: HRAInput): {
+  exemption: number;
+  taxableHRA: number;
+} {
+  const { basicSalary, hraReceived, rentPaid, isMetroCity } = input;
+
+  if (hraReceived <= 0 || rentPaid <= 0) {
+    return { exemption: 0, taxableHRA: hraReceived };
+  }
+
+  const actualHRA = hraReceived;
+  const rentMinusBasic = Math.max(0, rentPaid - (basicSalary * 0.10));
+  const percentOfBasic = basicSalary * (isMetroCity ? 0.50 : 0.40);
+
+  const exemption = Math.min(actualHRA, rentMinusBasic, percentOfBasic);
+  const taxableHRA = Math.max(0, hraReceived - exemption);
+
+  return { exemption, taxableHRA };
+}
+
+// ============================================================================
+// Bonus Calculation (Payment of Bonus Act, 1965)
+// ============================================================================
+
+/** Statutory bonus: minimum 8.33%, maximum 20% of Basic */
+export function calculateStatutoryBonus(
+  basicSalary: number,
+  bonusPercentage: number = 8.33
+): number {
+  const rate = Math.max(8.33, Math.min(bonusPercentage, 20));
+  return Math.round((basicSalary * rate) / 100);
 }
 
 // ============================================================================
@@ -139,7 +224,26 @@ export class PayrollCalculationEngine {
     taxRegime: 'OLD' | 'NEW' = 'NEW',
     _organizationId: string,
     /** From post_to_payroll_mappings: [{ columnKey, elementMapping }] – used for OT, LOP component names */
-    attendanceMappings?: Array<{ columnKey: string; elementMapping: string | null }>
+    attendanceMappings?: Array<{ columnKey: string; elementMapping: string | null }>,
+    /** Employee's state for PT calculation (e.g., 'TAMIL_NADU', 'MAHARASHTRA') */
+    state?: string,
+    /** Tax declarations for OLD regime deductions */
+    taxDeclarations?: {
+      section80C?: number;
+      section80D?: number;
+      section80CCD?: number;
+      hraExemption?: number;
+    },
+    /** YTD tax already paid (for monthly TDS projection adjustment) */
+    ytdTaxPaid?: number,
+    /** Current payroll month (1-12) — used for Maharashtra Feb PT adjustment */
+    payrollMonth?: number,
+    /** DB-driven statutory configuration (PF, ESI, PT, TDS, etc.) */
+    statutoryConfig?: FullStatutoryConfig,
+    /** Employee PAN number for TDS validation (Section 206AA) */
+    panNumber?: string | null,
+    /** Overtime rate multiplier (default 1.5x) — configurable per organization */
+    overtimeMultiplier?: number
   ): PayrollCalculationResult {
     const basicSalary = Number(employeeSalary.basicSalary);
     const grossSalary = Number(employeeSalary.grossSalary);
@@ -168,11 +272,12 @@ export class PayrollCalculationEngine {
       periodData.leaves.unpaidLeaveDays
     );
     
-    // Calculate overtime amount
+    // Calculate overtime amount (with configurable multiplier)
     const overtimeAmount = this.calculateOvertime(
       basicSalary,
       periodData.attendance.overtimeHours,
-      periodData.attendance.totalWorkingDays
+      periodData.attendance.totalWorkingDays,
+      overtimeMultiplier
     );
     
     // Calculate earnings from components
@@ -229,14 +334,44 @@ export class PayrollCalculationEngine {
       periodData.attendance.totalWorkingDays
     );
     
-    // Calculate tax
-    const taxDetails = this.calculateIncomeTax(taxableIncome, taxRegime);
-    
+    // Validate PAN for TDS (Section 206AA: higher TDS if PAN missing/invalid)
+    // Decrypt first in case PAN is stored encrypted in DB
+    const panStatus = validatePAN(decryptField(panNumber) as string | undefined);
+    let higherTdsApplied = false;
+
+    // Calculate tax (with standard deduction and 80C/80D for OLD regime)
+    let taxDetails = this.calculateMonthlyTDS(
+      taxableIncome,
+      taxRegime,
+      taxDeclarations,
+      ytdTaxPaid,
+      statutoryConfig?.standardDeduction,
+      taxRegime === 'NEW' ? statutoryConfig?.tdsNew : statutoryConfig?.tdsOld,
+      statutoryConfig?.rebate
+    );
+
+    // Section 206AA: If PAN is missing/invalid, apply higher TDS rate of 20%
+    if (panStatus !== 'VALID' && taxableIncome > 0) {
+      const higherTDS = Math.round((taxableIncome * HIGHER_TDS_RATE) / 12);
+      if (higherTDS > taxDetails.incomeTax) {
+        taxDetails = {
+          ...taxDetails,
+          incomeTax: higherTDS,
+        };
+        higherTdsApplied = true;
+      }
+    }
+
     // Calculate statutory deductions
     const statutoryDeductions = this.calculateStatutoryDeductions(
       adjustedGrossSalary,
       proratedBasicSalary,
-      _organizationId
+      _organizationId,
+      state,
+      payrollMonth,
+      statutoryConfig?.pf,
+      statutoryConfig?.esi,
+      state ? statutoryConfig?.pt[resolvePtaxStateKey(state) ?? state.toUpperCase().replace(/\s+/g, '_')] : undefined
     );
     
     // Add statutory deductions to total deductions
@@ -255,7 +390,11 @@ export class PayrollCalculationEngine {
       deductions,
       lopAmount,
       overtimeAmount,
-      taxDetails,
+      taxDetails: {
+        ...taxDetails,
+        panStatus,
+        higherTdsApplied,
+      },
       statutoryDeductions,
       prorationFactor,
       paidDays,
@@ -374,21 +513,23 @@ export class PayrollCalculationEngine {
   
   /**
    * Calculate overtime amount
+   * @param overtimeMultiplier - Configurable OT rate multiplier (default 1.5x per Factories Act, 1948)
    */
   static calculateOvertime(
     basicSalary: number,
     overtimeHours: number,
-    totalWorkingDays: number
+    totalWorkingDays: number,
+    overtimeMultiplier: number = 1.5
   ): number {
     if (totalWorkingDays === 0 || overtimeHours === 0) return 0;
-    
+
     // Calculate hourly rate (assuming 8 hours per day)
     const dailySalary = basicSalary / totalWorkingDays;
     const hourlyRate = dailySalary / 8;
-    
-    // Overtime is typically 1.5x or 2x the hourly rate
-    const overtimeRate = hourlyRate * 1.5; // 1.5x for overtime
-    
+
+    // Overtime rate: configurable multiplier (default 1.5x per Factories Act; 2x is also common)
+    const overtimeRate = hourlyRate * overtimeMultiplier;
+
     return overtimeRate * overtimeHours;
   }
   
@@ -450,9 +591,9 @@ export class PayrollCalculationEngine {
         });
       }
       
-      // Use same proration factor as basic salary
-      const amount = componentValue * finalProrationFactor;
-      
+      // Flat components (e.g. variable inputs) are paid as-is; others use the proration factor
+      const amount = component.isFlat ? componentValue : componentValue * finalProrationFactor;
+
       if (amount > 0) {
         earnings.push({
           component: component.name,
@@ -498,8 +639,9 @@ export class PayrollCalculationEngine {
         });
       }
       
-      const amount = componentValue * finalProrationFactor;
-      
+      // Flat components (e.g. variable deductions) are applied as-is; others use the proration factor
+      const amount = component.isFlat ? componentValue : componentValue * finalProrationFactor;
+
       if (amount > 0) {
         deductions.push({
           component: component.name,
@@ -529,9 +671,14 @@ export class PayrollCalculationEngine {
   }
   
   /**
-   * Calculate tax under New Tax Regime (FY 2023-24)
+   * Calculate tax under New Tax Regime (FY 2025-26 — Union Budget 2025)
+   * Accepts optional DB-driven TDS slab config and rebate config.
    */
-  static calculateNewTaxRegime(taxableIncome: number): {
+  static calculateNewTaxRegime(
+    taxableIncome: number,
+    tdsConfig?: TdsSlabConfig,
+    rebateConfig?: RebateConfig
+  ): {
     taxableIncome: number;
     incomeTax: number;
     regime: 'NEW';
@@ -540,39 +687,50 @@ export class PayrollCalculationEngine {
     const breakdown: Array<{ slab: string; rate: number; amount: number }> = [];
     let remainingIncome = taxableIncome;
     let totalTax = 0;
-    
-    // New Tax Regime Slabs (FY 2023-24)
-    const slabs = [
-      { min: 0, max: 300000, rate: 0 },
-      { min: 300000, max: 700000, rate: 5 },
-      { min: 700000, max: 1000000, rate: 10 },
-      { min: 1000000, max: 1200000, rate: 15 },
-      { min: 1200000, max: 1500000, rate: 20 },
-      { min: 1500000, max: Infinity, rate: 30 },
+
+    // Slabs from DB config or hardcoded defaults
+    const slabs = tdsConfig?.slabs ?? [
+      { min: 0, max: 400000, rate: 0 },
+      { min: 400000, max: 800000, rate: 5 },
+      { min: 800000, max: 1200000, rate: 10 },
+      { min: 1200000, max: 1600000, rate: 15 },
+      { min: 1600000, max: 2000000, rate: 20 },
+      { min: 2000000, max: 2400000, rate: 25 },
+      { min: 2400000, max: null as number | null, rate: 30 },
     ];
-    
+    const cessRate = tdsConfig?.cessRate ?? 4;
+
     for (const slab of slabs) {
       if (remainingIncome <= 0) break;
-      
-      const slabIncome = Math.min(remainingIncome, slab.max - slab.min);
+      const slabMax = slab.max === null ? Infinity : slab.max;
+
+      const slabIncome = Math.min(remainingIncome, slabMax - slab.min);
       if (slabIncome <= 0) continue;
-      
+
       const taxOnSlab = (slabIncome * slab.rate) / 100;
       totalTax += taxOnSlab;
-      
+
       breakdown.push({
-        slab: `₹${slab.min.toLocaleString()} - ₹${slab.max === Infinity ? '∞' : slab.max.toLocaleString()}`,
+        slab: `₹${slab.min.toLocaleString()} - ₹${slabMax === Infinity ? '∞' : slabMax.toLocaleString()}`,
         rate: slab.rate,
         amount: taxOnSlab,
       });
-      
+
       remainingIncome -= slabIncome;
     }
-    
-    // Add cess (4% of tax)
-    const cess = totalTax * 0.04;
+
+    // Rebate u/s 87A (from config or defaults)
+    const maxRebate = rebateConfig?.maxRebate ?? 60000;
+    const incomeLimit = rebateConfig?.incomeLimit ?? 1200000;
+    if (taxableIncome <= incomeLimit) {
+      const rebate = Math.min(totalTax, maxRebate);
+      totalTax = Math.max(0, totalTax - rebate);
+    }
+
+    // Add cess
+    const cess = totalTax * (cessRate / 100);
     totalTax += cess;
-    
+
     return {
       taxableIncome,
       incomeTax: totalTax,
@@ -580,11 +738,15 @@ export class PayrollCalculationEngine {
       breakdown,
     };
   }
-  
+
   /**
-   * Calculate tax under Old Tax Regime (FY 2023-24)
+   * Calculate tax under Old Tax Regime
+   * Accepts optional DB-driven TDS slab config.
    */
-  static calculateOldTaxRegime(taxableIncome: number): {
+  static calculateOldTaxRegime(
+    taxableIncome: number,
+    tdsConfig?: TdsSlabConfig
+  ): {
     taxableIncome: number;
     incomeTax: number;
     regime: 'OLD';
@@ -593,38 +755,38 @@ export class PayrollCalculationEngine {
     const breakdown: Array<{ slab: string; rate: number; amount: number }> = [];
     let remainingIncome = taxableIncome;
     let totalTax = 0;
-    
-    // Old Tax Regime Slabs (FY 2023-24)
-    // Note: Standard deduction of ₹50,000 and other deductions are assumed to be already applied
-    const slabs = [
+
+    const slabs = tdsConfig?.slabs ?? [
       { min: 0, max: 250000, rate: 0 },
       { min: 250000, max: 500000, rate: 5 },
       { min: 500000, max: 1000000, rate: 20 },
-      { min: 1000000, max: Infinity, rate: 30 },
+      { min: 1000000, max: null as number | null, rate: 30 },
     ];
-    
+    const cessRate = tdsConfig?.cessRate ?? 4;
+
     for (const slab of slabs) {
       if (remainingIncome <= 0) break;
-      
-      const slabIncome = Math.min(remainingIncome, slab.max - slab.min);
+      const slabMax = slab.max === null ? Infinity : slab.max;
+
+      const slabIncome = Math.min(remainingIncome, slabMax - slab.min);
       if (slabIncome <= 0) continue;
-      
+
       const taxOnSlab = (slabIncome * slab.rate) / 100;
       totalTax += taxOnSlab;
-      
+
       breakdown.push({
-        slab: `₹${slab.min.toLocaleString()} - ₹${slab.max === Infinity ? '∞' : slab.max.toLocaleString()}`,
+        slab: `₹${slab.min.toLocaleString()} - ₹${slabMax === Infinity ? '∞' : slabMax.toLocaleString()}`,
         rate: slab.rate,
         amount: taxOnSlab,
       });
-      
+
       remainingIncome -= slabIncome;
     }
-    
-    // Add cess (4% of tax)
-    const cess = totalTax * 0.04;
+
+    // Add cess
+    const cess = totalTax * (cessRate / 100);
     totalTax += cess;
-    
+
     return {
       taxableIncome,
       incomeTax: totalTax,
@@ -634,43 +796,198 @@ export class PayrollCalculationEngine {
   }
   
   /**
+   * Calculate Professional Tax based on state and gross salary
+   */
+  static calculateProfessionalTax(
+    grossSalary: number,
+    _state?: string,
+    month?: number,
+    ptConfig?: PtSlabConfig
+  ): number {
+    if (ptConfig) {
+      // Use DB-driven config
+      // Check specialMonths (e.g., Maharashtra February)
+      if (ptConfig.specialMonths && month !== undefined) {
+        const specialTax = ptConfig.specialMonths[String(month)];
+        if (specialTax !== undefined && grossSalary > (ptConfig.slabs[0]?.maxSalary ?? 0)) {
+          return specialTax;
+        }
+      }
+
+      for (const slab of ptConfig.slabs) {
+        const maxSalary = slab.maxSalary === null ? Infinity : slab.maxSalary;
+        if (grossSalary <= maxSalary) {
+          return slab.tax;
+        }
+      }
+      return ptConfig.defaultTax;
+    }
+
+    // Fallback: no config provided → default ₹200/month
+    return 200;
+  }
+
+  /**
    * Calculate statutory deductions (PF, ESI, Professional Tax)
+   * Compliant with Indian EPF/ESI/PT regulations.
+   * Accepts optional DB-driven configs; falls back to hardcoded defaults.
    */
   static calculateStatutoryDeductions(
     grossSalary: number,
     basicSalary: number,
-    _organizationId: string
+    _organizationId: string,
+    state?: string,
+    payrollMonth?: number,
+    pfConfig?: PfConfig,
+    esiConfig?: EsiConfig,
+    ptConfig?: PtSlabConfig
   ): {
     pf: number;
+    employerEpf: number;
+    employerEps: number;
+    employerEdli: number;
+    employerAdmin: number;
     esi: number;
+    employerEsi: number;
     professionalTax: number;
     total: number;
-    breakdown: Array<{ type: string; amount: number }>;
+    employerTotal: number;
+    breakdown: Array<{ type: string; amount: number; side: 'employee' | 'employer' }>;
   } {
-    const breakdown: Array<{ type: string; amount: number }> = [];
-    
-    // PF: 12% of (Basic + DA) - typically 12% of Basic
-    const pf = (basicSalary * 12) / 100;
-    breakdown.push({ type: 'Provident Fund (PF)', amount: pf });
-    
-    // ESI: 0.75% of Gross (if gross < ₹21,000 threshold)
-    const esi = grossSalary < 21000 ? (grossSalary * 0.75) / 100 : 0;
+    const breakdown: Array<{ type: string; amount: number; side: 'employee' | 'employer' }> = [];
+
+    // ---- PF (Provident Fund) ----
+    const wageCeiling = pfConfig?.wageCeiling ?? 15000;
+    const eeRate = pfConfig?.employeeRate ?? 12;
+    const epsRate = pfConfig?.employerEpsRate ?? 8.33;
+    const epfRate = pfConfig?.employerEpfRate ?? 3.67;
+    const edliRate = pfConfig?.edliRate ?? 0.5;
+    const adminRate = pfConfig?.adminChargeRate ?? 0.5;
+
+    const pfWage = Math.min(basicSalary, wageCeiling);
+
+    const pf = Math.round((pfWage * eeRate) / 100);
+    breakdown.push({ type: 'Provident Fund (Employee)', amount: pf, side: 'employee' });
+
+    const employerEps = Math.round((pfWage * epsRate) / 100);
+    const employerEpf = Math.round((pfWage * epfRate) / 100);
+    const employerEdli = Math.round((pfWage * edliRate) / 100);
+    const employerAdmin = Math.round((pfWage * adminRate) / 100);
+
+    breakdown.push({ type: 'EPF (Employer)', amount: employerEpf, side: 'employer' });
+    breakdown.push({ type: 'EPS (Employer)', amount: employerEps, side: 'employer' });
+    breakdown.push({ type: 'EDLI (Employer)', amount: employerEdli, side: 'employer' });
+    breakdown.push({ type: 'PF Admin Charges', amount: employerAdmin, side: 'employer' });
+
+    // ---- ESI (Employee State Insurance) ----
+    const esiThreshold = esiConfig?.grossThreshold ?? 21000;
+    const esiEeRate = esiConfig?.employeeRate ?? 0.75;
+    const esiErRate = esiConfig?.employerRate ?? 3.25;
+
+    const esi = grossSalary < esiThreshold
+      ? Math.round((grossSalary * esiEeRate) / 100)
+      : 0;
+    const employerEsi = grossSalary < esiThreshold
+      ? Math.round((grossSalary * esiErRate) / 100)
+      : 0;
+
     if (esi > 0) {
-      breakdown.push({ type: 'Employee State Insurance (ESI)', amount: esi });
+      breakdown.push({ type: 'ESI (Employee)', amount: esi, side: 'employee' });
     }
-    
-    // Professional Tax: Varies by state (simplified: ₹200 per month)
-    const professionalTax = 200;
-    breakdown.push({ type: 'Professional Tax', amount: professionalTax });
-    
+    if (employerEsi > 0) {
+      breakdown.push({ type: 'ESI (Employer)', amount: employerEsi, side: 'employer' });
+    }
+
+    // ---- Professional Tax ----
+    const professionalTax = this.calculateProfessionalTax(grossSalary, state, payrollMonth, ptConfig);
+    if (professionalTax > 0) {
+      breakdown.push({ type: 'Professional Tax', amount: professionalTax, side: 'employee' });
+    }
+
+    // Employee-side total (deducted from salary)
     const total = pf + esi + professionalTax;
-    
+    // Employer-side total (company cost, not deducted from employee salary)
+    const employerTotal = employerEpf + employerEps + employerEdli + employerAdmin + employerEsi;
+
     return {
       pf,
+      employerEpf,
+      employerEps,
+      employerEdli,
+      employerAdmin,
       esi,
+      employerEsi,
       professionalTax,
       total,
+      employerTotal,
       breakdown,
+    };
+  }
+
+  /**
+   * Calculate monthly TDS (Tax Deducted at Source) with projection
+   * Projects annual income, applies standard deduction and declarations,
+   * calculates annual tax, then derives monthly TDS.
+   * Accepts optional DB-driven configs; falls back to hardcoded defaults.
+   */
+  static calculateMonthlyTDS(
+    monthlyTaxableIncome: number,
+    regime: 'OLD' | 'NEW',
+    taxDeclarations?: {
+      section80C?: number;
+      section80D?: number;
+      section80CCD?: number;
+      hraExemption?: number;
+    },
+    ytdTaxPaid?: number,
+    stdDeductionConfig?: StandardDeductionConfig,
+    tdsConfig?: TdsSlabConfig,
+    rebateConfig?: RebateConfig
+  ): {
+    taxableIncome: number;
+    incomeTax: number;
+    regime: 'OLD' | 'NEW';
+    breakdown: Array<{ slab: string; rate: number; amount: number }>;
+  } {
+    // Project annual taxable income
+    let annualTaxableIncome = monthlyTaxableIncome * 12;
+
+    // Apply standard deduction (from config or defaults)
+    const standardDeduction = regime === 'NEW'
+      ? (stdDeductionConfig?.NEW ?? 75000)
+      : (stdDeductionConfig?.OLD ?? 50000);
+    annualTaxableIncome = Math.max(0, annualTaxableIncome - standardDeduction);
+
+    // Apply tax declarations (OLD regime only)
+    if (regime === 'OLD' && taxDeclarations) {
+      const section80C = Math.min(taxDeclarations.section80C || 0, 150000);
+      const section80D = Math.min(taxDeclarations.section80D || 0, 50000);
+      const section80CCD = Math.min(taxDeclarations.section80CCD || 0, 50000);
+      const hraExemption = taxDeclarations.hraExemption || 0;
+      annualTaxableIncome = Math.max(0,
+        annualTaxableIncome - section80C - section80D - section80CCD - hraExemption
+      );
+    }
+
+    // Calculate annual tax using regime slabs (DB config or inline defaults)
+    const annualTaxResult = regime === 'NEW'
+      ? this.calculateNewTaxRegime(annualTaxableIncome, tdsConfig, rebateConfig)
+      : this.calculateOldTaxRegime(annualTaxableIncome, tdsConfig);
+
+    // Monthly TDS = annual tax / 12
+    let monthlyTDS = annualTaxResult.incomeTax / 12;
+
+    // Adjust for YTD tax already paid (if provided, recalculate remaining monthly TDS)
+    if (ytdTaxPaid !== undefined && ytdTaxPaid > 0) {
+      const remainingTax = Math.max(0, annualTaxResult.incomeTax - ytdTaxPaid);
+      monthlyTDS = remainingTax / 12;
+    }
+
+    return {
+      taxableIncome: monthlyTaxableIncome,
+      incomeTax: Math.round(monthlyTDS),
+      regime: annualTaxResult.regime,
+      breakdown: annualTaxResult.breakdown,
     };
   }
 }

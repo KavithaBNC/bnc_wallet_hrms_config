@@ -24,6 +24,7 @@ import {
 } from '../utils/rights-allocation';
 import { readEntitlementDaysForEmployeeYear } from '../utils/auto-credit-entitlement';
 import { leaveBalanceService } from './leave-balance.service';
+import { monthlyAttendanceSummaryService } from './monthly-attendance-summary.service';
 
 const validationProcessRuleService = new ValidationProcessRuleService();
 
@@ -4398,6 +4399,20 @@ export class AttendanceService {
         }
       }
 
+      // Auto-rebuild attendance summaries for affected employees/months
+      const rebuiltSet = new Set<string>();
+      for (const row of selectedRows) {
+        const key = `${row.employeeId}-${new Date(row.date).getUTCFullYear()}-${new Date(row.date).getUTCMonth() + 1}`;
+        if (!rebuiltSet.has(key)) {
+          rebuiltSet.add(key);
+          await monthlyAttendanceSummaryService.tryRebuildSummaryForDate(
+            organizationId,
+            row.employeeId,
+            new Date(row.date)
+          );
+        }
+      }
+
       return { applied, errors, skipped };
     }
     // --- End direct component apply ---
@@ -5004,6 +5019,20 @@ export class AttendanceService {
         } else {
           errors.push({ employeeId, date: firstDate, message: msg });
         }
+      }
+    }
+
+    // Auto-rebuild attendance summaries for affected employees/months
+    const rebuiltSetRule = new Set<string>();
+    for (const row of selectedRows) {
+      const key = `${row.employeeId}-${new Date(row.date).getUTCFullYear()}-${new Date(row.date).getUTCMonth() + 1}`;
+      if (!rebuiltSetRule.has(key)) {
+        rebuiltSetRule.add(key);
+        await monthlyAttendanceSummaryService.tryRebuildSummaryForDate(
+          organizationId,
+          row.employeeId,
+          new Date(row.date)
+        );
       }
     }
 

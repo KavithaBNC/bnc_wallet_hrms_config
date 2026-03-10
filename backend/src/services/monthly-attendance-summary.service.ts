@@ -572,6 +572,50 @@ export class MonthlyAttendanceSummaryService {
 
     return null;
   }
+
+  /**
+   * Attempt to rebuild a summary for a specific employee + month.
+   * This is a safe hook for other services (leave, attendance correction) to call
+   * after mutating attendance data. If the month is LOCKED, the rebuild is silently
+   * skipped — the caller should NOT treat a locked month as an error, since the
+   * correction itself should have been blocked upstream.
+   *
+   * Returns true if rebuilt, false if skipped (locked or no existing summary).
+   */
+  async tryRebuildSummaryForDate(
+    organizationId: string,
+    employeeId: string,
+    date: Date
+  ): Promise<boolean> {
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+
+    // Only rebuild if a summary already exists for this employee+month.
+    // If HR hasn't built the initial summary yet, don't create one prematurely.
+    const existing = await prisma.monthlyAttendanceSummary.findUnique({
+      where: {
+        organizationId_employeeId_year_month: { organizationId, employeeId, year, month },
+      },
+      select: { status: true },
+    });
+
+    if (!existing) return false;
+
+    // If month is locked, skip silently
+    const locked = await this.isMonthLocked(organizationId, year, month);
+    if (locked) return false;
+
+    try {
+      await this.buildSummaryForEmployee({ organizationId, employeeId, year, month });
+      return true;
+    } catch (err) {
+      // Log but don't fail the parent operation
+      console.warn(
+        `[MonthlyAttendanceSummary] Auto-rebuild failed for employee ${employeeId}, ${year}-${month}: ${(err as Error)?.message}`
+      );
+      return false;
+    }
+  }
 }
 
 export const monthlyAttendanceSummaryService = new MonthlyAttendanceSummaryService();

@@ -208,8 +208,11 @@ export class PermissionService {
       'shifts',
       'payroll',
       'employee_separations',
+      'fnf_settlements',
+      'employee_loans',
       'employee_rejoin',
       'salary_structures',
+      'salary_templates',
       'employee_salaries',
       'hr_audit_settings',
       'employee_master_approval',
@@ -218,6 +221,12 @@ export class PermissionService {
       'permissions',
       'transfer_promotions',
       'transfer_promotion_entry',
+      'statutory_compliance',
+      'epf_processing',
+      'esic_processing',
+      'professional_tax',
+      'tds_income_tax',
+      'reports',
     ];
     const actions = ['read', 'create', 'update'] as const;
     const actionDescriptions: Record<string, string> = {

@@ -205,6 +205,8 @@ export interface SalaryComponent {
   formula?: string;
   baseComponent?: string; // For PERCENTAGE calculations, which component to base on
   description?: string;
+  /** When true, the component value is paid as a flat amount — no attendance proration applied */
+  isFlat?: boolean;
 }
 
 // ============================================================================

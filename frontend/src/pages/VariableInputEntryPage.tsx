@@ -42,6 +42,8 @@ export default function VariableInputEntryPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   const loadRows = useCallback(async () => {
     if (!organizationId || !paygroupId || !month || !year) return;
@@ -108,12 +110,40 @@ export default function VariableInputEntryPage() {
   };
 
   const handleSave = async () => {
+    if (!organizationId || !paygroupId || !month || !year) return;
     setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
     try {
-      // TODO: integrate with backend save API
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      // eslint-disable-next-line no-alert
-      alert('Variable input saved (mock). Wire to backend API later.');
+      await postToPayrollService.saveVariableInputEntry(
+        organizationId,
+        paygroupId,
+        parseInt(year, 10),
+        parseInt(month, 10),
+        rows.map((r) => ({
+          employeeId: r.id,
+          compensationSalary: r.compensationSalary,
+          lossOfPay: r.lossOfPay,
+          vehicleAllowance: r.vehicleAllowance,
+          nfh: r.nfh,
+          weekOff: r.weekOff,
+          otHours: r.otHours,
+          otherEarnings: r.otherEarnings,
+          incentive: r.incentive,
+          normalTax: r.normalTax,
+          salaryAdvance: r.salaryAdvance,
+          otherDeductions: r.otherDeductions,
+          ptax: r.ptax,
+        }))
+      );
+      setSaveSuccess('Variable input saved successfully.');
+      setTimeout(() => setSaveSuccess(null), 3000);
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : 'Failed to save variable input. Please try again.';
+      setSaveError(String(msg));
     } finally {
       setSaving(false);
     }
@@ -381,18 +411,26 @@ export default function VariableInputEntryPage() {
 
             {/* Footer buttons */}
             <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex flex-wrap justify-between items-center gap-3">
-              <button
-                type="button"
-                onClick={handleCancel}
-                disabled={saving}
-                className="inline-flex items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancel
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                {saveError && (
+                  <span className="text-sm text-red-600">{saveError}</span>
+                )}
+                {saveSuccess && (
+                  <span className="text-sm text-green-600">{saveSuccess}</span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || loading}
                 className="inline-flex items-center justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-60"
               >
                 {saving ? 'Saving...' : 'Save'}

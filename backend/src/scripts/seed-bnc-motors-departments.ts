@@ -52,6 +52,11 @@ const DEPARTMENTS: { name: string; code: string }[] = [
   { name: 'PDC MAINTENANACE', code: 'PDC_MAINTENANCE' },
   { name: 'Design Department', code: 'DESIGN_DEPT' },
   { name: 'Admin & Marketing', code: 'ADMIN_MARKETING' },
+  // Additional departments requested
+  { name: 'CRE', code: 'CRE' },
+  { name: 'BUSINESS OPERATIONS', code: 'BUSINESS_OPS' },
+  { name: 'Security loss and prevention', code: 'SEC_LOSS_PREV' },
+  { name: 'Fleet Operations', code: 'FLEET_OPS' },
 ];
 
 const prisma = new PrismaClient();

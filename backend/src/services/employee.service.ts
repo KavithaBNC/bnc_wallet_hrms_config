@@ -9,6 +9,78 @@ import {
   RejoinEmployeeInput,
 } from '../utils/employee.validation';
 import { hashPassword } from '../utils/password';
+import { encryptField, decryptField, maskPAN, maskAccountNumber } from '../utils/crypto-utils';
+
+/**
+ * Encrypt sensitive PII fields (PAN, Aadhaar, bank account) before persisting.
+ * Called on create and update.
+ */
+function encryptSensitiveEmployeeData(data: Record<string, any>): Record<string, any> {
+  const result = { ...data };
+
+  if (result['taxInformation'] && typeof result['taxInformation'] === 'object') {
+    const tax = { ...(result['taxInformation'] as Record<string, any>) };
+    if (tax['panNumber']) tax['panNumber'] = encryptField(tax['panNumber']) as string;
+    if (tax['aadhaarNumber']) tax['aadhaarNumber'] = encryptField(tax['aadhaarNumber']) as string;
+    result['taxInformation'] = tax;
+  }
+
+  if (result['bankDetails'] && typeof result['bankDetails'] === 'object') {
+    const bank = { ...(result['bankDetails'] as Record<string, any>) };
+    if (bank['accountNumber']) bank['accountNumber'] = encryptField(bank['accountNumber']) as string;
+    result['bankDetails'] = bank;
+  }
+
+  return result;
+}
+
+/**
+ * Decrypt sensitive PII fields when returning employee data to callers.
+ */
+export function decryptSensitiveEmployeeData(employee: Record<string, any>): Record<string, any> {
+  if (!employee) return employee;
+  const result = { ...employee };
+
+  if (result['taxInformation'] && typeof result['taxInformation'] === 'object') {
+    const tax = { ...(result['taxInformation'] as Record<string, any>) };
+    if (tax['panNumber']) tax['panNumber'] = decryptField(tax['panNumber']) as string;
+    if (tax['aadhaarNumber']) tax['aadhaarNumber'] = decryptField(tax['aadhaarNumber']) as string;
+    result['taxInformation'] = tax;
+  }
+
+  if (result['bankDetails'] && typeof result['bankDetails'] === 'object') {
+    const bank = { ...(result['bankDetails'] as Record<string, any>) };
+    if (bank['accountNumber']) bank['accountNumber'] = decryptField(bank['accountNumber']) as string;
+    result['bankDetails'] = bank;
+  }
+
+  return result;
+}
+
+/**
+ * Mask sensitive PII fields for roles that should not see full values.
+ * SUPER_ADMIN sees full decrypted values via decryptSensitiveEmployeeData().
+ * All other roles (ORG_ADMIN, HR_MANAGER, MANAGER, EMPLOYEE) get masked values.
+ */
+export function maskSensitiveEmployeeData(employee: Record<string, any>): Record<string, any> {
+  if (!employee) return employee;
+  const result = { ...employee };
+
+  if (result['taxInformation'] && typeof result['taxInformation'] === 'object') {
+    const tax = { ...(result['taxInformation'] as Record<string, any>) };
+    if (tax['panNumber']) tax['panNumber'] = maskPAN(tax['panNumber']);
+    if (tax['aadhaarNumber']) tax['aadhaarNumber'] = maskPAN(tax['aadhaarNumber']); // same masking pattern
+    result['taxInformation'] = tax;
+  }
+
+  if (result['bankDetails'] && typeof result['bankDetails'] === 'object') {
+    const bank = { ...(result['bankDetails'] as Record<string, any>) };
+    if (bank['accountNumber']) bank['accountNumber'] = maskAccountNumber(bank['accountNumber']);
+    result['bankDetails'] = bank;
+  }
+
+  return result;
+}
 
 export class EmployeeService {
   /**
@@ -166,6 +238,13 @@ export class EmployeeService {
       employeeCode = generatedCode;
     }
 
+    // Validate dateOfLeaving is not earlier than dateOfJoining (on create)
+    if (data.dateOfLeaving && data.dateOfJoining) {
+      if (new Date(data.dateOfLeaving) < new Date(data.dateOfJoining)) {
+        throw new AppError('Date of leaving cannot be earlier than date of joining', 400);
+      }
+    }
+
     // Check if email already exists as an employee
     const existingEmployee = await prisma.employee.findUnique({
       where: { email: data.email },
@@ -264,6 +343,25 @@ export class EmployeeService {
       }
     }
 
+    // Check if paygroup exists and belongs to the same organization (if provided)
+    if (data.paygroupId) {
+      const paygroup = await prisma.paygroup.findUnique({
+        where: { id: data.paygroupId },
+      });
+
+      if (!paygroup) {
+        throw new AppError('Paygroup not found', 404);
+      }
+
+      if (paygroup.organizationId !== data.organizationId) {
+        throw new AppError('Paygroup must belong to the same organization', 400);
+      }
+
+      if (!paygroup.isActive) {
+        throw new AppError('Cannot assign employee to an inactive paygroup', 400);
+      }
+    }
+
     // Create user account if userId not provided
     let userAccountId = userId;
     let temporaryPassword: string | null = null;
@@ -338,7 +436,8 @@ export class EmployeeService {
     let employee;
     try {
       employee = await prisma.employee.create({
-        data: createPayload(employeeCode),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: encryptSensitiveEmployeeData(createPayload(employeeCode) as Record<string, any>) as any,
         include,
       });
     } catch (err: unknown) {
@@ -353,11 +452,53 @@ export class EmployeeService {
           throw new AppError('Employee code already exists. Please use a different code or leave it blank to auto-generate.', 400);
         }
         employee = await prisma.employee.create({
-          data: createPayload(fallbackCode),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          data: encryptSensitiveEmployeeData(createPayload(fallbackCode) as Record<string, any>) as any,
           include,
         });
       } else {
         throw err;
+      }
+    }
+
+    // Auto-create EmployeeBankAccount if bank details are provided
+    if (data.bankDetails?.accountNumber && data.bankDetails?.bankName) {
+      try {
+        await prisma.employeeBankAccount.create({
+          data: {
+            employeeId: employee.id,
+            bankName: data.bankDetails.bankName,
+            accountNumber: encryptField(data.bankDetails.accountNumber) as string,
+            routingNumber: data.bankDetails.ifscCode || null,
+            accountType: 'SAVINGS',
+            isPrimary: true,
+            isActive: true,
+          },
+        });
+      } catch {
+        // Bank account creation failure should not block employee creation
+      }
+    }
+
+    // Auto-create EmployeeSalary if salary data is provided
+    if (data.basicSalary && data.grossSalary) {
+      try {
+        await prisma.employeeSalary.create({
+          data: {
+            employeeId: employee.id,
+            salaryStructureId: data.salaryStructureId || null,
+            effectiveDate: new Date(data.dateOfJoining),
+            basicSalary: data.basicSalary,
+            grossSalary: data.grossSalary,
+            netSalary: data.netSalary || Math.round(data.grossSalary * 0.85),
+            currency: 'INR',
+            paymentFrequency: 'MONTHLY',
+            isActive: true,
+            components: {},
+          } as any,
+        });
+      } catch {
+        // Salary creation failure should not block employee creation
       }
     }
 
@@ -839,6 +980,15 @@ export class EmployeeService {
       throw new AppError('Employee not found', 404);
     }
 
+    // Validate dateOfLeaving is not earlier than dateOfJoining
+    const joiningDate = data.dateOfJoining
+      ? new Date(data.dateOfJoining)
+      : existing.dateOfJoining;
+    const leavingDate = data.dateOfLeaving ? new Date(data.dateOfLeaving) : null;
+    if (leavingDate && joiningDate && leavingDate < joiningDate) {
+      throw new AppError('Date of leaving cannot be earlier than date of joining', 400);
+    }
+
     // Check if employee code is unique and not retired (if changed)
     if (data.employeeCode && data.employeeCode !== existing.employeeCode) {
       const duplicate = await prisma.employee.findUnique({
@@ -944,8 +1094,30 @@ export class EmployeeService {
       }
     }
 
+    // Check if paygroup exists and belongs to the same organization (if provided)
+    if (data.paygroupId !== undefined && data.paygroupId) {
+      const paygroup = await prisma.paygroup.findUnique({
+        where: { id: data.paygroupId },
+      });
+
+      if (!paygroup) {
+        throw new AppError('Paygroup not found', 404);
+      }
+
+      if (paygroup.organizationId !== existing.organizationId) {
+        throw new AppError('Paygroup must belong to the same organization', 400);
+      }
+
+      if (!paygroup.isActive) {
+        throw new AppError('Cannot assign employee to an inactive paygroup', 400);
+      }
+    }
+
     // Extract role from data (it's for User, not Employee)
-    const { role, ...employeeData } = data;
+    const { role, ...rawEmployeeData } = data;
+
+    // Encrypt sensitive PII before persisting
+    const employeeData = encryptSensitiveEmployeeData(rawEmployeeData);
 
     // Update user role if provided (only ORG_ADMIN and HR_MANAGER can do this)
     if (role && existing.userId) {

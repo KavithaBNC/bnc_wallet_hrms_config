@@ -4,6 +4,8 @@ import {
   UpdatePayslipInput,
 } from '../utils/payroll.validation';
 import { prisma } from '../utils/prisma';
+import { pdfService } from './pdf.service';
+import { sendPayslipEmail } from '../utils/mailer';
 
 export class PayslipService {
   /**
@@ -317,17 +319,16 @@ export class PayslipService {
   }
 
   /**
-   * Generate PDF for payslip (PDF generation skipped - placeholder)
+   * Generate PDF for payslip using PDFKit
    */
   async generatePDF(id: string): Promise<{ pdfUrl: string; pdfBuffer: Buffer }> {
-    // Verify payslip exists
-    await this.getById(id);
+    // Generate the actual PDF buffer
+    const pdfBuffer = await pdfService.generatePayslipPDF(id);
 
-    // PDF generation skipped - return placeholder
-    const pdfUrl = `/payslips/${id}.pdf`;
-    const pdfBuffer = Buffer.from('PDF generation skipped');
+    // Persist the PDF and get the file URL
+    const pdfUrl = await pdfService.savePayslipPDF(id, pdfBuffer);
 
-    // Update payslip with PDF URL
+    // Update payslip record with PDF URL and status
     await prisma.payslip.update({
       where: { id },
       data: {
@@ -340,26 +341,52 @@ export class PayslipService {
   }
 
   /**
-   * Send payslip to employee (placeholder - in production, integrate with email service)
+   * Send payslip to employee via email with PDF attachment.
+   * Generates the PDF if not already generated.
+   * Returns the updated payslip and whether the email was delivered.
    */
-  async sendPayslip(id: string) {
+  async sendPayslip(id: string): Promise<{ payslip: any; emailSent: boolean }> {
     const payslip = await this.getById(id);
 
-    if (payslip.status !== 'GENERATED') {
-      throw new AppError('Payslip must be generated before sending', 400);
+    if (!['GENERATED', 'SENT'].includes(payslip.status)) {
+      throw new AppError('Payslip must be in GENERATED or SENT status before sending', 400);
     }
 
-    // In production, send email with PDF attachment
-    // await emailService.sendPayslip(payslip);
+    // Generate PDF buffer (re-generate if not yet done)
+    let pdfBuffer: Buffer;
+    try {
+      pdfBuffer = await pdfService.generatePayslipPDF(id);
+    } catch {
+      throw new AppError('Failed to generate payslip PDF for email attachment', 500);
+    }
+
+    // Resolve recipient email: officialEmail > email from employee record
+    const employeeAny = payslip.employee as any;
+    const recipientEmail: string | undefined =
+      employeeAny?.officialEmail?.trim() || employeeAny?.email?.trim();
+
+    let emailSent = false;
+    if (recipientEmail) {
+      const periodEnd = new Date(payslip.periodEnd);
+      const monthName = periodEnd.toLocaleString('en-IN', { month: 'long' });
+      const year = periodEnd.getFullYear();
+      const employeeName = `${employeeAny?.firstName ?? ''} ${employeeAny?.lastName ?? ''}`.trim();
+
+      emailSent = await sendPayslipEmail({
+        toEmail: recipientEmail,
+        employeeName,
+        month: monthName,
+        year,
+        pdfBuffer,
+      });
+    }
 
     const updated = await prisma.payslip.update({
       where: { id },
-      data: {
-        status: 'SENT',
-      },
+      data: { status: 'SENT' },
     });
 
-    return updated;
+    return { payslip: updated, emailSent };
   }
 }
 

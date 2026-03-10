@@ -18,7 +18,7 @@ export function toDisplayEmail(value: string | null | undefined): string {
   const v = value.trim();
   if (!v) return '';
   if (v.toLowerCase().includes('placeholder')) return '';
-  if (/@imported\.placeholder$/i.test(v)) return '';
+  if (/@imported\.(placeholder|local)$/i.test(v)) return '';
   return v;
 }
 

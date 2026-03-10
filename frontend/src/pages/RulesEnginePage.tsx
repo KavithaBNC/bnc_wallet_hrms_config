@@ -7,7 +7,7 @@ import rulesEngineService, { type RulesEngineRow } from '../services/rules-engin
 
 type TabKey = 'earnings' | 'deductions';
 
-const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived'];
+const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived', 'Conditional'];
 const COMPONENT_TYPE_OPTIONS = ['Default', 'Variable Input', 'Reimbursement', 'Deduction', 'Employer Contribution', 'System'];
 
 export default function RulesEnginePage() {

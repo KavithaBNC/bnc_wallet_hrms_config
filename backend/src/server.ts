@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { config } from './config/config';
 import { logger } from './utils/logger';
@@ -22,6 +23,27 @@ const app: Application = express();
 
 // Security middleware
 app.use(helmet());
+
+// ── Rate Limiting ──────────────────────────────────────────────────────────
+// Strict limit for auth routes (login, register, password reset)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests from this IP, please try again after 15 minutes.' },
+  skip: () => config.nodeEnv === 'development',
+});
+
+// General API limit — prevents abuse / DoS on all other routes
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests, please slow down.' },
+  skip: () => config.nodeEnv === 'development',
+});
 
 // CORS configuration
 const corsOptions = {
@@ -103,6 +125,7 @@ app.get('/api/v1', (_req: Request, res: Response) => {
       documents: '/api/v1/documents',
       reports: '/api/v1/reports',
       notifications: '/api/v1/notifications',
+      postToPayroll: '/api/v1/post-to-payroll',
     },
   });
 });
@@ -125,6 +148,10 @@ import shiftAssignmentRuleRoutes from './routes/shift-assignment-rule.routes';
 import permissionRoutes from './routes/permission.routes';
 import payrollRoutes from './routes/payroll.routes';
 import employeeSeparationRoutes from './routes/employee-separation.routes';
+import fnfSettlementRoutes from './routes/fnf-settlement.routes';
+import complianceReportRoutes from './routes/compliance-report.routes';
+import statutoryConfigRoutes from './routes/statutory-config.routes';
+import loanRoutes from './routes/loan.routes';
 import paygroupRoutes from './routes/paygroup.routes';
 import locationRoutes from './routes/location.routes';
 import entityRoutes from './routes/entity.routes';
@@ -154,7 +181,8 @@ app.use('/iclock', iclockRoutes);
 // iClock at root for devices with no path field (device sends to IP:port/ only)
 app.get('/', iclockController.getCdata);
 app.post('/', express.text({ type: 'text/plain', limit: '1mb' }), iclockController.postCdata);
-app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/auth', authLimiter, authRoutes);
+app.use('/api/v1', apiLimiter); // Apply general rate limit to all remaining API routes
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/positions', jobPositionRoutes);
@@ -182,6 +210,10 @@ app.use('/api/v1/post-to-payroll', postToPayrollRoutes);
 app.use('/api/v1/permissions', permissionRoutes);
 app.use('/api/v1/payroll', payrollRoutes);
 app.use('/api/v1/employee-separations', employeeSeparationRoutes);
+app.use('/api/v1/fnf-settlements', fnfSettlementRoutes);
+app.use('/api/v1/compliance-reports', complianceReportRoutes);
+app.use('/api/v1/statutory-config', statutoryConfigRoutes);
+app.use('/api/v1/loans', loanRoutes);
 app.use('/api/v1/paygroups', paygroupRoutes);
 app.use('/api/v1/locations', locationRoutes);
 app.use('/api/v1/entities', entityRoutes);

@@ -134,6 +134,12 @@ const POSITIONS = [
   'Miller operator',
   'Electrician',
   'Sr VMC Programmer',
+  // Additional requested designations
+  'Service Techinician',
+  'Service Technician',
+  'City Head',
+  'MIS EXECUTIVE',
+  'Accountant',
 ];
 
 function toCode(index: number): string {

@@ -1012,6 +1012,42 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         onSuccess?.();
       } else {
         const result = await createEmployee(submitData);
+
+        // Auto-create salary record if salary values were entered on the Salary tab
+        const grossToSave = salaryFixedGross + salaryVehicleAllowances;
+        if (grossToSave > 0 && result?.id) {
+          try {
+            await employeeSalaryService.createSalary({
+              employeeId: result.id,
+              effectiveDate: (formData.joiningDate || new Date().toISOString().split('T')[0]),
+              basicSalary: Math.round(grossToSave * 0.4),
+              grossSalary: grossToSave,
+              netSalary: Math.round(grossToSave * 0.75),
+              paymentFrequency: 'MONTHLY',
+              currency: 'INR',
+              components: { 'Fixed Gross': salaryFixedGross, 'Vehicle Allowances': salaryVehicleAllowances },
+            });
+          } catch {
+            // Salary setup is optional; don't block onboarding
+          }
+        }
+
+        // Auto-create bank account record if bank fields were filled on the Bank tab
+        if (formData.bankAccountNumber?.trim() && formData.bankName?.trim() && result?.id) {
+          try {
+            await employeeSalaryService.createBankAccount({
+              employeeId: result.id,
+              bankName: formData.bankName.trim(),
+              accountNumber: formData.bankAccountNumber.trim(),
+              routingNumber: formData.bankIfscCode?.trim() || undefined,
+              accountType: 'SAVINGS',
+              isPrimary: true,
+            });
+          } catch {
+            // Bank account setup is optional; don't block onboarding
+          }
+        }
+
         // Show temporary password modal if it was generated
         if (result.temporaryPassword) {
           setTemporaryPassword(result.temporaryPassword);
@@ -1975,6 +2011,22 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       {/* Statutory Details Tab */}
       {currentTab === 'statutory' && (
         <div className={`space-y-6 ${!isTabEditable('statutory') ? 'pointer-events-none opacity-75' : ''}`}>
+          {/* Compliance warnings for missing payroll-critical fields */}
+          {!isViewMode && (() => {
+            const warnings: string[] = [];
+            if (!formData.panNumber?.trim()) warnings.push('PAN number is missing — employee will attract 20% higher TDS (Section 206AA).');
+            if (!formData.uanNumber?.trim()) warnings.push('UAN number is missing — PF ECR report will have blank UAN for this employee.');
+            if (!formData.esiNumber?.trim() && formData.esiApplicable) warnings.push('ESI number is missing — ESIC report may be incomplete for this employee.');
+            if (warnings.length === 0) return null;
+            return (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 space-y-1">
+                <p className="text-sm font-semibold text-amber-800">Compliance Warnings (optional but recommended):</p>
+                {warnings.map((w, i) => (
+                  <p key={i} className="text-sm text-amber-700">• {w}</p>
+                ))}
+              </div>
+            );
+          })()}
           {/* Statutory fields – first 12 in specified order, then rest */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
             <h3 className="text-base font-medium text-gray-900">Statutory Numbers & Locations</h3>

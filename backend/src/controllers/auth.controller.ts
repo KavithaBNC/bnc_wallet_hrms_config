@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services/auth.service';
 import { AppError } from '../middlewares/errorHandler';
+import { blacklistToken } from '../utils/token-blacklist';
+import jwt from 'jsonwebtoken';
 
 export class AuthController {
   /**
@@ -118,6 +120,17 @@ export class AuthController {
     try {
       if (!req.user) {
         throw new AppError('Not authenticated', 401);
+      }
+
+      // Blacklist the current access token so it cannot be reused after logout
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.decode(token) as { exp?: number } | null;
+        if (decoded?.exp) {
+          const remainingMs = decoded.exp * 1000 - Date.now();
+          blacklistToken(token, remainingMs);
+        }
       }
 
       const result = await authService.logout(req.user.userId);

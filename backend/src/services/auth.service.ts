@@ -89,8 +89,8 @@ export class AuthService {
     // Note: ORG_ADMIN can only be created by HRMS_ADMIN via separate endpoint
     const userRole = data.role || 'EMPLOYEE';
 
-    // Create user
-    // NOTE: Email verification is commented out for testing - users are auto-verified
+    // Create user — email verification required in production, auto-verified in development
+    const isProduction = process.env.NODE_ENV === 'production';
     const user = await prisma.user.create({
       data: {
         email: data.email,
@@ -98,7 +98,7 @@ export class AuthService {
         role: userRole,
         organizationId: organization.id,
         emailVerificationToken,
-        isEmailVerified: true, // Auto-verify for testing (was: false)
+        isEmailVerified: !isProduction, // false in production (requires email link), true in dev
       },
     });
 

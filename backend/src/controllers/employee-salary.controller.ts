@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { employeeSalaryService } from '../services/employee-salary.service';
 import {
   createEmployeeSalarySchema,
+  createEmployeeSalaryEnhancedSchema,
   updateEmployeeSalarySchema,
   queryEmployeeSalariesSchema,
   createBankAccountSchema,
@@ -20,6 +21,20 @@ export class EmployeeSalaryController {
         success: true,
         data: salary,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Create employee salary (enhanced — supports template/structure assignment)
+   */
+  async createSalaryEnhanced(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = createEmployeeSalaryEnhancedSchema.parse(req.body);
+      const createdBy = (req as any).user?.userId;
+      const salary = await employeeSalaryService.createSalaryEnhanced(data, createdBy);
+      res.status(201).json({ success: true, data: salary });
     } catch (error) {
       next(error);
     }

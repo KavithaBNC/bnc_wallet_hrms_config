@@ -103,6 +103,12 @@ export const createEmployeeSchema = z.object({
   })).optional(),
 
   faceEncoding: z.array(z.number()).length(128).optional().nullable(),
+
+  // Onboarding shortcut: provide salary data at creation time to auto-create EmployeeSalary
+  salaryStructureId: z.string().uuid().optional().nullable(),
+  basicSalary: z.number().positive().optional(),
+  grossSalary: z.number().positive().optional(),
+  netSalary: z.number().positive().optional(),
 });
 
 /**

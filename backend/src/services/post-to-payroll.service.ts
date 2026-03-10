@@ -267,12 +267,12 @@ export class PostToPayrollService {
 
   /**
    * Get variable input entry rows for Core HR → Variable Input.
-   * Returns posted data (from MonthlyAttendanceSummary) for the given org, paygroup, month, year
-   * so that the Variable Input Entry page shows the same list as Post to Payroll for that period.
+   * Filters employees by paygroupId, pre-fills attendance values from MonthlyAttendanceSummary,
+   * and overlays any previously saved VariableInput records.
    */
   async getVariableInputEntry(
     organizationId: string,
-    _paygroupId: string,
+    paygroupId: string,
     year: number,
     month: number
   ): Promise<
@@ -294,7 +294,7 @@ export class PostToPayrollService {
       ptax: number;
     }>
   > {
-    // Variable Input should only be available when the month is posted to payroll.
+    // Variable Input requires the month to be posted to payroll first.
     const cycle = await prisma.payrollCycle.findUnique({
       where: {
         organizationId_payrollMonth_payrollYear: {
@@ -311,13 +311,13 @@ export class PostToPayrollService {
       );
     }
 
-    // For now, Variable Input shows all employees for the posted month
-    // (same as Post to Payroll preview), not filtered by paygroup.
+    // Fetch attendance summaries filtered by paygroup
     const summaries = await prisma.monthlyAttendanceSummary.findMany({
       where: {
         organizationId,
         year,
         month,
+        employee: { paygroupId },
       },
       include: {
         employee: {
@@ -332,26 +332,132 @@ export class PostToPayrollService {
       orderBy: { employee: { employeeCode: 'asc' } },
     });
 
+    // Load existing saved VariableInput records for this cycle (if any)
+    const existingInputs = await prisma.variableInput.findMany({
+      where: { payrollCycleId: cycle.id, organizationId },
+    });
+    const inputMap = new Map(
+      existingInputs.map((v) => [v.employeeId, v])
+    );
+
     return summaries.map((s) => {
       const overtimeHours = s.overtimeHours != null ? Number(s.overtimeHours) : 0;
       const lopDays = s.lopDays != null ? Number(s.lopDays) : 0;
+      const saved = inputMap.get(s.employeeId);
       return {
         employeeId: s.employeeId,
         associateCode: s.employee.employeeCode ?? '',
         associateName: `${s.employee.firstName ?? ''} ${s.employee.lastName ?? ''}`.trim(),
-        compensationSalary: 0,
-        lossOfPay: lopDays,
-        vehicleAllowance: 0,
-        nfh: s.holidayDays ?? 0,
-        weekOff: s.weekendDays ?? 0,
-        otHours: overtimeHours,
-        otherEarnings: 0,
-        incentive: 0,
-        normalTax: 0,
-        salaryAdvance: 0,
-        otherDeductions: 0,
-        ptax: 0,
+        // If previously saved, return saved values; otherwise use attendance defaults
+        compensationSalary: saved ? Number(saved.compensationSalary) : 0,
+        lossOfPay:          saved ? Number(saved.lossOfPay) : lopDays,
+        vehicleAllowance:   saved ? Number(saved.vehicleAllowance) : 0,
+        nfh:                saved ? Number(saved.nfh) : (s.holidayDays != null ? Number(s.holidayDays) : 0),
+        weekOff:            saved ? Number(saved.weekOff) : (s.weekendDays != null ? Number(s.weekendDays) : 0),
+        otHours:            saved ? Number(saved.otHours) : overtimeHours,
+        otherEarnings:      saved ? Number(saved.otherEarnings) : 0,
+        incentive:          saved ? Number(saved.incentive) : 0,
+        normalTax:          saved ? Number(saved.normalTax) : 0,
+        salaryAdvance:      saved ? Number(saved.salaryAdvance) : 0,
+        otherDeductions:    saved ? Number(saved.otherDeductions) : 0,
+        ptax:               saved ? Number(saved.ptax) : 0,
       };
     });
+  }
+
+  /**
+   * Save (upsert) variable input rows for a given paygroup/month/year.
+   * The payroll cycle must be in DRAFT status to allow edits.
+   */
+  async saveVariableInputEntry(
+    organizationId: string,
+    paygroupId: string,
+    year: number,
+    month: number,
+    rows: Array<{
+      employeeId: string;
+      compensationSalary: number;
+      lossOfPay: number;
+      vehicleAllowance: number;
+      nfh: number;
+      weekOff: number;
+      otHours: number;
+      otherEarnings: number;
+      incentive: number;
+      normalTax: number;
+      salaryAdvance: number;
+      otherDeductions: number;
+      ptax: number;
+    }>
+  ): Promise<void> {
+    const cycle = await prisma.payrollCycle.findUnique({
+      where: {
+        organizationId_payrollMonth_payrollYear: {
+          organizationId,
+          payrollMonth: month,
+          payrollYear: year,
+        },
+      },
+    });
+    if (!cycle) {
+      throw new AppError(
+        'Month is not posted to payroll. Please post the month first from HR Activities → Post to Payroll.',
+        400
+      );
+    }
+    if (cycle.status !== 'DRAFT') {
+      throw new AppError(
+        `Cannot edit variable input for a payroll cycle in ${cycle.status} status.`,
+        400
+      );
+    }
+
+    // Upsert all rows atomically
+    await prisma.$transaction(
+      rows.map((row) =>
+        prisma.variableInput.upsert({
+          where: {
+            payrollCycleId_employeeId: {
+              payrollCycleId: cycle.id,
+              employeeId: row.employeeId,
+            },
+          },
+          update: {
+            compensationSalary: row.compensationSalary,
+            lossOfPay:          row.lossOfPay,
+            vehicleAllowance:   row.vehicleAllowance,
+            nfh:                row.nfh,
+            weekOff:            row.weekOff,
+            otHours:            row.otHours,
+            otherEarnings:      row.otherEarnings,
+            incentive:          row.incentive,
+            normalTax:          row.normalTax,
+            salaryAdvance:      row.salaryAdvance,
+            otherDeductions:    row.otherDeductions,
+            ptax:               row.ptax,
+          },
+          create: {
+            organizationId,
+            payrollCycleId: cycle.id,
+            employeeId:     row.employeeId,
+            paygroupId,
+            year,
+            month,
+            compensationSalary: row.compensationSalary,
+            lossOfPay:          row.lossOfPay,
+            vehicleAllowance:   row.vehicleAllowance,
+            nfh:                row.nfh,
+            weekOff:            row.weekOff,
+            otHours:            row.otHours,
+            otherEarnings:      row.otherEarnings,
+            incentive:          row.incentive,
+            normalTax:          row.normalTax,
+            salaryAdvance:      row.salaryAdvance,
+            otherDeductions:    row.otherDeductions,
+            ptax:               row.ptax,
+          },
+        })
+      )
+    );
   }
 }

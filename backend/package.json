@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "kill-port": "npx --yes kill-port 5000 5001",
-    "dev": "nodemon --exec \"ts-node -r tsconfig-paths/register\" src/server.ts",
+    "dev": "npm run kill-port && nodemon --exec \"ts-node -r tsconfig-paths/register\" src/server.ts",
     "dev:direct": "ts-node -r tsconfig-paths/register src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
