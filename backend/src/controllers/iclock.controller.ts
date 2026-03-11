@@ -126,6 +126,7 @@ export async function postCdata(req: Request, res: Response, next: NextFunction)
       }
     } else {
       rawBody = '';
+      logger.warn(`[iclock] POST body is empty/undefined (Content-Type: ${req.headers['content-type'] ?? 'none'}). Device may be sending with unsupported content type.`);
     }
 
     // eSSL cdata.aspx sends SN (serial) in query string; merge into body if missing
@@ -148,9 +149,12 @@ export async function postCdata(req: Request, res: Response, next: NextFunction)
     }
 
     const records = parseAdmsBody(rawBody);
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/40a87c8f-5aae-4e89-ab91-22bf9e52eb76', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'iclock.controller.ts:postCdata', message: 'rawBody and records', data: { rawBodySnippet: rawBody.slice(0, 200), recordsCount: records.length, firstRecordTimestamp: records[0]?.timestamp }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'A' }) }).catch(() => { });
-    // #endregion
+    const sample = records[0]
+      ? ` userId=${records[0].userId} ts=${records[0].timestamp} status=${records[0].status} sn=${records[0].serialNumber || querySn || '-'}`
+      : '';
+    logger.info(
+      `[iclock] POST parsed ${records.length} record(s) from body (${rawBody.length} chars).${sample}`
+    );
     if (records.length === 0) {
       return res.status(200).send('OK');
     }
@@ -162,7 +166,13 @@ export async function postCdata(req: Request, res: Response, next: NextFunction)
       }
     }
 
-    await processAdmsRecords(records);
+    const result = await processAdmsRecords(records);
+    logger.info(
+      `[iclock] POST processed=${result.processed} skipped=${result.skipped} errors=${result.errors.length}`
+    );
+    if (result.errors.length > 0) {
+      logger.warn(`[iclock] POST processing errors sample: ${result.errors.slice(0, 3).join(' | ')}`);
+    }
     // Respond with OK so device clears its buffer (many eSSL/iClock devices expect "OK" only)
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send('OK');

@@ -29,10 +29,11 @@ export default defineConfig({
         target: `http://localhost:${process.env.VITE_API_PORT || 5000}`,
         changeOrigin: true,
         configure: (proxy) => {
-          proxy.on('error', (err, _req, _res) => {
+          proxy.on('error', (_err, _req, _res) => {
             const port = process.env.VITE_API_PORT || 5000;
             console.error(`\n[vite] API proxy error: cannot connect to backend at http://localhost:${port}`);
-            console.error('       From project root run:  npm run dev\n');
+            console.error('       Start both frontend and backend from project root:  npm run dev');
+            console.error('       Or start backend separately:  cd backend && npm run dev\n');
           });
         },
       },

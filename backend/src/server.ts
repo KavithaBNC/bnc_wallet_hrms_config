@@ -21,8 +21,11 @@ const app: Application = express();
 // MIDDLEWARE
 // ============================================================================
 
-// Security middleware
-app.use(helmet());
+// Security middleware — skip helmet for biometric device routes (eSSL devices choke on CSP/HSTS headers)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/iclock')) return next();
+  return helmet()(req, res, next);
+});
 
 // ── Rate Limiting ──────────────────────────────────────────────────────────
 // Strict limit for auth routes (login, register, password reset)
@@ -70,6 +73,11 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Parse body as text for biometric device routes BEFORE global JSON/URL-encoded parsers.
+// ESSL/ZKTeco devices may send ATTLOG data with Content-Type: text/plain, application/octet-stream,
+// or no Content-Type at all. Using `type: () => true` ensures the body is always captured as a string.
+app.use('/iclock', express.text({ type: () => true, limit: '1mb' }));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -183,6 +191,8 @@ app.get('/', iclockController.getCdata);
 app.post('/', express.text({ type: 'text/plain', limit: '1mb' }), iclockController.postCdata);
 app.use('/api/v1/auth', authLimiter, authRoutes);
 app.use('/api/v1', apiLimiter); // Apply general rate limit to all remaining API routes
+app.post('/', express.text({ type: () => true, limit: '1mb' }), iclockController.postCdata);
+app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/positions', jobPositionRoutes);
