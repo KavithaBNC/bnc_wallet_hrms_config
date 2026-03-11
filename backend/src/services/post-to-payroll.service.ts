@@ -264,4 +264,94 @@ export class PostToPayrollService {
       cycleId: cycle?.id ?? null,
     };
   }
+
+  /**
+   * Get variable input entry rows for Core HR → Variable Input.
+   * Returns posted data (from MonthlyAttendanceSummary) for the given org, paygroup, month, year
+   * so that the Variable Input Entry page shows the same list as Post to Payroll for that period.
+   */
+  async getVariableInputEntry(
+    organizationId: string,
+    _paygroupId: string,
+    year: number,
+    month: number
+  ): Promise<
+    Array<{
+      employeeId: string;
+      associateCode: string;
+      associateName: string;
+      compensationSalary: number;
+      lossOfPay: number;
+      vehicleAllowance: number;
+      nfh: number;
+      weekOff: number;
+      otHours: number;
+      otherEarnings: number;
+      incentive: number;
+      normalTax: number;
+      salaryAdvance: number;
+      otherDeductions: number;
+      ptax: number;
+    }>
+  > {
+    // Variable Input should only be available when the month is posted to payroll.
+    const cycle = await prisma.payrollCycle.findUnique({
+      where: {
+        organizationId_payrollMonth_payrollYear: {
+          organizationId,
+          payrollMonth: month,
+          payrollYear: year,
+        },
+      },
+    });
+    if (!cycle) {
+      throw new AppError(
+        'Month is not posted to payroll. Please post the month first from HR Activities → Post to Payroll.',
+        400
+      );
+    }
+
+    // For now, Variable Input shows all employees for the posted month
+    // (same as Post to Payroll preview), not filtered by paygroup.
+    const summaries = await prisma.monthlyAttendanceSummary.findMany({
+      where: {
+        organizationId,
+        year,
+        month,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+      orderBy: { employee: { employeeCode: 'asc' } },
+    });
+
+    return summaries.map((s) => {
+      const overtimeHours = s.overtimeHours != null ? Number(s.overtimeHours) : 0;
+      const lopDays = s.lopDays != null ? Number(s.lopDays) : 0;
+      return {
+        employeeId: s.employeeId,
+        associateCode: s.employee.employeeCode ?? '',
+        associateName: `${s.employee.firstName ?? ''} ${s.employee.lastName ?? ''}`.trim(),
+        compensationSalary: 0,
+        lossOfPay: lopDays,
+        vehicleAllowance: 0,
+        nfh: s.holidayDays ?? 0,
+        weekOff: s.weekendDays ?? 0,
+        otHours: overtimeHours,
+        otherEarnings: 0,
+        incentive: 0,
+        normalTax: 0,
+        salaryAdvance: 0,
+        otherDeductions: 0,
+        ptax: 0,
+      };
+    });
+  }
 }

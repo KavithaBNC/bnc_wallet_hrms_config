@@ -16,6 +16,8 @@ router.get('/salary-element-names', controller.getSalaryElementNames.bind(contro
 // HR Activities: Preview, Post, Unpost
 router.get('/preview', controller.getPreview.bind(controller));
 router.get('/post-status', controller.getPostStatus.bind(controller));
+// Core HR Variable Input Entry: posted data for paygroup + month + year
+router.get('/variable-input-entry', controller.getVariableInputEntry.bind(controller));
 router.post('/post-month', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), controller.postMonth.bind(controller));
 router.delete('/unpost-month', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), controller.unpostMonth.bind(controller));
 

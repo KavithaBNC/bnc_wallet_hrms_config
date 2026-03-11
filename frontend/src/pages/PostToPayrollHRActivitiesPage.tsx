@@ -54,11 +54,12 @@ export default function PostToPayrollHRActivitiesPage() {
       setRows(r);
       setMappings(m);
     } catch (err: unknown) {
-      const msg =
+      const backendMsg =
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
-          : 'Failed to load preview';
-      setError(String(msg));
+          : null;
+      const msg = backendMsg || 'Failed to load preview';
+      setError(msg);
       setRows([]);
       setMappings([]);
     } finally {

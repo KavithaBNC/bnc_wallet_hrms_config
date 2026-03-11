@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import postToPayrollService from '../services/postToPayroll.service';
 
 type VariableInputRow = {
   id: string;
@@ -21,65 +22,75 @@ type VariableInputRow = {
   ptax: number;
 };
 
-const MOCK_ROWS: VariableInputRow[] = [
-  {
-    id: '1',
-    associateCode: 'B8002',
-    associateName: 'Devan Fazle Khotis',
-    compensationSalary: 0,
-    lossOfPay: 0,
-    vehicleAllowance: 0,
-    nfh: 0,
-    weekOff: 0,
-    otHours: 0,
-    otherEarnings: 0,
-    incentive: 0,
-    normalTax: 0,
-    salaryAdvance: 0,
-    otherDeductions: 0,
-    ptax: 0,
-  },
-  {
-    id: '2',
-    associateCode: 'B8003',
-    associateName: 'Paramehs Vasan',
-    compensationSalary: 0,
-    lossOfPay: 0,
-    vehicleAllowance: 0,
-    nfh: 0,
-    weekOff: 0,
-    otHours: 0,
-    otherEarnings: 0,
-    incentive: 0,
-    normalTax: 0,
-    salaryAdvance: 0,
-    otherDeductions: 0,
-    ptax: 0,
-  },
-];
-
 export default function VariableInputEntryPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
 
-  const { paygroupName, month, year } =
-    (location.state as { paygroupName?: string; month?: string; year?: string } | null) ?? {};
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const { paygroupId, paygroupName, month, year } =
+    (location.state as {
+      paygroupId?: string;
+      paygroupName?: string;
+      month?: string;
+      year?: string;
+    } | null) ?? {};
 
   const organizationName = user?.employee?.organization?.name;
 
   const [rows, setRows] = useState<VariableInputRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadRows = useCallback(async () => {
+    if (!organizationId || !paygroupId || !month || !year) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const apiRows = await postToPayrollService.getVariableInputEntry(
+        organizationId,
+        paygroupId,
+        parseInt(year, 10),
+        parseInt(month, 10)
+      );
+      const mapped: VariableInputRow[] = apiRows.map((r) => ({
+        id: r.employeeId,
+        associateCode: r.associateCode,
+        associateName: r.associateName,
+        compensationSalary: r.compensationSalary,
+        lossOfPay: r.lossOfPay,
+        vehicleAllowance: r.vehicleAllowance,
+        nfh: r.nfh,
+        weekOff: r.weekOff,
+        otHours: r.otHours,
+        otherEarnings: r.otherEarnings,
+        incentive: r.incentive,
+        normalTax: r.normalTax,
+        salaryAdvance: r.salaryAdvance,
+        otherDeductions: r.otherDeductions,
+        ptax: r.ptax,
+      }));
+      setRows(mapped);
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : 'Failed to load variable input data';
+      setLoadError(String(msg));
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [organizationId, paygroupId, month, year]);
 
   useEffect(() => {
-    // If user navigates directly without filters, go back to main page
-    if (!paygroupName || !month || !year) {
+    if (!paygroupName || !month || !year || !paygroupId) {
       navigate('/core-hr/variable-input', { replace: true });
       return;
     }
-    // TODO: replace with API call that loads variable input rows
-    setRows(MOCK_ROWS);
-  }, [paygroupName, month, year, navigate]);
+    loadRows();
+  }, [paygroupId, paygroupName, month, year, navigate, loadRows]);
 
   const handleLogout = async () => {
     await logout();
@@ -93,7 +104,7 @@ export default function VariableInputEntryPage() {
   };
 
   const handleCancel = () => {
-    setRows(MOCK_ROWS);
+    navigate('/core-hr/variable-input');
   };
 
   const handleSave = async () => {
@@ -112,6 +123,47 @@ export default function VariableInputEntryPage() {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100 items-center justify-center p-8">
         <p className="text-gray-600">Loading...</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <AppHeader
+          title="Variable Input"
+          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+          onLogout={handleLogout}
+        />
+        <main className="flex-1 flex items-center justify-center p-8">
+          <p className="text-gray-600">Loading variable input data...</p>
+        </main>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <AppHeader
+          title="Variable Input"
+          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+          onLogout={handleLogout}
+        />
+        <main className="flex-1 flex flex-col items-center justify-center p-8 gap-4">
+          <p className="text-red-600">{loadError}</p>
+          <p className="text-sm text-gray-600">
+            Ensure the month is posted from HR Activities → Post to Payroll and that the paygroup has employees with
+            attendance summary for the selected month.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/core-hr/variable-input')}
+            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Back to Variable Input
+          </button>
+        </main>
       </div>
     );
   }
@@ -215,8 +267,15 @@ export default function VariableInputEntryPage() {
                         <td className="px-3 py-2 text-sm text-gray-900 whitespace-nowrap">
                           {row.associateName}
                         </td>
-                        <td className="px-3 py-1 text-right text-sm bg-teal-50">
-                          {row.compensationSalary.toFixed(2)}
+                        <td className="px-3 py-1 text-right bg-teal-50">
+                          <input
+                            type="number"
+                            className="w-24 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
+                            value={row.compensationSalary}
+                            onChange={(e) =>
+                              handleChangeCell(row.id, 'compensationSalary', e.target.value)
+                            }
+                          />
                         </td>
                         <td className="px-3 py-1 text-right bg-teal-50">
                           <input
