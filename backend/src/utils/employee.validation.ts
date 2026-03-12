@@ -43,7 +43,9 @@ export const createEmployeeSchema = z.object({
   costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
   costCentreConfiguratorId: z.number().optional().nullable(),
   subDepartmentConfiguratorId: z.number().optional().nullable(),
+  configuratorUserId: z.number().optional().nullable(), // Config user ID returned from POST /api/v1/users/add
   configuratorRoleId: z.number().optional().nullable(), // Config user_roles.id for POST /api/v1/users/
+  configuratorCompanyId: z.number().optional().nullable(), // Config company_id
   grade: z.string().max(50).optional().nullable(),
   placeOfTaxDeduction: z.enum(['METRO', 'NON_METRO']).optional().nullable(),
   jobResponsibility: z.string().max(2000).optional().nullable(),
@@ -144,6 +146,7 @@ export const updateEmployeeSchema = z.object({
   costCentreConfiguratorId: z.number().optional().nullable(),
   subDepartmentConfiguratorId: z.number().optional().nullable(),
   configuratorRoleId: z.number().optional().nullable(), // Config user_roles.id for PUT /api/v1/users/{id}
+  configuratorCompanyId: z.number().optional().nullable(), // Config company_id
   grade: z.string().max(50).optional().nullable(),
   placeOfTaxDeduction: z.enum(['METRO', 'NON_METRO']).optional().nullable(),
   jobResponsibility: z.string().max(2000).optional().nullable(),

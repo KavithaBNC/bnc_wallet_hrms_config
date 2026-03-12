@@ -10,6 +10,7 @@ import {
   RejoinEmployeeInput,
 } from '../utils/employee.validation';
 import { hashPassword } from '../utils/password';
+import { config } from '../config/config';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -100,6 +101,17 @@ export class EmployeeService {
    * Resolves departmentId/costCentreId when they are Config ids (numeric string).
    */
   async create(data: CreateEmployeeInput, createdByUserId?: string) {
+    console.log('[employeeService.create] Received Payload:', JSON.stringify({
+      email: data.email,
+      firstName: data.firstName,
+      configuratorUserId: data.configuratorUserId,
+      configuratorRoleId: data.configuratorRoleId,
+      configuratorCompanyId: data.configuratorCompanyId,
+      departmentConfiguratorId: data.departmentConfiguratorId,
+      costCentreConfiguratorId: data.costCentreConfiguratorId,
+      subDepartmentConfiguratorId: data.subDepartmentConfiguratorId,
+    }));
+
     // Generate employee code if not provided
     let employeeCode: string;
     
@@ -311,7 +323,8 @@ export class EmployeeService {
     // Create user account if not provided (existingUser = user with that email, no employee)
     let userAccountId = existingUser?.id;
     let temporaryPassword: string | null = null;
-    let configuratorUserId: number | null = null;
+    // Use configuratorUserId from frontend (already created via /api/v1/users/add) if provided
+    let configuratorUserId: number | null = data.configuratorUserId ?? null;
     if (!userAccountId) {
       // Check if user already exists (should have been caught above, but double-check)
       const checkUser = await prisma.user.findUnique({
@@ -330,30 +343,38 @@ export class EmployeeService {
         temporaryPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
         const passwordHash = await hashPassword(temporaryPassword);
 
-        // Create in Config DB when org is linked
-        const orgForConfig = await prisma.organization.findUnique({
-          where: { id: data.organizationId },
-          select: { configuratorCompanyId: true },
-        });
-        if (orgForConfig?.configuratorCompanyId != null && createdByUserId) {
-          const tokenUser = await prisma.user.findUnique({
-            where: { id: createdByUserId },
-            select: { configuratorAccessToken: true },
+        // Only call Configurator API from backend if frontend didn't already create the user
+        if (configuratorUserId == null) {
+          const orgForConfig = await prisma.organization.findUnique({
+            where: { id: data.organizationId },
+            select: { configuratorCompanyId: true },
           });
-          if (tokenUser?.configuratorAccessToken) {
-            try {
-              const configUser = await configuratorService.createUser(tokenUser.configuratorAccessToken, {
-                email: data.email,
-                first_name: data.firstName,
-                last_name: data.lastName ?? 'N/A',
-                phone: data.phone ?? '',
-                company_id: orgForConfig.configuratorCompanyId,
-                role_id: data.configuratorRoleId ?? 0,
-                password: temporaryPassword,
-              });
-              configuratorUserId = configUser.id;
-            } catch (err: any) {
-              console.warn('Config user create failed:', err?.message);
+          if (orgForConfig?.configuratorCompanyId != null && createdByUserId) {
+            const tokenUser = await prisma.user.findUnique({
+              where: { id: createdByUserId },
+              select: { configuratorAccessToken: true },
+            });
+            if (tokenUser?.configuratorAccessToken) {
+              try {
+                const configUser = await configuratorService.createUser(tokenUser.configuratorAccessToken, {
+                  email: data.email,
+                  first_name: data.firstName,
+                  last_name: data.lastName ?? 'N/A',
+                  phone: data.phone ?? '',
+                  company_id: orgForConfig.configuratorCompanyId,
+                  project_id: config.configuratorHrmsProjectId || 0,
+                  role_id: data.configuratorRoleId ?? 0,
+                  cost_centre_id: data.costCentreConfiguratorId ?? 0,
+                  department_id: data.departmentConfiguratorId ?? 0,
+                  sub_department_id: data.subDepartmentConfiguratorId ?? 0,
+                  password: temporaryPassword,
+                });
+                configuratorUserId = configUser.id;
+              } catch (err: any) {
+                console.warn('Config user create failed:', err?.response?.status, err?.response?.data ?? err?.message);
+              }
+            } else {
+              console.warn('[EmployeeService] No configuratorAccessToken for user', createdByUserId, '— cannot create Configurator user');
             }
           }
         }
@@ -367,6 +388,8 @@ export class EmployeeService {
             isActive: true,
             isEmailVerified: false,
             ...(configuratorUserId != null && { configuratorUserId }),
+            ...(data.configuratorRoleId != null && { configuratorRoleId: data.configuratorRoleId }),
+            ...(data.configuratorCompanyId != null && { configuratorCompanyId: data.configuratorCompanyId }),
           },
         });
 
@@ -374,18 +397,20 @@ export class EmployeeService {
       }
     }
 
-    // Create employee record (exclude configuratorRoleId - used only for Config API)
-    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, ...employeeData } = data;
+    // Create employee record (exclude fields used only for Config API / User table, not Employee table)
+    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, ...employeeData } = data;
 
     const createPayload = (code: string) => ({
       ...employeeData,
       employeeCode: code,
       userId: userAccountId,
+      configuratorUserId: configuratorUserId ?? undefined,
       departmentId: resolvedDepartmentId ?? undefined,
       costCentreId: resolvedCostCentreId ?? undefined,
       departmentConfiguratorId: departmentConfiguratorId ?? data.departmentConfiguratorId ?? undefined,
       costCentreConfiguratorId: costCentreConfiguratorId ?? data.costCentreConfiguratorId ?? undefined,
       subDepartmentConfiguratorId: data.subDepartmentConfiguratorId ?? undefined,
+      configuratorCompanyId: data.configuratorCompanyId ?? undefined,
       dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
       dateOfJoining: new Date(data.dateOfJoining),
       probationEndDate: data.probationEndDate ? new Date(data.probationEndDate) : null,
@@ -399,6 +424,7 @@ export class EmployeeService {
       organization: { select: { id: true, name: true } },
       paygroup: { select: { id: true, name: true, code: true } },
       department: { select: { id: true, name: true, code: true } },
+      costCentre: { select: { id: true, name: true, code: true } },
       position: { select: { id: true, title: true, code: true } },
       reportingManager: {
         select: { id: true, employeeCode: true, firstName: true, lastName: true, email: true },
@@ -598,6 +624,7 @@ export class EmployeeService {
         organization: { select: { id: true, name: true } },
         paygroup: { select: { id: true, name: true, code: true } },
         department: { select: { id: true, name: true, code: true } },
+        costCentre: { select: { id: true, name: true, code: true } },
         position: { select: { id: true, title: true, code: true } },
         reportingManager: {
           select: { id: true, employeeCode: true, firstName: true, lastName: true, email: true },
@@ -731,6 +758,7 @@ export class EmployeeService {
     if (listView) {
       queryConfig.include = {
         department: { select: { id: true, name: true } },
+        costCentre: { select: { id: true, name: true, code: true } },
         position: { select: { id: true, title: true, level: true } },
         organization: { select: { id: true, name: true } },
         entity: { select: { id: true, name: true, code: true } },
@@ -756,6 +784,7 @@ export class EmployeeService {
       queryConfig.include = {
         organization: { select: { id: true, name: true } },
         department: { select: { id: true, name: true, code: true } },
+        costCentre: { select: { id: true, name: true, code: true } },
         position: { select: { id: true, title: true, code: true, level: true } },
         paygroup: { select: { id: true, name: true, code: true } },
         shift: { select: { id: true, name: true, code: true } },
@@ -798,6 +827,9 @@ export class EmployeeService {
           select: { id: true, name: true, code: true },
         },
         department: {
+          select: { id: true, name: true, code: true },
+        },
+        costCentre: {
           select: { id: true, name: true, code: true },
         },
         position: {
@@ -1075,7 +1107,8 @@ export class EmployeeService {
       select: { configuratorUserId: true, isActive: true },
     }) : null;
     const configFieldsChanged = data.email != null || data.firstName != null || data.lastName != null ||
-      data.phone != null || data.configuratorRoleId != null;
+      data.phone != null || data.configuratorRoleId != null || data.departmentConfiguratorId != null ||
+      data.costCentreConfiguratorId != null || data.subDepartmentConfiguratorId != null;
     if (userForConfig?.configuratorUserId != null && updatedByUserId && configFieldsChanged) {
       const tokenUser = await prisma.user.findUnique({
         where: { id: updatedByUserId },
@@ -1095,6 +1128,9 @@ export class EmployeeService {
             company_id: orgForConfig.configuratorCompanyId,
             role_id: data.configuratorRoleId ?? 0,
             is_active: userForConfig.isActive ?? true,
+            department_id: data.departmentConfiguratorId ?? null,
+            cost_centre_id: data.costCentreConfiguratorId ?? null,
+            sub_department_id: data.subDepartmentConfiguratorId ?? null,
           });
         } catch (err: any) {
           console.warn('Config user update (PUT) failed:', err?.message);

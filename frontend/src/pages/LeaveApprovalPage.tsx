@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import workflowMappingService from '../services/workflowMapping.service';
 import type { WorkflowMapping } from '../services/workflowMapping.service';
@@ -62,11 +63,9 @@ export default function LeaveApprovalPage() {
   const { user, logout } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const organizationName = user?.employee?.organization?.name;
-  const isManager = user?.role === 'MANAGER';
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canApprove = isManager || isHRManager || isOrgAdmin || isSuperAdmin;
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const leavePerms = getModulePermissions('/leave');
+  const canApprove = leavePerms.can_edit;
 
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });

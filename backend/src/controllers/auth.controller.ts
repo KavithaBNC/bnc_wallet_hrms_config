@@ -1,20 +1,104 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services/auth.service';
-import { configuratorService, type ConfiguratorModule } from '../services/configurator.service';
+import { configuratorService, type ConfiguratorRoleModuleWithPage } from '../services/configurator.service';
 import { AppError } from '../middlewares/errorHandler';
 import { generateTokenPair, JwtPayload } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
 import { config } from '../config/config';
 
-/** Enrich Config modules with path. Prefer Config DB page_name, then path, then MODULE_CODE_TO_PATH fallback. */
-function enrichModulesWithPath(modules: ConfiguratorModule[]): ConfiguratorModule[] {
-  const mapping = config.configuratorModulePathMapping;
-  return modules.map((m) => {
-    const code = (m.code || '').toUpperCase().trim();
-    const path =
-      (m as any).page_name ?? (m as any).pageName ?? (m as any).path ?? mapping[code] ?? `/${code.toLowerCase().replace(/_/g, '-')}`;
-    return { ...m, path };
-  });
+/**
+ * Map Configurator module name → frontend sidebar path.
+ * Used to resolve paths for modules returned by the my-modules API.
+ * Key: lowercase module name, Value: sidebar path.
+ */
+const MODULE_NAME_TO_PATH: Record<string, string> = {
+  'dashboard': '/dashboard',
+  'department': '/departments',
+  'employees': '/employees',
+  'positions': '/positions',
+  'position': '/positions',
+  'core hr': '/core-hr',
+  'overview': '/core-hr/overview',
+  'component creation': '/core-hr/compound-creation',
+  'rules engine': '/core-hr/rules-engine',
+  'variable input': '/core-hr/variable-input',
+  'event configuration': '/event-configuration',
+  'attendance components': '/event-configuration/attendance-components',
+  'approval workflow': '/event-configuration/approval-workflow',
+  'workflow mapping': '/event-configuration/workflow-mapping',
+  'rights allocation': '/event-configuration/rights-allocation',
+  'rule setting': '/event-configuration/rule-setting',
+  'auto credit setting': '/event-configuration/auto-credit-setting',
+  'encashment / carry forward': '/event-configuration/encashment-carry-forward',
+  'hr activities': '/hr-activities',
+  'validation process': '/hr-activities/validation-process',
+  'others configuration': '/others-configuration',
+  'validation process rule': '/others-configuration/validation-process-rule',
+  'attendance lock': '/others-configuration/attendance-lock',
+  'post to payroll': '/hr-activities/post-to-payroll',
+  'post to payroll setup': '/others-configuration/post-to-payroll',
+  'attendance': '/attendance',
+  'excess time request': '/attendance/my-requests/excess-time-request',
+  'excess time approval': '/attendance/excess-time-approval',
+  'attendance policy': '/attendance-policy',
+  'late & others': '/attendance-policy/late-and-others',
+  'week of assign': '/attendance-policy/week-of-assign',
+  'holiday assign': '/attendance-policy/holiday-assign',
+  'excess time conversion': '/attendance-policy/excess-time-conversion',
+  'ot usage rule': '/attendance-policy/ot-usage-rule',
+  'event': '/leave',
+  'event apply': '/attendance/apply-event',
+  'event request': '/event/requests',
+  'event approval': '/leave/approvals',
+  'event balance entry': '/event/balance-entry',
+  'time attendance': '/time-attendance',
+  'shift master': '/time-attendance/shift-master',
+  'shift assign': '/time-attendance/shift-assign',
+  'associate shift change': '/time-attendance/associate-shift-change',
+  'payroll': '/payroll',
+  'payroll master': '/payroll-master',
+  'employee separation': '/payroll/employee-separation',
+  'employee rejoin': '/payroll/employee-rejoin',
+  'salary structure': '/salary-structures',
+  'employee salary': '/employee-salaries',
+  'hr audit settings': '/hr-audit-settings',
+  'employee master approval': '/employee-master-approval',
+  'esop': '/esop',
+  'add esop': '/esop/add',
+  'transaction': '/transaction',
+  'increment': '/transaction/transfer-promotions',
+  'transfer and promotion entry': '/transaction/transfer-promotion-entry',
+  'emp code transfer': '/transaction/emp-code-transfer',
+  'pay group transfer': '/transaction/paygroup-transfer',
+  'organization management': '/organizations',
+  'module permission': '/permissions',
+};
+
+/** Map raw role-module-permission rows to frontend-friendly module objects */
+function mapRoleModulesToFrontend(roleModules: ConfiguratorRoleModuleWithPage[]) {
+  return roleModules
+    .filter((m) => m.is_enabled)
+    .map((m) => {
+      const pageName = (m.page_name || '').trim();
+      const lastSegment = pageName.split('/').filter(Boolean).pop() || '';
+      const label = lastSegment
+        .split('-')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      return {
+        id: m.id,
+        module_id: m.module_id,
+        name: label || `Module ${m.module_id}`,
+        code: pageName.replace(/\//g, '_').replace(/^_/, '').toUpperCase() || `MODULE_${m.module_id}`,
+        path: pageName,
+        page_name: pageName,
+        page_name_mobile: m.page_name_mobile || '',
+        is_enabled: m.is_enabled,
+        role_id: m.role_id,
+        company_id: m.company_id,
+        project_id: m.project_id,
+      };
+    });
 }
 
 export class AuthController {
@@ -44,49 +128,113 @@ export class AuthController {
    */
   async configuratorLogin(req: Request, res: Response, next: NextFunction) {
     try {
-      const { username, password, company_id: bodyCompanyId } = req.body;
-      const company_id = bodyCompanyId ?? config.configuratorDefaultCompanyId;
-      if (!company_id) {
-        throw new AppError('company_id is required. Pass in request or set CONFIGURATOR_DEFAULT_COMPANY_ID in .env.', 400);
-      }
+      const { username, password, company_name_or_code, company_id: bodyCompanyId } = req.body;
 
-      let loginRes;
-      let useLocalFallback = false;
-      try {
-        loginRes = await configuratorService.login({ username, password, company_id });
-      } catch (configErr: any) {
-        // Always fall back to local HRMS login when Configurator fails (any reason)
-        console.warn('Configurator login failed, trying local HRMS login:', configErr?.message);
-        useLocalFallback = true;
-      }
+      // ── Step 1: Company verification ──
+      // If only company_name_or_code is provided (no username/password),
+      // verify company exists. Try Configurator API first, fall back to local DB.
+      if (company_name_or_code && !username && !password) {
+        console.log('[configuratorLogin] Step 1 — verifying company');
 
-      // ── Local HRMS fallback ──────────────────────────────────────────────
-      if (useLocalFallback) {
+        // Try Configurator API first
+        let verifyResult: any = null;
         try {
-          const localResult = await authService.login({ email: username, password });
+          verifyResult = await configuratorService.verifyCompany(company_name_or_code);
+          console.log('[configuratorLogin] Company verified:', verifyResult?.success);
+        } catch (err: any) {
+          console.log('[configuratorLogin] Configurator verify failed, falling back to local DB:', err.message);
+        }
+
+        // If Configurator returned success, use that
+        if (verifyResult?.success === true) {
+          return res.status(200).json(verifyResult);
+        }
+
+        // Fallback: look up company in local HRMS database (organizations table)
+        // Match by name (case-insensitive)
+        const localOrg = await prisma.organization.findFirst({
+          where: {
+            name: { equals: company_name_or_code, mode: 'insensitive' },
+          },
+          select: { id: true, name: true, configuratorCompanyId: true },
+        });
+
+        if (localOrg) {
+          console.log('[configuratorLogin] Company found in local DB');
           return res.status(200).json({
-            status: 'success',
-            message: 'Login successful',
-            data: {
-              user: localResult.user,
-              tokens: {
-                accessToken: localResult.tokens.accessToken,
-                refreshToken: localResult.tokens.refreshToken,
-              },
-              modules: [],
+            success: true,
+            step: 1,
+            message: 'Company verified',
+            company: {
+              id: localOrg.configuratorCompanyId || config.configuratorDefaultCompanyId,
+              name: localOrg.name,
             },
           });
-        } catch (localErr: any) {
-          // Both Configurator and local failed — return clear error
-          throw new AppError('Invalid email or password', 401);
+        }
+
+        // Also try matching as a code/partial match
+        const localOrgByPartial = await prisma.organization.findFirst({
+          where: {
+            name: { contains: company_name_or_code, mode: 'insensitive' },
+          },
+          select: { id: true, name: true, configuratorCompanyId: true },
+        });
+
+        if (localOrgByPartial) {
+          console.log('[configuratorLogin] Company found by partial match');
+          return res.status(200).json({
+            success: true,
+            step: 1,
+            message: 'Company verified',
+            company: {
+              id: localOrgByPartial.configuratorCompanyId || config.configuratorDefaultCompanyId,
+              name: localOrgByPartial.name,
+            },
+          });
+        }
+
+        // If Configurator had a specific error message, use it
+        const errMsg = verifyResult?.message || verifyResult?.detail;
+        return res.status(404).json({
+          success: false,
+          message: typeof errMsg === 'string' ? errMsg : 'Company not found. Please check the name or code.',
+          company: null,
+        });
+      }
+
+      // ── Step 2: Full login ──
+      if (!username) {
+        throw new AppError('Username (email) is required', 400);
+      }
+      if (!password) {
+        throw new AppError('Password is required', 400);
+      }
+
+      // company_name_or_code is the primary identifier; company_id is optional but required by some API endpoints
+      let company_id = bodyCompanyId || undefined;
+      // If company_id not provided but company_name_or_code is, resolve it from local DB
+      if (!company_id && company_name_or_code) {
+        const localOrg = await prisma.organization.findFirst({
+          where: { name: { equals: company_name_or_code, mode: 'insensitive' } },
+          select: { configuratorCompanyId: true },
+        });
+        if (localOrg?.configuratorCompanyId) {
+          company_id = localOrg.configuratorCompanyId;
         }
       }
-      // ── End fallback ─────────────────────────────────────────────────────
+      // Final fallback: use default from config
+      if (!company_id && config.configuratorDefaultCompanyId) {
+        company_id = config.configuratorDefaultCompanyId;
+      }
+      console.log('[configuratorLogin] Step 2 login —', username);
+      const loginRes = await configuratorService.login({ username, password, company_name_or_code, company_id });
 
-      const decoded = configuratorService.decodeToken(loginRes!.access_token);
+      const decoded = configuratorService.decodeToken(loginRes.access_token);
       const configuratorUserId = decoded?.sub ? parseInt(decoded.sub, 10) : null;
       const email = decoded?.email || username;
-      const companyId = decoded?.company_id ?? company_id;
+      // Extract company_id from API response (preferred) or request body or token
+      const resolvedCompanyId = loginRes.company?.id ?? company_id ?? decoded?.company_id;
+      console.log('[configuratorLogin] Login OK — company_id:', resolvedCompanyId);
       const configRoles = loginRes.user?.roles ?? [];
       const primaryConfigRole = configRoles[0];
 
@@ -134,12 +282,24 @@ export class AuthController {
       }
 
       if (!hrmsUser) {
-        const org = await prisma.organization.findFirst({
-          where: { configuratorCompanyId: company_id },
-        });
+        let org = resolvedCompanyId
+          ? await prisma.organization.findFirst({ where: { configuratorCompanyId: resolvedCompanyId } })
+          : null;
+        // Auto-create organization if not found
+        if (!org && resolvedCompanyId) {
+          const companyName = loginRes.company?.name || company_name_or_code || `Company_${resolvedCompanyId}`;
+          org = await prisma.organization.create({
+            data: {
+              name: companyName,
+              legalName: companyName,
+              configuratorCompanyId: resolvedCompanyId,
+            },
+          });
+          console.log('[configuratorLogin] Auto-created organization:', companyName, 'for company_id:', resolvedCompanyId);
+        }
         if (!org) {
           throw new AppError(
-            `Organization for company ${company_id} not found in HRMS. Please sync company first.`,
+            `Organization for company ${resolvedCompanyId || company_name_or_code} not found in HRMS. Please sync company first.`,
             404
           );
         }
@@ -265,21 +425,45 @@ export class AuthController {
         throw new AppError('Your employment has been separated. You cannot log in.', 401);
       }
 
-      // Fetch user-assigned modules via /api/v1/user-role-modules/ (role_module_permissions)
+      // Resolve role: prefer Configurator role, fall back to HRMS user role
+      const roleFromConfig = (hrmsUser as any).role as string;
+
+      // Fetch modules for the logged-in user.
+      // Priority: 1) my-modules API (user's assigned modules), 2) role-module permissions, 3) empty
       let modules: any[] = [];
       try {
-        const roleId =
-          loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
-        if (roleId != null && companyId != null) {
-          modules = await configuratorService.getUserAssignedModules(
-            loginRes.access_token,
-            roleId,
-            companyId
-          );
-          modules = enrichModulesWithPath(modules);
-        } catch (modErr: any) {
-          console.warn('Configurator modules fetch failed, returning empty:', modErr?.message);
+        // Try direct my-modules endpoint first (returns user's modules for the HRMS project)
+        const directModules = await configuratorService.getModules(loginRes.access_token);
+        if (directModules.length > 0) {
+          console.log('[configuratorLogin] Got', directModules.length, 'modules from my-modules API');
+          modules = directModules.map((m) => {
+            // Resolve path: use page_name if set, otherwise look up by module name
+            const resolvedPath = m.page_name || m.path || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
+            return {
+              id: m.id,
+              module_id: m.id,
+              name: m.name,
+              code: m.code,
+              path: resolvedPath,
+              page_name: resolvedPath,
+              is_active: m.is_active,
+              is_enabled: true,
+            };
+          });
+        } else {
+          // Fallback: role-module permissions
+          const roleId =
+            loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
+          if (roleId != null) {
+            const roleModules = await configuratorService.getRoleModulesByProject(
+              loginRes.access_token,
+              roleId
+            );
+            modules = mapRoleModulesToFrontend(roleModules);
+          }
         }
+      } catch (modErr: any) {
+        console.warn('[configuratorLogin] Modules fetch failed, returning empty:', modErr?.message);
       }
 
       const payload: JwtPayload = {
@@ -293,13 +477,26 @@ export class AuthController {
         where: { id: hrmsUser.id },
         data: {
           refreshToken: tokens.refreshToken,
-          configuratorAccessToken: loginRes!.access_token,
-          configuratorRefreshToken: loginRes!.refresh_token,
+          configuratorAccessToken: loginRes.access_token,
+          configuratorRefreshToken: loginRes.refresh_token,
           lastLoginAt: new Date(),
           loginAttempts: 0,
           lockedUntil: null,
         },
       });
+
+      // Ensure Organization.configuratorCompanyId is set for Configurator DB operations
+      if (resolvedCompanyId && hrmsUser.employee?.organizationId) {
+        try {
+          await prisma.organization.update({
+            where: { id: hrmsUser.employee.organizationId },
+            data: { configuratorCompanyId: resolvedCompanyId },
+          });
+        } catch (orgUpdateErr) {
+          // May fail if another org already has this configuratorCompanyId (unique constraint)
+          console.warn('[configuratorLogin] Could not update org configuratorCompanyId:', orgUpdateErr);
+        }
+      }
 
       const userResponse = {
         id: hrmsUser.id,
@@ -319,6 +516,8 @@ export class AuthController {
             refreshToken: tokens.refreshToken,
           },
           modules,
+          configuratorCompanyId: resolvedCompanyId ?? null,
+          configuratorAccessToken: loginRes.access_token ?? null,
         },
       });
     } catch (error: any) {
@@ -515,15 +714,59 @@ export class AuthController {
   /**
    * Get assigned modules for current user from Config DB
    * GET /api/v1/auth/modules
-   * Requires auth. Uses stored configurator token. Modules are from login response (localStorage);
-   * this endpoint returns empty when role IDs are not persisted (run add-configurator-role-ids.sql to enable).
+   * Uses stored configurator token + role to call POST /api/v1/user-role-modules/project
    */
   async getMyModules(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.user) {
         throw new AppError('Not authenticated', 401);
       }
-      return res.status(200).json({ status: 'success', data: { modules: [] } });
+
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+        select: {
+          role: true,
+          configuratorAccessToken: true,
+        },
+      });
+
+      if (!user || !user.configuratorAccessToken) {
+        return res.status(200).json({ status: 'success', data: { modules: [] } });
+      }
+
+      // Try my-modules API first (user's assigned modules)
+      const directModules = await configuratorService.getModules(user.configuratorAccessToken);
+      if (directModules.length > 0) {
+        const modules = directModules.map((m) => {
+          const resolvedPath = m.page_name || m.path || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
+          return {
+            id: m.id,
+            module_id: m.id,
+            name: m.name,
+            code: m.code,
+            path: resolvedPath,
+            page_name: resolvedPath,
+            is_active: m.is_active,
+            is_enabled: true,
+          };
+        });
+        return res.status(200).json({ status: 'success', data: { modules } });
+      }
+
+      // Fallback: role-module permissions
+      const roleId = config.configuratorRoleIds[String(user.role)];
+      if (roleId == null) {
+        return res.status(200).json({ status: 'success', data: { modules: [] } });
+      }
+
+      const roleModules = await configuratorService.getRoleModulesByProject(
+        user.configuratorAccessToken,
+        roleId
+      );
+
+      const modules = mapRoleModulesToFrontend(roleModules);
+
+      return res.status(200).json({ status: 'success', data: { modules } });
     } catch (error) {
       return next(error);
     }

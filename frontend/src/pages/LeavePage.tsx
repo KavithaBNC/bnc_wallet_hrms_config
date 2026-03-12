@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 
 interface LeaveRequest {
@@ -62,14 +63,11 @@ const LeavePage = () => {
   });
   const [submittingLeaveType, setSubmittingLeaveType] = useState(false);
   
-  // Check if user can manage leave types
-  const canManageLeaveTypes = user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER' || user?.role === 'SUPER_ADMIN';
-  
-  // Check if user is a manager
-  const isManager = user?.role === 'MANAGER';
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const canApproveLeave = isManager || isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const leavePerms = getModulePermissions('/leave');
+  const canManageLeaveTypes = leavePerms.can_add;
+  const canApproveLeave = leavePerms.can_edit;
+
   
   const [approvingRequest, setApprovingRequest] = useState<string | null>(null);
   const [rejectingRequest, setRejectingRequest] = useState<string | null>(null);
@@ -83,8 +81,8 @@ const LeavePage = () => {
   useEffect(() => {
     if (organizationId) {
       fetchLeaveRequests();
-      if (isManager || isHRManager || isOrgAdmin) {
-        fetchMyLeaveRequests(); // Always fetch manager's own requests
+      if (canApproveLeave) {
+        fetchMyLeaveRequests(); // Always fetch approver's own requests
       }
       fetchLeaveTypes();
     } else {
@@ -114,7 +112,7 @@ const LeavePage = () => {
 
   // Fetch manager's own leave requests
   const fetchMyLeaveRequests = async () => {
-    if (!isManager && !isHRManager && !isOrgAdmin || !user?.employee?.id) return;
+    if (!canApproveLeave || !user?.employee?.id) return;
     
     try {
       setLoadingMyRequests(true);
@@ -612,9 +610,9 @@ const LeavePage = () => {
           <div className="px-6 py-4 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-900">
-                {isManager || isHRManager || isOrgAdmin
-                  ? (viewMode === 'team' 
-                      ? 'Team Leave Requests' 
+                {canApproveLeave
+                  ? (viewMode === 'team'
+                      ? 'Team Leave Requests'
                       : 'My Leave Requests')
                   : 'My Leave Requests'}
               </h2>
@@ -627,7 +625,7 @@ const LeavePage = () => {
                     + Apply Leave
                   </button>
                 )}
-                {(isManager || isHRManager || isOrgAdmin) && (
+                {canApproveLeave && (
                   <>
                     <div className="flex bg-gray-100 rounded-lg p-1">
                       <button

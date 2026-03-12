@@ -27,6 +27,16 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/departments/list
+ * @desc    List departments from Configurator (cascading dropdown)
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/list',
+  departmentController.getConfiguratorList.bind(departmentController)
+);
+
+/**
  * @route   GET /api/v1/departments
  * @desc    Get all departments with filtering
  * @access  Private (All authenticated users)

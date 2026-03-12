@@ -4,6 +4,19 @@
 
 export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'HR_MANAGER' | 'MANAGER' | 'EMPLOYEE';
 
+/** Known base roles in priority order (most privileged first) */
+const BASE_ROLES: UserRole[] = ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
+
+/**
+ * Extract the base role from a potentially prefixed role code.
+ * e.g. "HRMS001_SUPER_ADMIN" → "SUPER_ADMIN", "ORG_ADMIN" → "ORG_ADMIN"
+ */
+export function resolveBaseRole(role?: string): UserRole | undefined {
+  if (!role) return undefined;
+  const upper = role.toUpperCase();
+  return BASE_ROLES.find((base) => upper === base || upper.endsWith('_' + base));
+}
+
 /** Employee form tab keys (must match EmployeeFormTabKey in EmployeeForm) */
 export type EmployeeFormTabKey =
   | 'company'
@@ -77,48 +90,54 @@ export function canViewEmployeeByPermission(permissions: PermissionLike[]): bool
  * Check if user can create employees
  */
 export const canCreateEmployee = (role?: string): boolean => {
-  if (!role) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(role);
+  const base = resolveBaseRole(role);
+  if (!base) return false;
+  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
 };
 
 /**
  * Check if user can update employees
  */
 export const canUpdateEmployee = (role?: string): boolean => {
-  if (!role) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(role);
+  const base = resolveBaseRole(role);
+  if (!base) return false;
+  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
 };
 
 /**
  * Check if user can delete employees
  */
 export const canDeleteEmployee = (role?: string): boolean => {
-  if (!role) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN'].includes(role);
+  const base = resolveBaseRole(role);
+  if (!base) return false;
+  return ['SUPER_ADMIN', 'ORG_ADMIN'].includes(base);
 };
 
 /**
  * Check if user can view employee statistics
  */
 export const canViewStatistics = (role?: string): boolean => {
-  if (!role) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(role);
+  const base = resolveBaseRole(role);
+  if (!base) return false;
+  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
 };
 
 /**
  * Check if user can view employee hierarchy
  */
 export const canViewHierarchy = (role?: string): boolean => {
-  if (!role) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'].includes(role);
+  const base = resolveBaseRole(role);
+  if (!base) return false;
+  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'].includes(base);
 };
 
 /**
  * Check if user can view sensitive employee data
  */
 export const canViewSensitiveData = (role?: string): boolean => {
-  if (!role) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(role);
+  const base = resolveBaseRole(role);
+  if (!base) return false;
+  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
 };
 
 /**

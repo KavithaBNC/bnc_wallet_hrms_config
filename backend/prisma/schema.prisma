@@ -154,7 +154,9 @@ model OrganizationModule {
 
 model User {
   id                      String                  @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  configuratorUserId      Int?                    @unique @map("configurator_user_id")
+  configuratorUserId      Int?                    @map("configurator_user_id")
+  configuratorRoleId      Int?                    @map("configurator_role_id")
+  configuratorCompanyId   Int?                    @map("configurator_company_id")
   email                   String                  @unique @db.VarChar(255)
   passwordHash            String                  @map("password_hash") @db.VarChar(255)
   role                    UserRole
@@ -357,11 +359,12 @@ model Employee {
   organizationId               String                         @map("organization_id") @db.Uuid
   employeeCode                 String                         @unique @map("employee_code") @db.VarChar(50)
   userId                       String                         @unique @map("user_id") @db.Uuid
-  configuratorUserId           Int?                           @unique @map("configurator_user_id")
+  configuratorUserId           Int?                           @map("configurator_user_id")
   departmentConfiguratorId     Int?                           @map("department_configurator_id")
   subDepartmentConfiguratorId  Int?                           @map("sub_department_configurator_id")
   costCentreConfiguratorId     Int?                           @map("cost_centre_configurator_id")
   branchConfiguratorId         Int?                           @map("branch_configurator_id")
+  configuratorCompanyId        Int?                           @map("configurator_company_id")
   paygroupId                   String?                        @map("paygroup_id") @db.Uuid
   firstName                    String                         @map("first_name") @db.VarChar(100)
   middleName                   String?                        @map("middle_name") @db.VarChar(100)

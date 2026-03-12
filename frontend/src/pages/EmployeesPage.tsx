@@ -12,7 +12,8 @@ import EmployeeForm from '../components/employees/EmployeeForm';
 import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
 import { FaceCapture } from '../components/employees/FaceCapture';
 import AppHeader from '../components/layout/AppHeader';
-import { canCreateEmployee, canUpdateEmployee, canDeleteEmployee, getEditableTabsFromPermissions, canEditEmployeeByPermission, type EmployeeFormTabKey } from '../utils/rbac';
+import { getEditableTabsFromPermissions, canEditEmployeeByPermission, resolveBaseRole, type EmployeeFormTabKey } from '../utils/rbac';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { toDisplayEmail, toDisplayFullName, toDisplayName, toDisplayValue } from '../utils/display';
 import permissionService from '../services/permission.service';
 import organizationService, { type Organization } from '../services/organization.service';
@@ -23,6 +24,7 @@ import costCentreService from '../services/costCentre.service';
 import entityService from '../services/entity.service';
 import { useDepartmentStore } from '../store/departmentStore';
 import { employeeSalaryService } from '../services/payroll.service';
+import configuratorDataService, { ConfigCostCentre, ConfigDepartment, ConfigSubDepartment } from '../services/configurator-data.service';
 
 function getAvatarColor(name: string): string {
   const colors = ['bg-green-500', 'bg-blue-500', 'bg-orange-500', 'bg-purple-500', 'bg-teal-500', 'bg-indigo-500'];
@@ -173,9 +175,16 @@ export default function EmployeesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
+  const [costCentreFilter, setCostCentreFilter] = useState<string>('ALL');
+  const [subDepartmentFilter, setSubDepartmentFilter] = useState<string>('ALL');
   const [entityFilter, setEntityFilter] = useState<string>('ALL');
   const [paygroupFilter, setPaygroupFilter] = useState<string>('ALL');
   const [positionFilter, setPositionFilter] = useState<string>('ALL');
+  // Configurator dropdown data
+  const [configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
+  const [configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
+  const [configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
+  const [configUserRoles, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'employeeCode' | 'firstName'>('firstName');
@@ -192,6 +201,8 @@ export default function EmployeesPage() {
   const [viewMode, setViewMode] = useState(false);
   const [rejoinMode, setRejoinMode] = useState(false);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
+  // View modal state for Configurator users (fallback when no HRMS record)
+  const [viewingUser, setViewingUser] = useState<any | null>(null);
   const [loadingUser, setLoadingUser] = useState(false);
   const [loadUserAttempted, setLoadUserAttempted] = useState(false);
   const [showCredentials, setShowCredentials] = useState(false);
@@ -253,7 +264,8 @@ export default function EmployeesPage() {
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
 
   // Super Admin: can view all orgs or pick one; others use their linked org
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const baseRole = resolveBaseRole(user?.role);
+  const isSuperAdmin = baseRole === 'SUPER_ADMIN';
   const effectiveOrganizationId = isSuperAdmin
     ? (superAdminSelectedOrgId === 'ALL' ? undefined : superAdminSelectedOrgId)
     : organizationId;
@@ -261,22 +273,18 @@ export default function EmployeesPage() {
     ? (superAdminSelectedOrgId === 'ALL' ? 'All organizations' : superAdminOrganizations.find((o) => o.id === superAdminSelectedOrgId)?.name ?? '—')
     : user?.employee?.organization?.name;
 
-  // Try to load user data if organizationId is missing (only once)
+  // Try to load user data if organizationId is missing (only once, best-effort)
   useEffect(() => {
     if (!organizationId && user && !loadingUser && !loadUserAttempted) {
       setLoadingUser(true);
       setLoadUserAttempted(true);
-      
-      // Add timeout to prevent infinite loading
+
       const timeoutId = setTimeout(() => {
         setLoadingUser(false);
-        console.error('Load user timeout - taking too long');
-      }, 10000); // 10 second timeout
+      }, 10000);
 
       loadUser()
-        .catch((error) => {
-          console.error('Failed to load user:', error);
-        })
+        .catch(() => {})
         .finally(() => {
           clearTimeout(timeoutId);
           setLoadingUser(false);
@@ -284,13 +292,14 @@ export default function EmployeesPage() {
     }
   }, [organizationId, user, loadUser]);
 
-  // RBAC permissions: role-based and permission-tab based
-  const canCreate = canCreateEmployee(user?.role);
-  const canUpdateByRole = canUpdateEmployee(user?.role);
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const modulePerms = getModulePermissions('/employees');
+  const canCreate = modulePerms.can_add;
+  const canUpdateByRole = modulePerms.can_edit;
   const canUpdateByPermission = canEditEmployeeByPermission(userPermissions);
   const canUpdate = canUpdateByRole || canUpdateByPermission;
-  const canDelete = canDeleteEmployee(user?.role);
-  const canManageCredentials = user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER';
+  const canDelete = modulePerms.can_delete;
+  const canManageCredentials = modulePerms.can_view;
 
   /** Editable tabs from Permissions tab: undefined = all tabs, else only those tabs user can edit */
   const editableTabsFromPermissions = getEditableTabsFromPermissions(userPermissions);
@@ -341,14 +350,22 @@ export default function EmployeesPage() {
     return list;
   }, [credentials, credOrgFilter, credDesignationFilter, credStatusFilter, credSearchTerm]);
 
-  // Super Admin: fetch all organizations on mount
+  // Super Admin: fetch all organizations on mount, auto-select user's own org
   useEffect(() => {
     if (!isSuperAdmin) return;
     setLoadingOrgs(true);
     organizationService.getAll(1, 100).then((res) => {
-      setSuperAdminOrganizations(res.organizations ?? []);
+      const orgs = res.organizations ?? [];
+      setSuperAdminOrganizations(orgs);
+      // Auto-select the user's own organization so Add Employee is immediately available
+      const userOrgId = organizationId; // from user.employee.organizationId or .organization.id
+      if (userOrgId && orgs.some((o) => o.id === userOrgId)) {
+        setSuperAdminSelectedOrgId(userOrgId);
+      } else if (orgs.length === 1) {
+        setSuperAdminSelectedOrgId(orgs[0].id);
+      }
     }).catch(() => setSuperAdminOrganizations([])).finally(() => setLoadingOrgs(false));
-  }, [isSuperAdmin]);
+  }, [isSuperAdmin, organizationId]);
 
   useEffect(() => {
     if (effectiveOrganizationId) {
@@ -362,27 +379,32 @@ export default function EmployeesPage() {
     }
   }, [effectiveOrganizationId, fetchPositions, fetchDepartments]);
 
-  // Refetch list when navigating to this page (e.g. after approval) so approved details show
+  // Fetch Configurator dropdown data (cost centres, departments, sub-departments) on mount
+  useEffect(() => {
+    configuratorDataService.getCostCentres().then(setConfigCostCentres).catch(() => setConfigCostCentres([]));
+    configuratorDataService.getDepartments().then(setConfigDepartments).catch(() => setConfigDepartments([]));
+    configuratorDataService.getSubDepartments().then(setConfigSubDepartments).catch(() => setConfigSubDepartments([]));
+    configuratorDataService.getUserRoles().then((roles) => setConfigUserRoles(roles.map((r) => ({ role_id: r.role_id, name: r.name })))).catch(() => setConfigUserRoles([]));
+  }, []);
+
+  // Fetch employee list from Configurator API: POST /api/v1/users/list
+  // Uses company_id + project_id from localStorage (set at login).
+  // Server-side filters: cost_centre_id, department_id, sub_department_id
+  // Client-side filters: search, employeeStatus (is_active)
   useEffect(() => {
     if (location.pathname !== '/employees') return;
-    // Super Admin with "All" can have no organizationId; backend returns all employees
-    if (!isSuperAdmin && !organizationId) return;
     const params: any = {
       page: currentPage,
       limit: pageSize,
-      listView: true,
     };
-    if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
     if (searchTerm) params.search = searchTerm;
     params.employeeStatus = statusFilter;
+    // Configurator API filters (numeric IDs)
+    if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-    if (entityFilter !== 'ALL') params.entityId = entityFilter;
-    if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
-    if (positionFilter !== 'ALL') params.positionId = positionFilter;
-    params.sortBy = sortBy;
-    params.sortOrder = sortOrder;
+    if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
     fetchEmployees(params);
-  }, [isSuperAdmin, organizationId, effectiveOrganizationId, location.pathname, currentPage, pageSize, searchTerm, statusFilter, departmentFilter, entityFilter, paygroupFilter, positionFilter, sortBy, sortOrder, fetchEmployees]);
+  }, [location.pathname, currentPage, pageSize, searchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, fetchEmployees]);
 
   // When viewing ALL status, fetch active count for accurate dashboard stats
   useEffect(() => {
@@ -452,22 +474,154 @@ export default function EmployeesPage() {
     }
   }, [showCredentials, canManageCredentials, credentials.length, loadingCredentials, fetchCredentials]);
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this employee? This will also deactivate their user account.')) {
+  const handleDelete = async (id: string | number) => {
+    if (window.confirm('Are you sure you want to delete this employee? This will remove them from the Configurator database.')) {
       try {
         await deleteEmployee(id);
         alert('Employee deleted successfully');
+        // Re-fetch the list
+        const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
+        if (searchTerm) params.search = searchTerm;
+        if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
+        if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+        if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
+        fetchEmployees(params);
       } catch (error: any) {
         alert(error.message || 'Failed to delete employee');
       }
     }
   };
 
+  // ─── View: find HRMS employee by email, then open full EmployeeForm in view mode ───
+  const handleViewUser = async (user: any) => {
+    try {
+      setLoadingEmployee(true);
+      const email = user.email;
+      if (!email) {
+        // Fallback: show Configurator-only detail modal
+        setViewingUser(user);
+        return;
+      }
+      // Look up the HRMS employee by email
+      const hrmsEmployee = await employeeService.getByEmail(email);
+      if (!hrmsEmployee) {
+        // No HRMS record — show basic Configurator info
+        const details = await configuratorDataService.getConfiguratorUser(user.user_id);
+        setViewingUser({ ...user, ...details });
+        return;
+      }
+      // Fetch full HRMS employee details and open EmployeeForm in view mode
+      const full = await employeeService.getById(hrmsEmployee.id);
+      setEditingEmployee(full);
+      setViewMode(true);
+      setShowForm(true);
+    } catch (err: any) {
+      console.error('Failed to load user details', err);
+      // Fallback: show what we already have from the list
+      setViewingUser(user);
+    } finally {
+      setLoadingEmployee(false);
+    }
+  };
+
+  // ─── Edit: find HRMS employee by email, then open full EmployeeForm ───
+  /** Build Configurator fields from the /api/v1/users/list row */
+  const buildConfigFields = (user: any) => ({
+    configuratorUserId: user.user_id || user.id,
+    costCentreConfiguratorId: user.cost_centre?.id ?? user.cost_centre_id ?? null,
+    departmentConfiguratorId: user.department?.id ?? user.department_id ?? null,
+    subDepartmentConfiguratorId: user.sub_department?.id ?? user.sub_department_id ?? null,
+    configuratorRoleId: user.role_id ?? user.project_role?.id ?? null,
+    // Keep names for display fallback
+    costCentre: user.cost_centre ? { id: '', name: user.cost_centre.name, code: user.cost_centre.code } : undefined,
+    department: user.department ? { id: '', name: user.department.name, code: user.department.code } : undefined,
+    sub_department: user.sub_department ? { id: 0, name: user.sub_department.name } : undefined,
+  });
+
+  const handleEditUser = async (user: any) => {
+    try {
+      setLoadingEmployee(true);
+      const email = user.email;
+      if (!email) {
+        alert('No email found for this employee. Cannot edit.');
+        return;
+      }
+      const configFields = buildConfigFields(user);
+
+      // Look up the HRMS employee by email
+      const hrmsEmployee = await employeeService.getByEmail(email);
+      if (!hrmsEmployee) {
+        // Fallback: open form with Configurator data so the user can still edit/create
+        const fallback: any = {
+          id: user.user_id || user.id || '',
+          firstName: user.first_name || (user.name || user.fullname || '').split(' ')[0] || '',
+          lastName: user.last_name || (user.name || user.fullname || '').split(' ').slice(1).join(' ') || '',
+          email: user.email,
+          phone: user.phone || '',
+          employeeCode: user.code || user.employee_code || '',
+          ...configFields,
+        };
+        setEditingEmployee(fallback);
+        setViewMode(false);
+        setShowForm(true);
+        return;
+      }
+      // Fetch full HRMS employee details
+      const full = await employeeService.getById(hrmsEmployee.id);
+      // Enrich with Configurator IDs from user list data (may be missing in HRMS)
+      const emp = full as any;
+      if (!emp.configuratorUserId) emp.configuratorUserId = configFields.configuratorUserId;
+      if (!emp.costCentreConfiguratorId && configFields.costCentreConfiguratorId) emp.costCentreConfiguratorId = configFields.costCentreConfiguratorId;
+      if (!emp.departmentConfiguratorId && configFields.departmentConfiguratorId) emp.departmentConfiguratorId = configFields.departmentConfiguratorId;
+      if (!emp.subDepartmentConfiguratorId && configFields.subDepartmentConfiguratorId) emp.subDepartmentConfiguratorId = configFields.subDepartmentConfiguratorId;
+      if (!emp.configuratorRoleId && configFields.configuratorRoleId) emp.configuratorRoleId = configFields.configuratorRoleId;
+      // Fill in relation objects if HRMS didn't have them
+      if (!emp.costCentre && configFields.costCentre) emp.costCentre = configFields.costCentre;
+      if (!emp.department && configFields.department) emp.department = configFields.department;
+      if (!emp.sub_department && !emp.subDepartment && configFields.sub_department) {
+        emp.sub_department = configFields.sub_department;
+        emp.subDepartment = configFields.sub_department.name;
+      }
+
+      setEditingEmployee(full);
+      setViewMode(false);
+      setShowForm(true);
+    } catch (err: any) {
+      console.error('Failed to load employee for edit', err);
+      const configFields = buildConfigFields(user);
+      const fallback: any = {
+        id: user.user_id || user.id || '',
+        firstName: user.first_name || (user.name || user.fullname || '').split(' ')[0] || '',
+        lastName: user.last_name || (user.name || user.fullname || '').split(' ').slice(1).join(' ') || '',
+        email: user.email,
+        phone: user.phone || '',
+        employeeCode: user.code || user.employee_code || '',
+        ...configFields,
+      };
+      setEditingEmployee(fallback);
+      setViewMode(false);
+      setShowForm(true);
+    } finally {
+      setLoadingEmployee(false);
+    }
+  };
+
+
+
   const handleCreate = () => {
+    // Super Admin with "All organizations": auto-select first org so modals can render
+    if (isSuperAdmin && !effectiveOrganizationId && superAdminOrganizations.length > 0) {
+      setSuperAdminSelectedOrgId(superAdminOrganizations[0].id);
+    }
     setEditingEmployee(null);
     setSelectedPaygroupId(null);
     setSelectedPaygroupName(null);
-    setShowPaygroupModal(true);
+    // If no organization context, skip paygroup selection and open form directly
+    if (!effectiveOrganizationId && superAdminOrganizations.length === 0) {
+      setShowForm(true);
+    } else {
+      setShowPaygroupModal(true);
+    }
   };
 
   const handleView = async (employee: Employee) => {
@@ -505,14 +659,11 @@ export default function EmployeesPage() {
       await employeeService.update(updateFaceModal.id, { faceEncoding: updateFaceEncoding });
       alert(`Face updated for ${updateFaceModal.firstName} ${updateFaceModal.lastName}.`);
       handleUpdateFaceClose();
-      const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
-      if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+      const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
       if (searchTerm) params.search = searchTerm;
-      params.employeeStatus = statusFilter;
+      if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-      if (entityFilter !== 'ALL') params.entityId = entityFilter;
-      if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
-      if (positionFilter !== 'ALL') params.positionId = positionFilter;
+      if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
       fetchEmployees(params);
     } catch (err: any) {
       setUpdateFaceError(err.response?.data?.message || err.message || 'Failed to update face');
@@ -531,14 +682,11 @@ export default function EmployeesPage() {
       setUpdateFaceEncoding(null);
       setUpdateFaceError('');
       alert('Face removed. You can capture again now.');
-      const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
-      if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+      const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
       if (searchTerm) params.search = searchTerm;
-      params.employeeStatus = statusFilter;
+      if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-      if (entityFilter !== 'ALL') params.entityId = entityFilter;
-      if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
-      if (positionFilter !== 'ALL') params.positionId = positionFilter;
+      if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
       fetchEmployees(params);
     } catch (err: any) {
       setUpdateFaceError(err.response?.data?.message || err.message || 'Failed to remove face');
@@ -567,19 +715,14 @@ export default function EmployeesPage() {
     setEditingEmployee(null);
     setRejoinMode(false);
     const params: any = {
-      organizationId,
       page: currentPage,
       limit: pageSize,
-      listView: true,
-      sortBy,
-      sortOrder,
+      employeeStatus: statusFilter,
     };
     if (searchTerm) params.search = searchTerm;
-    params.employeeStatus = statusFilter;
+    if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-    if (entityFilter !== 'ALL') params.entityId = entityFilter;
-    if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
-    if (positionFilter !== 'ALL') params.positionId = positionFilter;
+    if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
     fetchEmployees(params);
   };
 
@@ -644,13 +787,16 @@ export default function EmployeesPage() {
       alert('No employees to export.');
       return;
     }
-    const headers = ['EMP ID', 'Name', 'Email', 'Designation', 'Status'];
-    const rows = employees.map((emp) => [
-      emp.employeeCode,
-      `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+    const headers = ['EMP ID', 'Name', 'Email', 'Phone', 'Role', 'Cost Centre', 'Department', 'Sub Department'];
+    const rows = employees.map((emp: any) => [
+      emp.code || emp.user_id || '',
+      emp.full_name || '',
       emp.email || '',
-      emp.position?.title || '',
-      emp.employeeStatus || '',
+      emp.phone || '',
+      emp.project_role?.name || '',
+      emp.cost_centre?.name || '',
+      emp.department?.name || '',
+      emp.sub_department?.name || '',
     ]);
     const csvContent = [headers, ...rows]
       .map((row) =>
@@ -681,13 +827,16 @@ export default function EmployeesPage() {
     }
     const rowsHtml = employees
       .map(
-        (emp) =>
+        (emp: any) =>
           `<tr>
-            <td>${emp.employeeCode}</td>
-            <td>${(emp.firstName || '') + ' ' + (emp.lastName || '')}</td>
+            <td>${emp.code || emp.user_id || ''}</td>
+            <td>${emp.full_name || ''}</td>
             <td>${emp.email || ''}</td>
-            <td>${emp.position?.title || ''}</td>
-            <td>${emp.employeeStatus || ''}</td>
+            <td>${emp.phone || ''}</td>
+            <td>${emp.project_role?.name || ''}</td>
+            <td>${emp.cost_centre?.name || ''}</td>
+            <td>${emp.department?.name || ''}</td>
+            <td>${emp.sub_department?.name || ''}</td>
           </tr>`
       )
       .join('');
@@ -711,8 +860,11 @@ export default function EmployeesPage() {
                 <th>EMP ID</th>
                 <th>Name</th>
                 <th>Email</th>
-                <th>Designation</th>
-                <th>Status</th>
+                <th>Phone</th>
+                <th>Role</th>
+                <th>Cost Centre</th>
+                <th>Department</th>
+                <th>Sub Department</th>
               </tr>
             </thead>
             <tbody>${rowsHtml}</tbody>
@@ -1180,20 +1332,11 @@ export default function EmployeesPage() {
 
       setImportResult({ total, success, updated, skipped, failures, managersSet });
 
-      const params: any = {
-        page: currentPage,
-        limit: pageSize,
-        listView: true,
-        sortBy,
-        sortOrder,
-      };
-      if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+      const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
       if (searchTerm) params.search = searchTerm;
-      params.employeeStatus = statusFilter;
+      if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-      if (entityFilter !== 'ALL') params.entityId = entityFilter;
-      if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
-      if (positionFilter !== 'ALL') params.positionId = positionFilter;
+      if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
       await fetchEmployees(params);
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Import failed';
@@ -1229,38 +1372,7 @@ export default function EmployeesPage() {
     XLSX.writeFile(workbook, `employee_import_template_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  // Show error if no organizationId (after trying to load user data). Super Admin can use "All" so skip.
-  if (!organizationId && !loadingUser && !isSuperAdmin) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg">
-          <p className="font-semibold">Unable to load organization data</p>
-          <p className="text-sm mt-1">Please ensure you are logged in with an employee account that has an associated organization.</p>
-          {canManageCredentials && (
-            <p className="text-sm mt-2 font-medium">Note: If you are an Organization Admin, please contact HRMS Administrator to ensure your employee profile is properly set up.</p>
-          )}
-          <button
-            onClick={() => {
-              setLoadUserAttempted(false);
-              setLoadingUser(true);
-              loadUser()
-                .catch((error) => {
-                  console.error('Failed to load user:', error);
-                  alert('Failed to load user data: ' + (error.response?.data?.message || error.message));
-                })
-                .finally(() => {
-                  setLoadingUser(false);
-                });
-            }}
-            className="mt-3 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition text-sm"
-          >
-            Retry Loading User Data
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  // Show loading spinner while user data is being fetched (best-effort, non-blocking)
   if (loadingUser) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -1405,14 +1517,12 @@ export default function EmployeesPage() {
             {canCreate && (
               <button
                 onClick={handleCreate}
-                disabled={isSuperAdmin && superAdminSelectedOrgId === 'ALL'}
-                title={isSuperAdmin && superAdminSelectedOrgId === 'ALL' ? 'Select an organization to add employees' : undefined}
-                className="h-9 px-4 py-2 rounded-lg bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-9 px-4 py-2 rounded-lg bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition"
               >
                 + Add Employee
               </button>
             )}
-            {(user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER') && (
+            {canCreate && (
               <button
                 onClick={() => {
                   setShowImportModal(true);
@@ -1574,7 +1684,7 @@ export default function EmployeesPage() {
                               <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 truncate max-w-full">
                                 {cred.role}
                               </span>
-                              {(user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER') && (
+                              {modulePerms.can_edit && (
                                 <button
                                   onClick={() => {
                                     setRoleChangeModal({
@@ -1870,6 +1980,19 @@ export default function EmployeesPage() {
             </div>
           )}
           <div className="flex flex-col">
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Cost Centre</label>
+            <select
+              value={costCentreFilter}
+              onChange={(e) => { setCostCentreFilter(e.target.value); setCurrentPage(1); }}
+              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="ALL">All Cost Centres</option>
+              {configCostCentres.map((cc) => (
+                <option key={cc.id} value={cc.id}>{cc.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
             <label className="text-sm font-medium text-gray-500 mb-1.5">Department</label>
             <select
               value={departmentFilter}
@@ -1877,47 +2000,21 @@ export default function EmployeesPage() {
               className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="ALL">All Departments</option>
-              {departments.map((d) => (
+              {configDepartments.map((d) => (
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
           </div>
           <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Entity</label>
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Sub Department</label>
             <select
-              value={entityFilter}
-              onChange={(e) => { setEntityFilter(e.target.value); setCurrentPage(1); }}
+              value={subDepartmentFilter}
+              onChange={(e) => { setSubDepartmentFilter(e.target.value); setCurrentPage(1); }}
               className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="ALL">All Entities</option>
-              {orgEntities.map((e) => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Designation</label>
-            <select
-              value={positionFilter}
-              onChange={(e) => { setPositionFilter(e.target.value); setCurrentPage(1); }}
-              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">All Designations</option>
-              {positions.map((p) => (
-                <option key={p.id} value={p.id}>{p.title}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Paygroup</label>
-            <select
-              value={paygroupFilter}
-              onChange={(e) => { setPaygroupFilter(e.target.value); setCurrentPage(1); }}
-              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">All Paygroups</option>
-              {orgPaygroups.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+              <option value="ALL">All Sub Departments</option>
+              {configSubDepartments.map((sd) => (
+                <option key={sd.id} value={sd.id}>{sd.name}</option>
               ))}
             </select>
           </div>
@@ -1929,12 +2026,8 @@ export default function EmployeesPage() {
               className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="ACTIVE">Active</option>
-              <option value="SEPARATED">Separated Employees</option>
+              <option value="INACTIVE">Inactive</option>
               <option value="ALL">All Status</option>
-              <option value="ON_LEAVE">On Leave</option>
-              <option value="SUSPENDED">Suspended</option>
-              <option value="TERMINATED">Terminated</option>
-              <option value="RESIGNED">Resigned</option>
             </select>
           </div>
           <div className="flex flex-col">
@@ -1980,7 +2073,7 @@ export default function EmployeesPage() {
               <div>
                 <div className="text-sm font-medium text-gray-500">Active</div>
                 <div className="text-2xl font-bold text-gray-900">
-                  {statusFilter === 'ACTIVE' ? pagination.total : statusFilter === 'ALL' ? (statsActiveCount ?? '—') : employees.filter(e => e.employeeStatus === 'ACTIVE').length}
+                  {statusFilter === 'ACTIVE' ? pagination.total : statusFilter === 'ALL' ? (statsActiveCount ?? '—') : employees.filter((e: any) => e.is_active === true).length}
                 </div>
               </div>
             </div>
@@ -2015,18 +2108,15 @@ export default function EmployeesPage() {
       {/* Error Message */}
       {!showCredentials && error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-          <p className="font-semibold">Error loading employees</p>
+          <p className="font-semibold">Unable to load employee list. Please try again.</p>
           <p className="text-sm mt-1">{error}</p>
           <button
             onClick={() => {
-              const params: any = { page: currentPage, limit: pageSize, listView: true, sortBy, sortOrder };
-              if (effectiveOrganizationId) params.organizationId = effectiveOrganizationId;
+              const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
               if (searchTerm) params.search = searchTerm;
-              params.employeeStatus = statusFilter;
+              if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
               if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-              if (entityFilter !== 'ALL') params.entityId = entityFilter;
-              if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
-              if (positionFilter !== 'ALL') params.positionId = positionFilter;
+              if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
               fetchEmployees(params);
             }}
             className="mt-2 text-sm underline hover:no-underline"
@@ -2048,14 +2138,11 @@ export default function EmployeesPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EMP ID</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NAME</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EMAIL</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paygroup</th>
-                {user?.role === 'SUPER_ADMIN' && (
-                  <>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                  </>
-                )}
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost Centre</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub Dept</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -2065,14 +2152,11 @@ export default function EmployeesPage() {
                   <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-16 animate-pulse" /></td>
                   <td className="px-6 py-4"><div className="flex items-center gap-3"><div className="h-10 w-10 bg-gray-200 rounded-full animate-pulse" /><div className="h-4 bg-gray-200 rounded w-28 animate-pulse" /></div></td>
                   <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-40 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24 animate-pulse" /></td>
                   <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
-                  {user?.role === 'SUPER_ADMIN' && (
-                    <>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24 animate-pulse" /></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
-                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
-                    </>
-                  )}
+                  <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-24 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
+                  <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-20 animate-pulse" /></td>
                   <td className="px-6 py-4 text-right"><div className="h-4 bg-gray-200 rounded w-20 ml-auto animate-pulse" /></td>
                 </tr>
               ))}
@@ -2103,54 +2187,51 @@ export default function EmployeesPage() {
               <div className="p-4">
                 {employees.length === 0 ? (
                   <div className="py-12 text-center text-gray-500">
-                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || entityFilter !== 'ALL' || paygroupFilter !== 'ALL' || positionFilter !== 'ALL'
+                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || costCentreFilter !== 'ALL' || subDepartmentFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    {employees.map((emp) => (
-                      <div key={emp.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
+                    {employees.map((emp: any) => {
+                      const displayName = emp.full_name || '';
+                      const initials = displayName.split(' ').map((w: string) => w[0] || '').join('').slice(0, 2).toUpperCase();
+                      return (
+                      <div key={emp.user_id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition">
                         <div className="flex items-center gap-3 mb-3">
-                          <div className={`flex-shrink-0 h-12 w-12 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor((toDisplayName(emp.firstName) + ' ' + toDisplayName(emp.lastName)).trim() || emp.employeeCode || ' ')}`}>
-                            {toDisplayName(emp.firstName)?.[0] || ''}{toDisplayName(emp.lastName)?.[0] || ''}
+                          <div className={`flex-shrink-0 h-12 w-12 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor(displayName || String(emp.user_id))}`}>
+                            {initials || '?'}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-medium text-gray-900 truncate">{toDisplayName(emp.firstName)} {toDisplayName(emp.lastName)}</div>
-                            <div className="text-xs text-gray-500 truncate">{toDisplayValue(emp.position?.title)}</div>
-                            <div className="text-xs text-gray-400 font-mono">{emp.employeeCode}</div>
+                            <div className="text-sm font-medium text-gray-900 truncate">{displayName}</div>
+                            <div className="text-xs text-gray-500 truncate">{toDisplayValue(emp.project_role?.name)}</div>
+                            <div className="text-xs text-gray-400 font-mono">{emp.code || emp.user_id}</div>
                           </div>
                         </div>
                         <div className="text-xs text-gray-600 space-y-1 mb-3">
                           <div className="truncate">{toDisplayEmail(emp.email)}</div>
-                          {toDisplayValue(emp.department?.name) && <div>Dept: {toDisplayValue(emp.department?.name)}</div>}
-                          {toDisplayValue((emp as any)?.profileExtensions?.subDepartment) && <div>Sub Dept: {toDisplayValue((emp as any)?.profileExtensions?.subDepartment)}</div>}
-                          {toDisplayValue(emp.entity?.name) && <div>Entity: {toDisplayValue(emp.entity?.name)}</div>}
-                          {emp.reportingManager && <div>Manager: {toDisplayName(emp.reportingManager.firstName)} {toDisplayName(emp.reportingManager.lastName)}</div>}
-                          {user?.role === 'SUPER_ADMIN' && emp.organization?.name && <div>Org: {emp.organization.name}</div>}
+                          {emp.department?.name && <div>Dept: {emp.department.name}</div>}
+                          {emp.sub_department?.name && <div>Sub Dept: {emp.sub_department.name}</div>}
+                          {emp.cost_centre?.name && <div>Cost Centre: {emp.cost_centre.name}</div>}
                         </div>
                         <div className="flex flex-wrap gap-1">
-                          <button type="button" onClick={() => handleView(emp)} disabled={loadingEmployee} title="View" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-50">
+                          <button type="button" onClick={() => handleViewUser(emp)} disabled={loadingEmployee} title="View" className="p-1.5 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-50">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                           </button>
-                          {canEditRow(emp) && (
-                            <>
-                              <button type="button" onClick={() => handleEdit(emp)} disabled={loadingEmployee} title="Edit" className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                              </button>
-                              <button type="button" onClick={() => handleUpdateFaceOpen(emp)} title="Update face" className="p-1.5 rounded text-teal-600 hover:bg-teal-50 disabled:opacity-50">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                              </button>
-                            </>
+                          {canUpdate && (
+                            <button type="button" onClick={() => handleEditUser(emp)} disabled={loadingEmployee} title="Edit" className="p-1.5 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                            </button>
                           )}
                           {canDelete && (
-                            <button type="button" onClick={() => handleDelete(emp.id)} title="Delete" className="p-1.5 rounded text-red-600 hover:bg-red-50">
+                            <button type="button" onClick={() => handleDelete(String(emp.user_id))} title="Delete" className="p-1.5 rounded text-red-600 hover:bg-red-50">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2192,7 +2273,7 @@ export default function EmployeesPage() {
           <table className="min-w-full divide-y divide-gray-200 table-fixed">
             <thead className="bg-gray-50">
               <tr>
-                <th className={`${user?.role === 'SUPER_ADMIN' ? 'w-[10%]' : 'w-[10%]'} px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <button
                     type="button"
                     onClick={() => handleSort('employeeCode')}
@@ -2202,7 +2283,7 @@ export default function EmployeesPage() {
                     <SortIcon column="employeeCode" />
                   </button>
                 </th>
-                <th className={`${user?.role === 'SUPER_ADMIN' ? 'w-[14%]' : 'w-[24%]'} px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+                <th className="w-[16%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <button
                     type="button"
                     onClick={() => handleSort('firstName')}
@@ -2213,93 +2294,76 @@ export default function EmployeesPage() {
                   </button>
                 </th>
                 <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost Centre</th>
                 <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
                 <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub Dept</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reporting Manager</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paygroup</th>
-                {user?.role === 'SUPER_ADMIN' && (
-                  <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Organization</th>
-                )}
-                <th className="w-[12%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="w-[10%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {employees.length === 0 ? (
                 <tr>
-                  <td colSpan={user?.role === 'SUPER_ADMIN' ? 11 : 10} className="px-4 py-8 text-center text-gray-500">
-                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || entityFilter !== 'ALL' || paygroupFilter !== 'ALL' || positionFilter !== 'ALL'
+                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                    {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || costCentreFilter !== 'ALL' || subDepartmentFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
                   </td>
                 </tr>
               ) : (
-                employees.map((emp) => (
-                  <tr key={emp.id} className="hover:bg-gray-50">
+                employees.map((emp: any) => {
+                  const displayName = emp.full_name || '';
+                  const initials = displayName.split(' ').map((w: string) => w[0] || '').join('').slice(0, 2).toUpperCase();
+                  return (
+                  <tr key={emp.user_id} className="hover:bg-gray-50">
                     <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left truncate min-w-0">
-                      {emp.employeeCode}
+                      {emp.code || emp.user_id}
                     </td>
-                    <td className="w-[14%] px-4 py-4 whitespace-nowrap text-left min-w-0">
+                    <td className="w-[16%] px-4 py-4 whitespace-nowrap text-left min-w-0">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor((toDisplayName(emp.firstName) + ' ' + toDisplayName(emp.lastName)).trim() || emp.employeeCode || ' ')}`}>
-                          {toDisplayName(emp.firstName)?.[0] || ''}{toDisplayName(emp.lastName)?.[0] || ''}
+                        <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center text-white font-medium text-sm ${getAvatarColor(displayName || String(emp.user_id))}`}>
+                          {initials || '?'}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium text-gray-900 truncate">
-                            {toDisplayName(emp.firstName)} {toDisplayName(emp.lastName)}
+                            {displayName}
                           </div>
                         </div>
                       </div>
                     </td>
                     <td className="w-[14%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayEmail(emp.email)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.position?.title)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.phone)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.project_role?.name)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.cost_centre?.name)}</td>
                     <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.department?.name)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue((emp as any)?.profileExtensions?.subDepartment)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.entity?.name)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">
-                      {emp.reportingManager ? `${toDisplayName(emp.reportingManager.firstName)} ${toDisplayName(emp.reportingManager.lastName)}` : ''}
-                    </td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.paygroup?.name)}</td>
-                    {user?.role === 'SUPER_ADMIN' && (
-                      <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.organization?.name)}</td>
-                    )}
-                    <td className="w-[12%] px-4 py-4 whitespace-nowrap text-right text-sm font-medium min-w-0">
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.sub_department?.name)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-right text-sm font-medium min-w-0">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
-                          onClick={() => handleView(emp)}
+                          onClick={() => handleViewUser(emp)}
                           disabled={loadingEmployee}
                           title="View"
                           className="p-2 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-50"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                         </button>
-                        {canEditRow(emp) && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleEdit(emp)}
-                              disabled={loadingEmployee}
-                              title="Edit"
-                              className="p-2 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleUpdateFaceOpen(emp)}
-                              title="Update face"
-                              className="p-2 rounded text-teal-600 hover:bg-teal-50 disabled:opacity-50"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                            </button>
-                          </>
+                        {canUpdate && (
+                          <button
+                            type="button"
+                            onClick={() => handleEditUser(emp)}
+                            disabled={loadingEmployee}
+                            title="Edit"
+                            className="p-2 rounded text-indigo-600 hover:bg-indigo-50 disabled:opacity-50"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          </button>
                         )}
                         {canDelete && (
                           <button
                             type="button"
-                            onClick={() => handleDelete(emp.id)}
+                            onClick={() => handleDelete(String(emp.user_id))}
                             title="Delete"
                             className="p-2 rounded text-red-600 hover:bg-red-50"
                           >
@@ -2309,7 +2373,8 @@ export default function EmployeesPage() {
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -2367,7 +2432,7 @@ export default function EmployeesPage() {
         title={rejoinMode ? 'Employee Rejoin' : editingEmployee ? (viewMode ? 'View Employee' : 'Edit Employee') : 'Create Employee'}
         size="full"
       >
-        {(effectiveOrganizationId || editingEmployee?.organizationId) && (
+        {(effectiveOrganizationId || editingEmployee?.organizationId || showForm) && (
           <EmployeeForm
             key={editingEmployee?.id ?? 'create'}
             employee={editingEmployee}
@@ -2382,7 +2447,7 @@ export default function EmployeesPage() {
               rejoinMode ? undefined : editingEmployee && !viewMode
                 ? canUpdateByRole
                   ? undefined
-                  : (editableTabsFromPermissions ?? ((user?.role === 'EMPLOYEE' || user?.role === 'MANAGER') && user?.employee?.id === editingEmployee.id ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[]) : undefined))
+                  : (editableTabsFromPermissions ?? ((baseRole === 'EMPLOYEE' || baseRole === 'MANAGER') && user?.employee?.id === editingEmployee.id ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[]) : undefined))
                 : undefined
             }
           />
@@ -2480,6 +2545,71 @@ export default function EmployeesPage() {
           </div>
         </div>
       </Modal>
+      {/* ═══ View Employee Modal ═══ */}
+      {viewingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={() => setViewingUser(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">Employee Details</h2>
+              <button onClick={() => setViewingUser(null)} className="text-white hover:text-blue-200 transition">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6">
+              {/* Avatar + Name */}
+              <div className="flex items-center gap-4 mb-6 pb-4 border-b border-gray-100">
+                <div className={`flex-shrink-0 h-16 w-16 rounded-full flex items-center justify-center text-white font-bold text-xl ${getAvatarColor(viewingUser.full_name || '')}`}>
+                  {(viewingUser.full_name || '').split(' ').map((w: string) => w[0] || '').join('').slice(0, 2).toUpperCase() || '?'}
+                </div>
+                <div>
+                  <div className="text-xl font-semibold text-gray-900">{viewingUser.full_name || `${viewingUser.first_name || ''} ${viewingUser.last_name || ''}`}</div>
+                  <div className="text-sm text-gray-500">{viewingUser.email}</div>
+                  {viewingUser.code && <div className="text-xs text-gray-400 font-mono mt-0.5">Code: {viewingUser.code}</div>}
+                </div>
+              </div>
+              {/* Details Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Phone</div>
+                  <div className="text-sm text-gray-900 mt-0.5">{viewingUser.phone || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Status</div>
+                  <div className="mt-0.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${viewingUser.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {viewingUser.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Role</div>
+                  <div className="text-sm text-gray-900 mt-0.5">{viewingUser.project_role?.name || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Cost Centre</div>
+                  <div className="text-sm text-gray-900 mt-0.5">{viewingUser.cost_centre?.name || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Department</div>
+                  <div className="text-sm text-gray-900 mt-0.5">{viewingUser.department?.name || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Sub Department</div>
+                  <div className="text-sm text-gray-900 mt-0.5">{viewingUser.sub_department?.name || '—'}</div>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setViewingUser(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm font-medium">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Old Configurator-only edit modal removed — Edit now uses full EmployeeForm */}
+
       </main>
     </div>
   );

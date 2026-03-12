@@ -71,7 +71,23 @@ export interface DepartmentQuery {
   listView?: boolean;
 }
 
+export interface ConfigDepartment {
+  id: string;
+  name: string;
+  cost_centre_id?: number | null;
+}
+
 const departmentService = {
+  /**
+   * List departments from Configurator (for cascading dropdown)
+   */
+  async getList(organizationId: string, costCentreId?: string): Promise<ConfigDepartment[]> {
+    const { data } = await api.get<{ data: { departments: ConfigDepartment[] } }>('/departments/list', {
+      params: { organizationId, ...(costCentreId ? { costCentreId } : {}) },
+    });
+    return data.data?.departments ?? [];
+  },
+
   /**
    * Get all departments
    */

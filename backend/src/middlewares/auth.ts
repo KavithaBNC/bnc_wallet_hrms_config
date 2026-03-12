@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import { verifyToken, JwtPayload } from '../utils/jwt';
 import { AppError } from './errorHandler';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { config } from '../config/config';
 
 const isDatabaseConnectivityError = (error: unknown): boolean => {
   const prismaErr = error as { code?: string; message?: string };
@@ -36,15 +38,16 @@ export const authenticate = async (
   _res: Response,
   next: NextFunction
 ) => {
+  // Get token from Authorization header
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next(new AppError('No token provided. Please authenticate.', 401));
+  }
+
+  const token = authHeader.split(' ')[1];
+
   try {
-    // Get token from Authorization header
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AppError('No token provided. Please authenticate.', 401);
-    }
-
-    const token = authHeader.split(' ')[1];
 
     // Verify token
     const decoded = verifyToken(token);
@@ -78,10 +81,127 @@ export const authenticate = async (
     next();
   } catch (error) {
     if (error instanceof AppError) {
-      next(error);
-    } else if (isDatabaseConnectivityError(error)) {
-      next(new AppError('Database temporarily unavailable. Please try again.', 503));
-    } else {
+      return next(error);
+    }
+    if (isDatabaseConnectivityError(error)) {
+      return next(new AppError('Database temporarily unavailable. Please try again.', 503));
+    }
+
+    // Fallback: try decoding as a Configurator API token
+    try {
+      const decoded = jwt.decode(token) as {
+        sub?: string;
+        email?: string;
+        company_id?: number;
+        exp?: number;
+      } | null;
+
+      if (!decoded || !decoded.exp || decoded.exp * 1000 < Date.now()) {
+        throw new Error('Token expired or invalid');
+      }
+
+      const email = decoded.email;
+      const configuratorUserId = decoded.sub ? parseInt(decoded.sub, 10) : null;
+
+      if (!email && !configuratorUserId) {
+        throw new Error('No identifiers in token');
+      }
+
+      // Look up HRMS user by email (primary) or configuratorUserId (fallback)
+      let user = await prisma.user.findFirst({
+        where: email
+          ? { email: { equals: email, mode: 'insensitive' } }
+          : { configuratorUserId: configuratorUserId! },
+        select: { id: true, email: true, role: true, isActive: true },
+      });
+
+      // Auto-create HRMS user from Configurator token if not found
+      if (!user && email) {
+        try {
+          // Find an organization linked to this company, or create one
+          let org = decoded.company_id
+            ? await prisma.organization.findFirst({ where: { configuratorCompanyId: decoded.company_id } })
+            : await prisma.organization.findFirst();
+
+          // If no org found, auto-create one from the Configurator company data
+          if (!org && decoded.company_id) {
+            const companyName = `Company_${decoded.company_id}`;
+            org = await prisma.organization.create({
+              data: {
+                name: companyName,
+                legalName: companyName,
+                configuratorCompanyId: decoded.company_id,
+              },
+            });
+            console.log('[auth] Auto-created organization for company_id:', decoded.company_id);
+          }
+
+          if (org) {
+            // Clear stale configurator_user_id before create (unique constraint)
+            if (configuratorUserId != null) {
+              await prisma.$executeRaw`UPDATE users SET configurator_user_id = NULL WHERE configurator_user_id = ${configuratorUserId}`;
+              await prisma.$executeRaw`UPDATE employees SET configurator_user_id = NULL WHERE configurator_user_id = ${configuratorUserId}`;
+            }
+            const nameParts = email.split('@')[0].split(/[._]/);
+            const firstName = nameParts[0] || 'User';
+            const lastName = nameParts.slice(1).join(' ') || ' ';
+            const prefix = (org as any).employeeIdPrefix || 'EMP';
+            const nextNum = ((org as any).employeeIdNextNumber ?? 0) + 1;
+            const employeeCode = `${prefix}${nextNum.toString().padStart(2, '0')}`;
+            const newUser = await prisma.user.create({
+              data: {
+                email,
+                passwordHash: config.configuratorPlaceholderPasswordHash,
+                role: 'SUPER_ADMIN' as any,
+                organizationId: org.id,
+                configuratorUserId: configuratorUserId ?? undefined,
+                isEmailVerified: true,
+              },
+            });
+            await prisma.organization.update({
+              where: { id: org.id },
+              data: { employeeIdNextNumber: nextNum },
+            });
+            await prisma.employee.create({
+              data: {
+                organizationId: org.id,
+                userId: newUser.id,
+                employeeCode,
+                firstName,
+                lastName,
+                email,
+                dateOfJoining: new Date(),
+                employeeStatus: 'ACTIVE',
+                configuratorUserId: configuratorUserId ?? undefined,
+              },
+            });
+            user = { id: newUser.id, email: newUser.email, role: newUser.role, isActive: true };
+            console.log('[auth] Auto-created HRMS user from Configurator token:', email);
+          }
+        } catch (autoCreateErr) {
+          console.warn('[auth] Failed to auto-create HRMS user:', (autoCreateErr as any)?.message);
+        }
+      }
+
+      if (!user) {
+        throw new AppError('User not found in HRMS.', 401);
+      }
+      if (!user.isActive) {
+        throw new AppError('Your account has been deactivated.', 401);
+      }
+
+      req.user = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      };
+
+      next();
+    } catch (fallbackError) {
+      if (fallbackError instanceof AppError) return next(fallbackError);
+      if (isDatabaseConnectivityError(fallbackError)) {
+        return next(new AppError('Database temporarily unavailable. Please try again.', 503));
+      }
       next(new AppError('Invalid or expired token.', 401));
     }
   }
@@ -182,17 +302,25 @@ export const optionalAuth = async (
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.split(' ')[1];
-      const decoded = verifyToken(token);
+      let user: { id: string; email: string; role: string; isActive: boolean } | null = null;
 
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          isActive: true,
-        },
-      });
+      // Try HRMS token first
+      try {
+        const decoded = verifyToken(token);
+        user = await prisma.user.findUnique({
+          where: { id: decoded.userId },
+          select: { id: true, email: true, role: true, isActive: true },
+        });
+      } catch {
+        // Fallback: try Configurator token
+        const decoded = jwt.decode(token) as { sub?: string; email?: string; exp?: number } | null;
+        if (decoded?.email && decoded.exp && decoded.exp * 1000 >= Date.now()) {
+          user = await prisma.user.findFirst({
+            where: { email: { equals: decoded.email, mode: 'insensitive' } },
+            select: { id: true, email: true, role: true, isActive: true },
+          });
+        }
+      }
 
       if (user && user.isActive) {
         req.user = {

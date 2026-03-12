@@ -68,6 +68,8 @@ export interface Employee {
     url: string;
     uploadedAt: string;
   }>;
+  /** Configurator DB user ID (for delete/sync) */
+  configuratorUserId?: number | null;
   /** 128-float face encoding for face attendance punch */
   faceEncoding?: number[] | null;
   createdAt: string;
@@ -82,6 +84,11 @@ export interface Employee {
     id: string;
     name: string;
     code?: string;
+  };
+  costCentre?: {
+    id: string;
+    name: string;
+    code?: string | null;
   };
   paygroup?: {
     id: string;
@@ -133,6 +140,9 @@ export interface Employee {
     isEmailVerified: boolean;
     lastLoginAt?: string;
   };
+  // Profile extensions JSON (stores role, costCentre, subDepartment names from import)
+  profileExtensions?: Record<string, any> | null;
+  costCentreId?: string | null;
   // From profileExtensions (getById only) – academic/previous employment/family
   academicQualifications?: Array<Record<string, unknown>>;
   previousEmployments?: Array<Record<string, unknown>>;
@@ -234,6 +244,26 @@ const employeeService = {
     const params = organizationId ? { organizationId } : {};
     const response = await api.get('/employees/credentials', { params });
     return response.data.data.credentials;
+  },
+
+  /**
+   * Find an HRMS employee by email (exact match via search).
+   * Returns the first matching employee or null if none found.
+   */
+  async getByEmail(email: string): Promise<Employee | null> {
+    try {
+      const response = await api.get('/employees', {
+        params: { search: email, limit: 1, employeeStatus: 'ALL' },
+      });
+      const employees: Employee[] = response.data.data.employees || [];
+      // Exact match (search is fuzzy, so filter for exact email)
+      const match = employees.find(
+        (e) => e.email?.toLowerCase() === email.toLowerCase()
+      );
+      return match || null;
+    } catch {
+      return null;
+    }
   },
 
   /**

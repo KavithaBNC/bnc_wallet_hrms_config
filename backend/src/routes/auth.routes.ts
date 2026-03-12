@@ -4,7 +4,6 @@ import { validate } from '../middlewares/validate';
 import { authenticate, authorize } from '../middlewares/auth';
 import {
   registerSchema,
-  loginSchema,
   configuratorLoginSchema,
   configuratorRefreshSchema,
   refreshTokenSchema,
@@ -30,14 +29,16 @@ router.post(
 
 /**
  * @route   POST /api/v1/auth/login
- * @desc    Login user (HRMS DB - legacy)
+ * @desc    DISABLED — login must go through Configurator (/auth/configurator/login).
+ *          Kept as a clear error so clients using the old endpoint get a helpful message.
  * @access  Public
  */
-router.post(
-  '/login',
-  validate(loginSchema),
-  authController.login.bind(authController)
-);
+router.post('/login', (_req, res) => {
+  return res.status(410).json({
+    status: 'fail',
+    message: 'This login endpoint is disabled. Use /api/v1/auth/configurator/login instead.',
+  });
+});
 
 /**
  * @route   POST /api/v1/auth/configurator/login

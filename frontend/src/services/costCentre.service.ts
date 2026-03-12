@@ -13,4 +13,13 @@ export default {
     });
     return data.data?.costCentres ?? [];
   },
+
+  async create(organizationId: string, name: string, code?: string): Promise<CostCentre> {
+    const { data } = await api.post<{ data: { costCentre: CostCentre } }>('/cost-centres', {
+      organizationId,
+      name: name.trim(),
+      ...(code ? { code: code.trim() } : {}),
+    });
+    return data.data!.costCentre;
+  },
 };

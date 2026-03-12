@@ -1,7 +1,7 @@
 /**
  * Configurator API Service
  * HRMS fetches auth, modules, permissions from Configurator (RAG API)
- * Base URL: http://bnc-ai.com:8001
+ * Base URL: configured via CONFIGURATOR_API_URL env var
  */
 
 import axios, { AxiosError } from 'axios';
@@ -9,13 +9,38 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/config';
 import { AppError } from '../middlewares/errorHandler';
 
-const CONFIGURATOR_BASE = config.configuratorApiUrl;
+let CONFIGURATOR_BASE = config.configuratorApiUrl;
+const CONFIGURATOR_FALLBACK = config.configuratorApiFallbackUrl;
 const HRMS_PROJECT_ID = config.configuratorHrmsProjectId;
+
+/**
+ * Try a request to the primary URL; if it fails with a connection error
+ * and a fallback URL is configured, retry on the fallback and switch
+ * CONFIGURATOR_BASE for subsequent calls.
+ */
+async function withFallback<T>(fn: (base: string) => Promise<T>): Promise<T> {
+  try {
+    return await fn(CONFIGURATOR_BASE);
+  } catch (err) {
+    const code = (err as AxiosError)?.code;
+    if (
+      CONFIGURATOR_FALLBACK &&
+      CONFIGURATOR_FALLBACK !== CONFIGURATOR_BASE &&
+      (code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'ENOTFOUND' || code === 'ECONNABORTED')
+    ) {
+      console.log(`[configuratorService] Primary URL unreachable (${code}), switching to fallback: ${CONFIGURATOR_FALLBACK}`);
+      CONFIGURATOR_BASE = CONFIGURATOR_FALLBACK;
+      return await fn(CONFIGURATOR_BASE);
+    }
+    throw err;
+  }
+}
 
 export interface ConfiguratorLoginRequest {
   username: string;
   password: string;
-  company_id: number;
+  company_id?: number;
+  company_name_or_code?: string;
 }
 
 export interface ConfiguratorLoginResponse {
@@ -32,6 +57,12 @@ export interface ConfiguratorLoginResponse {
     company_id?: number;
     role_id?: number;
     roles?: Array<{ id: number; code: string; name: string }>;
+  };
+  company?: {
+    id: number;
+    name: string;
+    code?: string;
+    is_active?: boolean;
   };
 }
 
@@ -73,6 +104,18 @@ export interface ConfiguratorRoleModulePermission {
   is_enabled: boolean;
 }
 
+/** Role module permission from POST /api/v1/user-role-modules/project (includes page_name) */
+export interface ConfiguratorRoleModuleWithPage {
+  id: number;
+  company_id: number;
+  role_id: number;
+  project_id: number;
+  module_id: number;
+  is_enabled: boolean;
+  page_name?: string;
+  page_name_mobile?: string;
+}
+
 /** Decoded Configurator JWT payload (sub = user id) */
 export interface ConfiguratorTokenPayload {
   sub: string;
@@ -94,55 +137,94 @@ export class ConfiguratorService {
   }
 
   /**
+   * Step 1: Verify company exists via Configurator API
+   * POST /api/v1/auth/login with only { company_name_or_code }
+   * Returns the raw response from the external API (success, step, message, etc.)
+   */
+  async verifyCompany(companyNameOrCode: string): Promise<any> {
+    return withFallback(async (base) => {
+      const url = `${base}/api/v1/auth/login`;
+      console.log('[verifyCompany] POST', url);
+      try {
+        const res = await axios.post(
+          url,
+          { company_name_or_code: companyNameOrCode },
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          }
+        );
+        console.log('[verifyCompany] OK — company:', res.data?.company?.name || 'verified');
+        return res.data;
+      } catch (err) {
+        const axiosErr = err as AxiosError<any>;
+        console.warn('[verifyCompany] Error:', axiosErr.response?.status);
+        if (axiosErr.response?.data) {
+          return axiosErr.response.data;
+        }
+        throw err; // let withFallback handle connection errors
+      }
+    });
+  }
+
+  /**
    * Login via Configurator API
    * POST /api/v1/auth/login
    */
   async login(data: ConfiguratorLoginRequest): Promise<ConfiguratorLoginResponse> {
-    try {
-      const res = await axios.post<ConfiguratorLoginResponse>(
-        `${CONFIGURATOR_BASE}/api/v1/auth/login`,
-        {
-          username: data.username,
-          password: data.password,
-          company_id: data.company_id,
-        },
-        {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 15000,
-        }
-      );
-      return res.data;
-    } catch (err) {
-      const axiosErr = err as AxiosError<{ detail?: string | Array<{ msg?: string }>; message?: string }>;
-      if (axiosErr.response?.status === 401) {
-        throw new AppError('Invalid username or password', 401);
-      }
-      if (axiosErr.response?.status === 422) {
-        const detail = axiosErr.response.data?.detail;
-        const msg = Array.isArray(detail)
-          ? detail.map((d) => d.msg || JSON.stringify(d)).join(', ')
-          : String(detail || 'Validation error');
-        throw new AppError(msg || 'Invalid request', 422);
-      }
-      if (
-        axiosErr.code === 'ECONNREFUSED' ||
-        axiosErr.code === 'ETIMEDOUT' ||
-        axiosErr.code === 'ENOTFOUND' ||
-        axiosErr.code === 'ECONNABORTED'
-      ) {
-        throw new AppError(
-          'Configurator service unavailable. Please check CONFIGURATOR_API_URL and try again later.',
-          503
+    return withFallback(async (base) => {
+      const url = `${base}/api/v1/auth/login`;
+      const payload: Record<string, any> = {
+        username: data.username,
+        password: data.password,
+      };
+      if (data.company_name_or_code) payload.company_name_or_code = data.company_name_or_code;
+      if (data.company_id) payload.company_id = data.company_id;
+      console.log('[configuratorService.login] POST', url, '— user:', data.username);
+      try {
+        const res = await axios.post<ConfiguratorLoginResponse & { success?: boolean; message?: string }>(
+          url,
+          payload,
+          {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 15000,
+          }
         );
+        const body = res.data as any;
+        if (body.success === false) {
+          console.error('[configuratorService.login] API returned success:false —', body.message);
+          const rawMsg = (body.message || '').toLowerCase();
+          let userMsg = 'Invalid username or password';
+          if (rawMsg.includes('company not found')) {
+            userMsg = 'Company not found. Please check the name or code.';
+          } else if (rawMsg.includes('user not found') || rawMsg.includes('no user')) {
+            userMsg = 'Invalid username or password';
+          }
+          throw new AppError(userMsg, 401);
+        }
+        if (!res.data.access_token) {
+          throw new AppError('Login failed: no access token received', 401);
+        }
+        console.log('[configuratorService.login] Success — user_role_id:', res.data.user_role_id, 'user:', res.data.user?.email);
+        return res.data;
+      } catch (err) {
+        if (err instanceof AppError) throw err;
+        const axiosErr = err as AxiosError<{ detail?: string | Array<{ msg?: string }>; message?: string }>;
+        console.error('[configuratorService.login] Error:', axiosErr.response?.status || axiosErr.code);
+        if (axiosErr.response?.status === 401) {
+          throw new AppError('Invalid username or password', 401);
+        }
+        if (axiosErr.response?.status === 422) {
+          const detail = axiosErr.response.data?.detail;
+          const msg = Array.isArray(detail)
+            ? detail.map((d) => d.msg || JSON.stringify(d)).join(', ')
+            : String(detail || 'Validation error');
+          throw new AppError(msg || 'Invalid request', 422);
+        }
+        // Re-throw connection errors for withFallback to handle
+        throw err;
       }
-      const data = axiosErr.response?.data as any;
-      const msg =
-        data?.message ||
-        (typeof data?.detail === 'string' ? data.detail : null) ||
-        (Array.isArray(data?.detail) ? data.detail.map((d: any) => d?.msg || d).join(', ') : null) ||
-        'Login failed. Please try again.';
-      throw new AppError(msg, axiosErr.response?.status || 500);
-    }
+    });
   }
 
   /**
@@ -194,19 +276,24 @@ export class ConfiguratorService {
     const pid = projectId ?? HRMS_PROJECT_ID;
     const headers = { Authorization: `Bearer ${accessToken}` };
     const urls = [
+      `${CONFIGURATOR_BASE}/api/v1/modules/my-modules`,
       `${CONFIGURATOR_BASE}/api/v1/modules`,
       `${CONFIGURATOR_BASE}/api/v1/project-modules`,
     ];
     for (const url of urls) {
       try {
+        // Try each modules endpoint in order
         const res = await axios.get<ConfiguratorModule[] | { modules?: ConfiguratorModule[] }>(
           url,
           { params: { project_id: pid }, headers, timeout: 15000 }
         );
         const arr = Array.isArray(res.data) ? res.data : (res.data as any)?.modules;
-        if (Array.isArray(arr)) return arr;
-      } catch {
-        // Try next URL
+        if (Array.isArray(arr) && arr.length > 0) {
+          console.log('[configuratorService.getModules] Got', arr.length, 'modules');
+          return arr;
+        }
+      } catch (e: any) {
+        // Endpoint not available, try next
       }
     }
     return [];
@@ -244,6 +331,45 @@ export class ConfiguratorService {
       }
       throw new AppError(
         'Failed to fetch role modules',
+        axiosErr.response?.status || 500
+      );
+    }
+  }
+
+  /**
+   * Get role-module permissions via POST /api/v1/user-role-modules/project
+   * Returns modules with page_name and is_enabled in a single call.
+   */
+  async getRoleModulesByProject(
+    accessToken: string,
+    roleId: number,
+    projectId?: number
+  ): Promise<ConfiguratorRoleModuleWithPage[]> {
+    const pid = projectId ?? HRMS_PROJECT_ID;
+    try {
+      const res = await axios.post<ConfiguratorRoleModuleWithPage[]>(
+        `${CONFIGURATOR_BASE}/api/v1/user-role-modules/project`,
+        { role_id: roleId, project_id: pid },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
+      const data = res.data;
+      return Array.isArray(data) ? data : (data as any)?.data ?? [];
+    } catch (err) {
+      const axiosErr = err as AxiosError;
+      if (axiosErr.response?.status === 401) {
+        throw new AppError('Invalid or expired token. Please login again.', 401);
+      }
+      if (axiosErr.code === 'ECONNREFUSED' || axiosErr.code === 'ETIMEDOUT') {
+        throw new AppError('Configurator service unavailable.', 503);
+      }
+      throw new AppError(
+        'Failed to fetch role modules by project',
         axiosErr.response?.status || 500
       );
     }
@@ -301,58 +427,98 @@ export class ConfiguratorService {
   /**
    * Create department in Config DB
    * POST /api/v1/departments/
+   * Payload: { company_id, name, is_active }
    */
   async createDepartment(
     accessToken: string,
     data: {
       name: string;
+      company_id: number;
+      is_active?: boolean;
+      // Extra fields accepted for type compatibility but NOT sent to the API
       code?: string;
       cost_centre_id?: number;
-      company_id: number;
       description?: string;
       manager_id?: number;
       cost_centre_name?: string;
       branch_id?: number;
       location?: string;
     }
-  ): Promise<{ id: number; name: string; code?: string }> {
-    const res = await axios.post(
-      `${CONFIGURATOR_BASE}/api/v1/departments/`,
-      data,
-      {
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        timeout: 15000,
-      }
-    );
-    return res.data;
+  ): Promise<{ id: number; name: string; company_id: number }> {
+    const payload: Record<string, any> = {
+      company_id: data.company_id,
+      name: data.name,
+      is_active: data.is_active ?? true,
+    };
+    if (data.cost_centre_id != null) payload.cost_centre_id = data.cost_centre_id;
+    console.log('[configuratorService.createDepartment]', data.name);
+    try {
+      const res = await axios.post(
+        `${CONFIGURATOR_BASE}/api/v1/departments/`,
+        payload,
+        {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          timeout: 15000,
+        }
+      );
+      console.log('[configuratorService.createDepartment] OK — id:', res.data?.id);
+      return res.data;
+    } catch (err: any) {
+      const errData = err.response?.data;
+      const status = err.response?.status;
+      console.error('[configuratorService.createDepartment] FAILED:', status);
+      throw new AppError(
+        errData?.detail || errData?.message || `Configurator API error ${status}: Failed to create department`,
+        status || 500
+      );
+    }
   }
 
   /**
    * Create sub-department in Config DB
    * POST /api/v1/sub-departments/
+   * Payload: { company_id, name, is_active }
    */
   async createSubDepartment(
     accessToken: string,
     data: {
       name: string;
-      code?: string;
-      department_id: number;
       company_id: number;
+      department_id?: number;
+      is_active?: boolean;
+      // Extra fields accepted for type compatibility but NOT sent to the API
+      code?: string;
       costcenter_id?: string;
     }
-  ): Promise<{ id: number; name: string; code?: string }> {
-    if (!data.department_id) {
-      throw new AppError('department_id is required for Config sub-department', 400);
+  ): Promise<{ id: number; name: string; company_id: number }> {
+    const payload: Record<string, any> = {
+      company_id: data.company_id,
+      name: data.name,
+      is_active: data.is_active ?? true,
+    };
+    if (data.department_id != null) payload.department_id = data.department_id;
+    if (data.costcenter_id != null) payload.costcenter_id = data.costcenter_id;
+    console.log('[configuratorService.createSubDepartment]', data.name);
+    try {
+      const res = await axios.post(
+        `${CONFIGURATOR_BASE}/api/v1/sub-departments/`,
+        payload,
+        {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          timeout: 15000,
+        }
+      );
+      console.log('[configuratorService.createSubDepartment] OK — id:', res.data?.id);
+      return res.data;
+    } catch (err: any) {
+      const errData = err.response?.data;
+      const status = err.response?.status;
+      console.error('[configuratorService.createSubDepartment] FAILED:', status);
+      throw new AppError(
+        errData?.detail || errData?.message || `Configurator API error ${status}: Failed to create sub-department`,
+        status || 500
+      );
     }
-    const res = await axios.post(
-      `${CONFIGURATOR_BASE}/api/v1/sub-departments/`,
-      data,
-      {
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        timeout: 15000,
-      }
-    );
-    return res.data;
   }
 
   /**
@@ -366,14 +532,18 @@ export class ConfiguratorService {
     try {
       const params: Record<string, number> = { company_id: opts.companyId, skip: 0, limit: 500 };
       if (opts.costCentreId != null) params.cost_centre_id = opts.costCentreId;
+      // Fetch departments from Configurator
       const res = await axios.get(`${CONFIGURATOR_BASE}/api/v1/departments/`, {
         params,
         headers: { Authorization: `Bearer ${accessToken}` },
         timeout: 15000,
       });
       const data = res.data;
-      return Array.isArray(data) ? data : (data?.data ?? data?.departments ?? []);
-    } catch {
+      const result = Array.isArray(data) ? data : (data?.data ?? data?.departments ?? []);
+      // departments fetched
+      return result;
+    } catch (err: any) {
+      console.error('[configuratorService.getDepartments] FAILED:', err.response?.status);
       return [];
     }
   }
@@ -389,14 +559,18 @@ export class ConfiguratorService {
     try {
       const params: Record<string, number> = { company_id: opts.companyId };
       if (opts.departmentId != null) params.department_id = opts.departmentId;
+      // Fetch sub-departments from Configurator
       const res = await axios.get(`${CONFIGURATOR_BASE}/api/v1/sub-departments/`, {
         params: { ...params, skip: 0, limit: 500 },
         headers: { Authorization: `Bearer ${accessToken}` },
         timeout: 15000,
       });
       const data = res.data;
-      return Array.isArray(data) ? data : (data?.data ?? data?.sub_departments ?? []);
-    } catch {
+      const result = Array.isArray(data) ? data : (data?.data ?? data?.sub_departments ?? []);
+      // sub-departments fetched
+      return result;
+    } catch (err: any) {
+      console.error('[configuratorService.getSubDepartments] FAILED:', err.response?.status);
       return [];
     }
   }
@@ -440,7 +614,7 @@ export class ConfiguratorService {
 
   /**
    * Create user in Config DB users table
-   * POST /api/v1/users/
+   * POST /api/v1/users/add
    */
   async createUser(
     accessToken: string,
@@ -450,23 +624,30 @@ export class ConfiguratorService {
       last_name?: string;
       phone?: string;
       company_id: number;
+      project_id?: number;
       role_id?: number;
+      cost_centre_id?: number;
+      department_id?: number;
+      sub_department_id?: number;
       password: string;
       username?: string;
     }
   ): Promise<{ id: number; email: string; first_name?: string; last_name?: string }> {
     try {
       const res = await axios.post(
-        `${CONFIGURATOR_BASE}/api/v1/users/`,
+        `${CONFIGURATOR_BASE}/api/v1/users/add`,
         {
           email: data.email,
           first_name: data.first_name ?? '',
           last_name: data.last_name ?? '',
           phone: data.phone ?? '',
           company_id: data.company_id,
+          project_id: data.project_id ?? 0,
           role_id: data.role_id ?? 0,
+          cost_centre_id: data.cost_centre_id ?? 0,
+          department_id: data.department_id ?? 0,
+          sub_department_id: data.sub_department_id ?? 0,
           password: data.password,
-          username: data.username ?? data.email.split('@')[0],
         },
         {
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -502,6 +683,9 @@ export class ConfiguratorService {
       role_id?: number;
       password?: string;
       is_active?: boolean;
+      department_id?: number | null;
+      cost_centre_id?: number | null;
+      sub_department_id?: number | null;
     }
   ): Promise<{ id: number; email: string; first_name?: string; last_name?: string }> {
     try {
@@ -517,6 +701,9 @@ export class ConfiguratorService {
       if (data.password != null && data.password !== '') {
         body.password = data.password;
       }
+      if (data.department_id != null) body.department_id = data.department_id;
+      if (data.cost_centre_id != null) body.cost_centre_id = data.cost_centre_id;
+      if (data.sub_department_id != null) body.sub_department_id = data.sub_department_id;
       const res = await axios.put(
         `${CONFIGURATOR_BASE}/api/v1/users/${userId}`,
         body,

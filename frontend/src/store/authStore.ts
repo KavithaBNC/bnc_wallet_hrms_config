@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { authService, User, LoginData, RegisterData } from '../services/auth.service';
+import { authService, User, LoginData, RegisterData, CompanyVerifyResponse } from '../services/auth.service';
 
 interface AuthState {
   user: User | null;
@@ -8,6 +8,7 @@ interface AuthState {
   error: string | null;
 
   // Actions
+  verifyCompany: (companyNameOrCode: string) => Promise<CompanyVerifyResponse>;
   login: (data: LoginData) => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
@@ -23,52 +24,66 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: false,
   error: null,
 
-  login: async (data: LoginData) => {
+  verifyCompany: async (companyNameOrCode: string) => {
     try {
       set({ isLoading: true, error: null });
-      const loginResult = await authService.login(data);
-      const { user: loginUser } = loginResult;
-      // Refresh user data to ensure we have latest employee/organization info
-      try {
-        const refreshedUser = await authService.getCurrentUser();
-        set({ user: refreshedUser, isAuthenticated: true, isLoading: false });
-      } catch (meError: any) {
-        // Fallback: use user from login response so user can still get in
-        set({ user: loginUser, isAuthenticated: true, isLoading: false });
-      }
+      const result = await authService.verifyCompany(companyNameOrCode);
+      set({ isLoading: false });
+      return result;
     } catch (error: any) {
-      let errorMessage = 'Login failed. Please try again.';
+      let errorMessage = 'Company verification failed. Please try again.';
       const data = error.response?.data;
 
-      // Handle network errors (no response = backend unreachable)
       if (!error.response) {
-        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-          errorMessage = 'Request timeout. Please check your connection and try again.';
-        } else if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
-          errorMessage = 'Backend is not running. Start it with: cd backend && npm run dev';
-        } else if (error.message) {
-          errorMessage = error.message;
+        if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
+          errorMessage = 'Cannot connect to server. Please check your connection.';
         }
-      } else if (error.response?.status === 502) {
-        errorMessage = 'Backend is not running. Start it with: cd backend && npm run dev';
       } else if (data) {
-        // Backend returned error - extract message
-        if (data.errors && Array.isArray(data.errors)) {
-          errorMessage = data.errors.map((e: any) => e.message || e.msg).join(', ');
-        } else if (typeof data.message === 'string') {
+        if (typeof data.message === 'string') {
           errorMessage = data.message;
         } else if (data.error?.message) {
           errorMessage = data.error.message;
         } else if (typeof data.detail === 'string') {
           errorMessage = data.detail;
-        } else if (error.response?.status === 500) {
-          errorMessage = data.message || 'Server error. Check backend terminal for details.';
         }
       }
-      if (errorMessage === 'Request failed with status code 500') {
-        errorMessage = 'Server error. Ensure backend is running (npm run dev from project root).';
+
+      set({ error: errorMessage, isLoading: false });
+      throw error;
+    }
+  },
+
+  login: async (data: LoginData) => {
+    try {
+      set({ isLoading: true, error: null });
+      const loginResult = await authService.login(data);
+      const { user: loginUser } = loginResult;
+      // User data comes directly from Configurator API response — no need for a separate /me call
+      set({ user: loginUser, isAuthenticated: true, isLoading: false });
+    } catch (error: any) {
+      let errorMessage = 'Login failed. Please try again.';
+      const data = error.response?.data;
+
+      // Handle network errors (no response = server unreachable)
+      if (!error.response) {
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+          errorMessage = 'Request timeout. Please check your connection and try again.';
+        } else if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+          errorMessage = 'Cannot connect to server. Please check your connection.';
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+      } else if (data) {
+        // Configurator API returned error - extract message
+        if (typeof data.message === 'string') {
+          errorMessage = data.message;
+        } else if (data.error?.message) {
+          errorMessage = data.error.message;
+        } else if (typeof data.detail === 'string') {
+          errorMessage = data.detail;
+        }
       }
-      
+
       console.error('Login error:', error);
       set({ error: errorMessage, isLoading: false });
       throw error;

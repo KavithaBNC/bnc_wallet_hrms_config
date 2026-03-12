@@ -26,10 +26,13 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-// Configurator login schema (username = email, company_id from Config DB or env)
+// Configurator login schema - supports 2-step flow:
+// Step 1: { company_name_or_code } only → verify company exists
+// Step 2: { company_name_or_code, username, password } → full login
 export const configuratorLoginSchema = z.object({
-  username: z.string().min(1, 'Username (email) is required'),
-  password: z.string().min(1, 'Password is required'),
+  company_name_or_code: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
   company_id: z.coerce.number().int().positive('Company ID must be a positive integer').optional(),
 });
 

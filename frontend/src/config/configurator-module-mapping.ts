@@ -5,11 +5,22 @@
 
 export interface ConfiguratorModule {
   id: number;
+  module_id?: number;
   name: string;
   code: string;
   description?: string;
   is_active?: boolean;
+  is_enabled?: boolean;
   path?: string;
+  page_name?: string;
+  page_name_mobile?: string;
+  role_id?: number;
+  company_id?: number;
+  project_id?: number;
+  /** ID of the parent module (null for top-level modules) */
+  parent_module_id?: number | null;
+  /** Parent module details from API: { id, name, code } */
+  parent_module?: { id: number; name: string; code: string } | null;
 }
 
 /** Configurator code → { path, icon, description } for dashboard cards */
@@ -147,6 +158,11 @@ export const CONFIGURATOR_CODE_TO_CARD: Record<
     icon: '✅',
     description: 'Employee master approval',
   },
+  COST_CENTRE_DEPARTMENT: {
+    path: '/cost-centre-department',
+    icon: '🏗️',
+    description: 'Cost Centre & Department setup',
+  },
 };
 
 /** Get assigned modules from localStorage (set on Configurator login) */
@@ -158,5 +174,50 @@ export function getAssignedModules(): ConfiguratorModule[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+/** Per-module permission flags from /api/v1/user-role-modules/project */
+export interface ModulePermissions {
+  can_view: boolean;
+  can_add: boolean;
+  can_edit: boolean;
+  can_delete: boolean;
+}
+
+/** Default permissions when no module permission entry is found */
+const DEFAULT_PERMISSIONS: ModulePermissions = {
+  can_view: false,
+  can_add: false,
+  can_edit: false,
+  can_delete: false,
+};
+
+/**
+ * Get permissions for a specific module/page path.
+ * Reads from localStorage 'modulePermissions' which is populated during login
+ * from POST /api/v1/user-role-modules/project.
+ *
+ * Tries exact match first, then checks if any stored path is a prefix of the given path.
+ */
+export function getModulePermissions(path: string): ModulePermissions {
+  try {
+    const raw = localStorage.getItem('modulePermissions');
+    if (!raw) return DEFAULT_PERMISSIONS;
+    const map: Record<string, ModulePermissions> = JSON.parse(raw);
+
+    // Exact match
+    if (map[path]) return map[path];
+
+    // Prefix match: e.g. path="/employees/123" matches stored "/employees"
+    for (const key of Object.keys(map)) {
+      if (path.startsWith(key + '/') || path === key) {
+        return map[key];
+      }
+    }
+
+    return DEFAULT_PERMISSIONS;
+  } catch {
+    return DEFAULT_PERMISSIONS;
   }
 }

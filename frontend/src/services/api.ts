@@ -41,16 +41,18 @@ api.interceptors.response.use(
           throw new Error('No refresh token');
         }
 
-        // Try to refresh the token
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh-token`, {
-          refreshToken,
+        // Try to refresh via Configurator API
+        const response = await axios.post('/configurator-api/api/v1/auth/token/refresh', {
+          refresh_token: refreshToken,
         });
 
-        const { accessToken, refreshToken: newRefreshToken } = response.data.data.tokens;
+        const accessToken = response.data.access_token || '';
+        const newRefreshToken = response.data.refresh_token || refreshToken;
 
         // Save new tokens
         localStorage.setItem('accessToken', accessToken);
         localStorage.setItem('refreshToken', newRefreshToken);
+        localStorage.setItem('configuratorAccessToken', accessToken);
 
         // Retry original request with new token
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;

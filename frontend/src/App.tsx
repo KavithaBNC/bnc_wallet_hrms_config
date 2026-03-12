@@ -91,6 +91,8 @@ import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
 import NotFoundPage from './pages/NotFoundPage';
 import VariableInputPage from './pages/VariableInputPage';
 import VariableInputEntryPage from './pages/VariableInputEntryPage';
+import CostCentreDepartmentPage from './pages/CostCentreDepartmentPage';
+import DepartmentMastersPage from './pages/department_masters';
 
 function App() {
   const { isAuthenticated, loadUser } = useAuthStore();
@@ -154,6 +156,26 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <DepartmentsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hrms-051"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <DepartmentMastersPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cost-centre-department"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <CostCentreDepartmentPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

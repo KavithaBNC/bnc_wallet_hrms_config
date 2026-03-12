@@ -1,8 +1,49 @@
 import { Request, Response, NextFunction } from 'express';
 import { departmentService } from '../services/department.service';
+import { configuratorService } from '../services/configurator.service';
 import { prisma } from '../utils/prisma';
 
 export class DepartmentController {
+  /**
+   * List departments from Configurator (for cascading dropdown flow).
+   * GET /api/v1/departments/list?organizationId=X&costCentreId=Y
+   */
+  async getConfiguratorList(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, costCentreId } = req.query as { organizationId?: string; costCentreId?: string };
+      if (!organizationId) {
+        return res.status(400).json({ status: 'fail', message: 'organizationId required' });
+      }
+      const org = await prisma.organization.findUnique({
+        where: { id: organizationId },
+        select: { configuratorCompanyId: true },
+      });
+      if (!org?.configuratorCompanyId || !req.user?.userId) {
+        return res.status(200).json({ status: 'success', data: { departments: [] } });
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.userId },
+        select: { configuratorAccessToken: true },
+      });
+      if (!user?.configuratorAccessToken) {
+        return res.status(200).json({ status: 'success', data: { departments: [] } });
+      }
+      const ccId = costCentreId ? parseInt(costCentreId, 10) : undefined;
+      const configList = await configuratorService.getDepartments(user.configuratorAccessToken, {
+        companyId: org.configuratorCompanyId,
+        costCentreId: Number.isNaN(ccId) ? undefined : ccId,
+      });
+      const departments = configList.map((d: any) => ({
+        id: String(typeof d === 'object' ? d.id : d),
+        name: typeof d === 'object' ? (d.name ?? d.Name ?? '') : String(d),
+        cost_centre_id: typeof d === 'object' ? (d.cost_centre_id ?? d.costCentreId ?? null) : null,
+      })).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      return res.status(200).json({ status: 'success', data: { departments } });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   /**
    * Create new department (stores in Config DB when org has configuratorCompanyId)
    * POST /api/v1/departments

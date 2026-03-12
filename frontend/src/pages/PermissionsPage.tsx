@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import permissionService, { Permission, RolePermission } from '../services/permission.service';
 import AppHeader from '../components/layout/AppHeader';
 import organizationService, { Organization } from '../services/organization.service';
@@ -51,7 +52,9 @@ const PermissionsPage = () => {
   const orgDropdownRef = useRef<HTMLDivElement>(null);
 
   const roleUpper = user?.role != null ? String(user.role).toUpperCase() : '';
-  const canManagePermissions = roleUpper === 'SUPER_ADMIN' || roleUpper === 'ORG_ADMIN';
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const permPerms = getModulePermissions('/permissions');
+  const canManagePermissions = permPerms.can_view;
   const isSuperAdmin = roleUpper === 'SUPER_ADMIN';
   const isOrgAdmin = roleUpper === 'ORG_ADMIN';
   const userOrgId = user?.employee?.organizationId ?? user?.employee?.organization?.id;

@@ -1,0 +1,146 @@
+.login-root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+  padding: 1.5rem;
+  overflow: hidden;
+  position: relative;
+  perspective: 2000px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 1100px;
+  min-height: 620px;
+  background: white;
+  border-radius: 2.5rem;
+  box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  z-index: 10;
+  transform-style: preserve-3d;
+}
+
+/* Base sections - Always absolute for the wipe effect */
+.welcome-section {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 55%;
+  z-index: 50; /* Above everything during wipe */
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  transition: all 0.9s cubic-bezier(0.7, 0, 0.2, 1);
+  box-shadow: 10px 0 50px rgba(0, 0, 0, 0.3);
+}
+
+/* Shutter Wipe Animation Logic */
+.login-card:not(.step-2) .welcome-section {
+  left: 0;
+  clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%);
+  animation: wipeToLeft 1s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+
+.login-card.step-2 .welcome-section {
+  animation: wipeToRight 1s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+
+@keyframes wipeToRight {
+  0% { left: 0; width: 55%; clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%); }
+  50% { left: 0; width: 100%; clip-path: polygon(0 0, 100% 0, 100% 100%, 0% 100%); }
+  100% { left: 45%; width: 55%; clip-path: polygon(15% 0, 100% 0, 100% 100%, 0% 100%); }
+}
+
+@keyframes wipeToLeft {
+  0% { left: 45%; width: 55%; clip-path: polygon(15% 0, 100% 0, 100% 100%, 0% 100%); }
+  50% { left: 0; width: 100%; clip-path: polygon(0 0, 100% 0, 100% 100%, 0% 100%); }
+  100% { left: 0; width: 55%; clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%); }
+}
+
+/* Glow edge */
+.welcome-section::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-right: 2px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1));
+  pointer-events: none;
+}
+
+/* Form section - Underlying the wipe */
+.form-section {
+  position: absolute;
+  top: 0;
+  width: 45%;
+  height: 100%;
+  background-color: white;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4rem;
+  transition: all 0.9s cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+.login-card:not(.step-2) .form-section {
+  right: 0;
+}
+
+.login-card.step-2 .form-section {
+  left: 0;
+}
+
+/* Centering content within their 50% regions */
+.welcome-content {
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+  text-align: center;
+  transition: opacity 0.5s ease;
+}
+
+.form-content-wrapper {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.9) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-fadeInScale {
+  animation: fadeInScale 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@media (max-width: 960px) {
+  .login-card {
+    flex-direction: column;
+    max-width: 450px;
+    min-height: auto;
+    border-radius: 1.5rem;
+    display: block;
+  }
+  .welcome-section, .form-section {
+    position: relative;
+    width: 100% !important;
+    height: auto !important;
+    left: auto !important;
+    right: auto !important;
+    transform: none !important;
+    clip-path: none !important;
+    animation: none !important;
+    padding: 3rem 2rem;
+  }
+  .welcome-section {
+    background: #2563eb;
+    box-shadow: none;
+  }
+}

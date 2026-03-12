@@ -25,6 +25,16 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      '/configurator-api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/configurator-api/, ''),
+        configure: (proxy) => {
+          proxy.on('error', (_err, _req, _res) => {
+            console.error('\n[vite] Configurator API proxy error: cannot connect to http://localhost:8000\n');
+          });
+        },
+      },
       '/api': {
         target: `http://localhost:${process.env.VITE_API_PORT || '5001'}`,
         changeOrigin: true,

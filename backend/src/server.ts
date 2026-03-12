@@ -143,6 +143,7 @@ import ruleSettingRoutes from './routes/rule-setting.routes';
 import autoCreditSettingRoutes from './routes/auto-credit-setting.routes';
 import monthlyAttendanceSummaryRoutes from './routes/monthly-attendance-summary.routes';
 import configRoutes from './routes/config.routes';
+import configuratorDataRoutes from './routes/configurator-data.routes';
 import compoundRoutes from './routes/compound.routes';
 import rulesEngineRoutes from './routes/rules-engine.routes';
 import validationProcessRuleRoutes from './routes/validation-process-rule.routes';
@@ -191,6 +192,7 @@ app.use('/api/v1/ats', atsRoutes);
 app.use('/api/v1/transaction/transfer-promotions', transferPromotionRoutes);
 app.use('/api/v1/transaction/transfer-promotion-entry', transferPromotionEntryRoutes);
 app.use('/api/v1/esop', esopRoutes);
+app.use('/api/v1/configurator-data', configuratorDataRoutes);
 
 // ============================================================================
 // ERROR HANDLING

@@ -6,13 +6,14 @@ import employeeService, { Employee, Gender, MaritalStatus, EmployeeStatus } from
 import { employeeChangeRequestService } from '../../services/employee-change-request.service';
 import api from '../../services/api';
 import { subDepartmentService } from '../../services/sub-department.service';
+import configuratorDataService from '../../services/configurator-data.service';
 import entityService from '../../services/entity.service';
 import locationService from '../../services/location.service';
 import { employeeSalaryService } from '../../services/payroll.service';
 import { esopService, EsopRecord } from '../../services/esop.service';
 import Modal from '../common/Modal';
+import SearchableSelect from '../common/SearchableSelect';
 import { toDisplayEmail, toDisplayName } from '../../utils/display';
-import DepartmentForm from '../departments/DepartmentForm';
 import PositionForm from '../positions/PositionForm';
 import EntityForm from '../entities/EntityForm';
 import LocationForm from '../locations/LocationForm';
@@ -78,8 +79,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     if (rejoinMode && employee) setCurrentTab('company');
   }, [rejoinMode, !!employee]);
 
-  const { departments, fetchDepartments } = useDepartmentStore();
+  const { departments: localDepartments, fetchDepartments } = useDepartmentStore();
   const { positions, fetchPositions } = usePositionStore();
+  const [configDepartments, setConfigDepartments] = useState<{ id: number; name: string }[]>([]);
   const [availableManagers, setAvailableManagers] = useState<Employee[]>([]);
   const [entities, setEntities] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string; code?: string }[]>([]);
@@ -97,12 +99,28 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [newSubDepartmentName, setNewSubDepartmentName] = useState('');
   const [subDepartmentError, setSubDepartmentError] = useState('');
   const [subDepartmentOptions, setSubDepartmentOptions] = useState<string[]>([]);
+  const [showCostCentreModal, setShowCostCentreModal] = useState(false);
+  const [newCostCentreName, setNewCostCentreName] = useState('');
+  const [costCentreError, setCostCentreError] = useState('');
+  const [costCentreOptions, setCostCentreOptions] = useState<string[]>([]);
+  // Full Configurator items with IDs for passing relationship IDs in create calls
+  const [configCostCentres, setConfigCostCentres] = useState<{ id: number; name: string }[]>([]);
+  const [selectedConfigCostCentreId, setSelectedConfigCostCentreId] = useState<number | null>(null);
+  const [configSubDepartments, setConfigSubDepartments] = useState<{ id: number; name: string; department_id?: number }[]>([]);
+  const [selectedConfigDepartmentId, setSelectedConfigDepartmentId] = useState<number | null>(null);
+  const [selectedConfigSubDepartmentId, setSelectedConfigSubDepartmentId] = useState<number | null>(null);
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [showAcademicModal, setShowAcademicModal] = useState(false);
   const [showPreviousEmploymentModal, setShowPreviousEmploymentModal] = useState(false);
   const [showFamilyModal, setShowFamilyModal] = useState(false);
   const [showCertificationModal, setShowCertificationModal] = useState(false);
   const [showKnownLanguageModal, setShowKnownLanguageModal] = useState(false);
+  // User Role dropdown state (same pattern as Cost Centre)
+  const [showUserRoleModal, setShowUserRoleModal] = useState(false);
+  const [newUserRoleName, setNewUserRoleName] = useState('');
+  const [userRoleError, setUserRoleError] = useState('');
+  const [userRoleOptions, setUserRoleOptions] = useState<{ id: number; name: string }[]>([]);
+  const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(null);
 
   const [salaryTab, setSalaryTab] = useState<'earnings' | 'deductions' | 'reimbursement'>('earnings');
   const [salaryFixedGross, setSalaryFixedGross] = useState(0);
@@ -285,8 +303,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     entityId: (employee as any)?.entityId || (employee as any)?.location?.entityId || '',
     locationId: (employee as any)?.locationId || '',
     costCentreId: (employee as any)?.costCentreId || '',
-    costCentre: (employee as any)?.costCentre?.name || '',
+    costCentre: (employee as any)?.costCentre?.name || (employee as any)?.profileExtensions?.costCentre || '',
     managerId: employee?.reportingManagerId || '',
+    userRoleId: '',
     grade: (employee as any)?.grade || '',
     placeOfTaxDeduction: (employee as any)?.placeOfTaxDeduction || '',
     jobResponsibility: (employee as any)?.jobResponsibility || '',
@@ -410,6 +429,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     fetchDepartments(organizationId);
     fetchPositions({ organizationId, limit: 100 });
     fetchManagersForDropdown();
+    // Fetch departments from Configurator DB (primary source for dropdown)
+    const fetchConfigDepartments = async () => {
+      try {
+        const list = await configuratorDataService.getDepartments();
+        setConfigDepartments(list.map((d) => ({ id: d.id, name: d.name })));
+      } catch (err) {
+        console.warn('Failed to fetch Configurator departments, falling back to local:', err);
+        setConfigDepartments([]);
+      }
+    };
+    fetchConfigDepartments();
     const fetchEntities = async () => {
       try {
         const list = await entityService.getByOrganization(organizationId);
@@ -420,34 +450,233 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     };
     const fetchCostCentres = async () => {
       try {
-        const { data } = await api.get<{ data: { costCentres: { id: string; name: string; code?: string }[] } }>('/cost-centres', { params: { organizationId } });
-        const list = data.data?.costCentres ?? [];
-        setCostCentres(list);
-        if (employee?.id && (employee as any)?.costCentreId) {
-          const match = list.find((c: { id: string }) => c.id === (employee as any).costCentreId);
-          if (match) setFormData((prev) => ({ ...prev, costCentre: match.name }));
+        // Fetch from Configurator DB (primary source)
+        const configList = await configuratorDataService.getCostCentres();
+        setConfigCostCentres(configList.map((c) => ({ id: c.id, name: c.name })));
+        let names = configList.map((c) => c.name).sort((a, b) => a.localeCompare(b));
+        // Also keep local HRMS cost centres as fallback
+        try {
+          const { data } = await api.get<{ data: { costCentres: { id: string; name: string; code?: string }[] } }>('/cost-centres', { params: { organizationId } });
+          const localList = data.data?.costCentres ?? [];
+          setCostCentres(localList);
+          // Merge local names not in configurator list
+          for (const c of localList) {
+            if (!names.some((n) => n.toLowerCase() === c.name.toLowerCase())) {
+              names.push(c.name);
+            }
+          }
+          names.sort((a, b) => a.localeCompare(b));
+          if (employee?.id && (employee as any)?.costCentreId) {
+            const match = localList.find((c: { id: string }) => c.id === (employee as any).costCentreId);
+            if (match) setFormData((prev) => ({ ...prev, costCentre: match.name }));
+          }
+          // Also ensure the employee's current cost centre name (from relation or profileExtensions) is in the options
+          const empCCName = (employee as any)?.costCentre?.name || (employee as any)?.profileExtensions?.costCentre || '';
+          if (empCCName && !names.some((n) => n.toLowerCase() === empCCName.toLowerCase())) {
+            names.push(empCCName);
+            names.sort((a, b) => a.localeCompare(b));
+          }
+        } catch {
+          setCostCentres([]);
         }
+        setCostCentreOptions(names);
       } catch {
-        setCostCentres([]);
+        // Fallback to local HRMS cost centres only
+        try {
+          const { data } = await api.get<{ data: { costCentres: { id: string; name: string; code?: string }[] } }>('/cost-centres', { params: { organizationId } });
+          const localList = data.data?.costCentres ?? [];
+          setCostCentres(localList);
+          setCostCentreOptions(localList.map((c) => c.name).sort((a, b) => a.localeCompare(b)));
+        } catch {
+          setCostCentres([]);
+          setCostCentreOptions([]);
+        }
       }
     };
     const fetchSubDepartments = async () => {
       try {
-        const list = await subDepartmentService.getByOrganization(organizationId);
-        let names = list.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+        // Fetch from Configurator DB (primary source)
+        const configList = await configuratorDataService.getSubDepartments();
+        setConfigSubDepartments(configList.map((s) => ({ id: s.id, name: s.name, department_id: s.department_id })));
+        let names = configList.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+        // Also fetch local HRMS sub-departments as fallback/merge
+        try {
+          const localList = await subDepartmentService.getByOrganization(organizationId);
+          for (const s of localList) {
+            if (!names.some((n) => n.toLowerCase() === s.name.toLowerCase())) {
+              names.push(s.name);
+            }
+          }
+          names.sort((a, b) => a.localeCompare(b));
+        } catch { /* ignore local fetch failure */ }
         const empSubDept = ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment)?.toString?.()?.split(',')[0]?.trim();
         if (empSubDept && !names.some((n) => n.toLowerCase() === empSubDept.toLowerCase())) {
           names = [...names, empSubDept].sort((a, b) => a.localeCompare(b));
         }
         setSubDepartmentOptions(names);
       } catch {
-        setSubDepartmentOptions([]);
+        // Fallback to local HRMS sub-departments only
+        try {
+          const list = await subDepartmentService.getByOrganization(organizationId);
+          let names = list.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+          const empSubDept = ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment)?.toString?.()?.split(',')[0]?.trim();
+          if (empSubDept && !names.some((n) => n.toLowerCase() === empSubDept.toLowerCase())) {
+            names = [...names, empSubDept].sort((a, b) => a.localeCompare(b));
+          }
+          setSubDepartmentOptions(names);
+        } catch {
+          setSubDepartmentOptions([]);
+        }
+      }
+    };
+    const fetchUserRoles = async () => {
+      try {
+        const list = await configuratorDataService.getUserRoles();
+        setUserRoleOptions(list.map((r) => ({ id: r.role_id, name: r.name })));
+      } catch {
+        setUserRoleOptions([]);
       }
     };
     fetchEntities();
     fetchCostCentres();
     fetchSubDepartments();
+    fetchUserRoles();
   }, [organizationId, fetchDepartments, fetchPositions, employee?.id]);
+
+  // Initialize Configurator IDs and prefill dropdown names when editing an existing employee
+  useEffect(() => {
+    if (!employee?.id) return;
+    let cancelled = false;
+
+    // Read the Configurator IDs stored directly on the HRMS employee record
+    const empCCConfigId = (employee as any)?.costCentreConfiguratorId as number | undefined;
+    const empDeptConfigId = (employee as any)?.departmentConfiguratorId as number | undefined;
+    const empSubDeptConfigId = (employee as any)?.subDepartmentConfiguratorId as number | undefined;
+    const configUserId = (employee as any)?.configuratorUserId as number | undefined;
+
+    const init = async () => {
+      // 1. Fetch Configurator cost centres, departments, sub-departments to resolve IDs → names
+      let allCostCentres: { id: number; name: string }[] = [];
+      let filteredDepts: { id: number; name: string }[] = [];
+      let allSubDepts: { id: number; name: string; department_id?: number }[] = [];
+      let allUserRoles: { role_id: number; name: string }[] = [];
+
+      try {
+        const [ccList, subDeptList, roleList] = await Promise.all([
+          configuratorDataService.getCostCentres(),
+          configuratorDataService.getSubDepartments(),
+          configuratorDataService.getUserRoles(),
+        ]);
+        allCostCentres = ccList.map((c) => ({ id: c.id, name: c.name }));
+        allSubDepts = subDeptList.map((s) => ({ id: s.id, name: s.name, department_id: s.department_id }));
+        allUserRoles = roleList;
+        // Ensure user role options are populated for the dropdown
+        if (roleList.length > 0) {
+          setUserRoleOptions(roleList.map((r) => ({ id: r.role_id, name: r.name })));
+        }
+      } catch (err) {
+        console.warn('Failed to fetch Configurator dropdowns for edit init:', err);
+      }
+      if (cancelled) return;
+
+      // Fetch departments filtered by cost centre (if available)
+      const ccId = empCCConfigId || null;
+      if (ccId) {
+        try {
+          const deptList = await configuratorDataService.getDepartments(ccId);
+          filteredDepts = deptList.map((d) => ({ id: d.id, name: d.name }));
+          setConfigDepartments(filteredDepts);
+        } catch {
+          // Try unfiltered
+          try {
+            const deptList = await configuratorDataService.getDepartments();
+            filteredDepts = deptList.map((d) => ({ id: d.id, name: d.name }));
+          } catch { /* ignore */ }
+        }
+      } else {
+        try {
+          const deptList = await configuratorDataService.getDepartments();
+          filteredDepts = deptList.map((d) => ({ id: d.id, name: d.name }));
+        } catch { /* ignore */ }
+      }
+      if (cancelled) return;
+
+      // 2. Resolve names from Configurator IDs
+      const ccName = (employee as any)?.costCentre?.name
+        || (empCCConfigId ? allCostCentres.find((c) => c.id === empCCConfigId)?.name : null)
+        || (employee as any)?.profileExtensions?.costCentre
+        || '';
+
+      const deptMatch = empDeptConfigId ? filteredDepts.find((d) => d.id === empDeptConfigId) : null;
+      const deptName = (employee as any)?.department?.name || deptMatch?.name || '';
+
+      const subDeptName = (employee as any)?.profileExtensions?.subDepartment
+        || (empSubDeptConfigId ? allSubDepts.find((s) => s.id === empSubDeptConfigId)?.name : null)
+        || (employee as any)?.sub_department?.name
+        || (employee as any)?.subDepartment
+        || '';
+
+      // 3. Set internal Configurator IDs for the update API
+      if (empCCConfigId) setSelectedConfigCostCentreId(empCCConfigId);
+      if (empDeptConfigId) setSelectedConfigDepartmentId(empDeptConfigId);
+      if (empSubDeptConfigId) setSelectedConfigSubDepartmentId(empSubDeptConfigId);
+
+      // Resolve user role from enriched employee, Configurator user, or stored role
+      const empConfigRoleId = (employee as any)?.configuratorRoleId as number | undefined;
+      let resolvedRoleId: number | null = empConfigRoleId ?? null;
+      if (!resolvedRoleId && configUserId) {
+        try {
+          const configUser = await configuratorDataService.getConfiguratorUser(configUserId);
+          if (!cancelled) {
+            resolvedRoleId = configUser?.role_id || configUser?.project_role?.id || null;
+          }
+        } catch { /* ignore */ }
+      }
+      if (cancelled) return;
+      if (resolvedRoleId) setSelectedUserRoleId(resolvedRoleId);
+
+      // 4. Prefill the form fields
+      setFormData((prev) => {
+        const updates: Record<string, any> = {};
+
+        if (!prev.costCentre && ccName) updates.costCentre = ccName;
+
+        if (!prev.departmentId && deptMatch) {
+          // Check if a local HRMS department matches by name
+          const localMatch = localDepartments.find((d) => d.name.toLowerCase() === deptMatch.name.toLowerCase());
+          updates.departmentId = localMatch ? localMatch.id : `config_${deptMatch.id}`;
+        }
+
+        if (!prev.subDepartment && subDeptName) updates.subDepartment = subDeptName;
+
+        if (!prev.userRoleId && resolvedRoleId) {
+          updates.userRoleId = String(resolvedRoleId);
+        }
+
+        if (Object.keys(updates).length === 0) return prev;
+        return { ...prev, ...updates };
+      });
+
+      // 5. Ensure cost centre name is in the options list
+      if (ccName) {
+        setCostCentreOptions((prev) => {
+          if (prev.some((n) => n.toLowerCase() === ccName.toLowerCase())) return prev;
+          return [...prev, ccName].sort((a, b) => a.localeCompare(b));
+        });
+      }
+
+      // 6. Ensure sub-department name is in the options list
+      if (subDeptName) {
+        setSubDepartmentOptions((prev) => {
+          if (prev.some((n) => n.toLowerCase() === subDeptName.toLowerCase())) return prev;
+          return [...prev, subDeptName].sort((a, b) => a.localeCompare(b));
+        });
+      }
+    };
+
+    init();
+    return () => { cancelled = true; };
+  }, [employee?.id, (employee as any)?.configuratorUserId]);
 
   // Fetch locations for selected entity
   useEffect(() => {
@@ -744,6 +973,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[EmployeeForm] handleSubmit CALLED — mode:', employee ? 'update' : 'create', 'rejoinMode:', rejoinMode);
 
     // Rejoin flow: create new employee from this (previous) record; only joining date + new login email used
     if (rejoinMode && employee) {
@@ -781,9 +1011,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     }
 
     if (!validatePersonal()) {
+      console.warn('[EmployeeForm] validatePersonal() FAILED — switching to personal tab. Errors:', errors);
       setCurrentTab('personal');
       return;
     }
+    console.log('[EmployeeForm] Validation passed — building submitData...');
 
     try {
       // Helper function to convert empty strings to undefined
@@ -824,7 +1056,13 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         dateOfBirth: emptyToUndefined(formData.dateOfBirth),
         gender: formData.gender ? (formData.gender as Gender) : undefined,
         maritalStatus: formData.maritalStatus ? (formData.maritalStatus as MaritalStatus) : undefined,
-        departmentId: formData.departmentId && formData.departmentId.trim() ? formData.departmentId : null,
+        departmentId: (() => {
+          const val = formData.departmentId?.trim();
+          if (!val) return null;
+          // config_ prefix means it's a Configurator-only department, not a valid HRMS UUID
+          if (val.startsWith('config_')) return null;
+          return val;
+        })(),
         positionId: formData.positionId && formData.positionId.trim() ? formData.positionId : null,
         reportingManagerId: formData.managerId && formData.managerId.trim() ? formData.managerId : null,
         entityId: formData.entityId && formData.entityId.trim() ? formData.entityId : null,
@@ -909,6 +1147,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         })(),
         faceEncoding: (formData as any).face_encoding?.length === 128 ? (formData as any).face_encoding : undefined,
       };
+      // Attach configurator IDs for backend storage
+      if (selectedConfigCostCentreId) submitData.costCentreConfiguratorId = selectedConfigCostCentreId;
+      if (selectedConfigDepartmentId) submitData.departmentConfiguratorId = selectedConfigDepartmentId;
+      if (selectedConfigSubDepartmentId) submitData.subDepartmentConfiguratorId = selectedConfigSubDepartmentId;
+      if (selectedUserRoleId) submitData.configuratorRoleId = selectedUserRoleId;
+      const companyId = Number(localStorage.getItem('configuratorCompanyId')) || undefined;
+      if (companyId) submitData.configuratorCompanyId = companyId;
+
+      console.log('[EmployeeForm] submitData:', JSON.stringify(submitData, null, 2));
+
       if (initialPaygroupId) {
         submitData.paygroupId = initialPaygroupId;
       }
@@ -975,7 +1223,36 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       }
 
       if (employee) {
+        // ── 1st API: Update Configurator user (PUT /api/v1/users/) ──
+        const configUserId = (employee as any).configuratorUserId;
+        const hasConfigToken = !!localStorage.getItem('configuratorAccessToken');
+        const companyId = Number(localStorage.getItem('configuratorCompanyId')) || 0;
+        const projectId = Number(localStorage.getItem('configuratorProjectId')) || 0;
+
+        if (configUserId && hasConfigToken) {
+          const configuratorPayload = {
+            user_id: configUserId,
+            first_name: formData.firstName?.trim() || null,
+            last_name: formData.lastName?.trim() || null,
+            email: (formData.email || formData.personalEmail || '').trim() || null,
+            phone: formData.phoneNumber || formData.permanentPhoneNumber || null,
+            company_id: companyId || null,
+            project_id: projectId || null,
+            role_id: selectedUserRoleId || null,
+            department_id: selectedConfigDepartmentId || null,
+            sub_department_id: selectedConfigSubDepartmentId || null,
+            cost_centre_id: selectedConfigCostCentreId || null,
+          };
+          console.log('[EmployeeForm] 1st API: PUT /api/v1/users/ payload:', configuratorPayload);
+          const configResponse = await configuratorDataService.updateConfiguratorUser(configuratorPayload);
+          console.log('[EmployeeForm] 1st API: PUT /api/v1/users/ response:', configResponse);
+        }
+
+        // ── 2nd API: Update HRMS employee (PUT /api/v1/employees/{id}) ──
+        console.log('[EmployeeForm] 2nd API: PUT /api/v1/employees/' + employee.id, 'payload:', submitData);
         await updateEmployee(employee.id, submitData);
+        console.log('[EmployeeForm] 2nd API: HRMS employee updated successfully');
+
         // Persist Salary Details > Earnings (Fixed Gross) when user has entered values
         const grossToSave = salaryFixedGross + salaryVehicleAllowances;
         if (grossToSave >= 0) {
@@ -1009,12 +1286,88 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         }
         onSuccess?.();
       } else {
+        // Store selected User Role ID in HRMS DB
+        if (selectedUserRoleId) {
+          submitData.configuratorRoleId = selectedUserRoleId;
+        }
+
+        // Step 1: Create Configurator user FIRST so we get the real user_id
+        const empEmail = (formData.email || formData.personalEmail || '').trim();
+        const tempPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
+        const companyId = Number(localStorage.getItem('configuratorCompanyId')) || 0;
+        const projectId = Number(localStorage.getItem('configuratorProjectId')) || 0;
+        const hasConfigToken = !!localStorage.getItem('configuratorAccessToken');
+
+        const configuratorPayload = {
+          first_name: formData.firstName.trim(),
+          last_name: formData.lastName.trim() || '',
+          email: empEmail,
+          phone: formData.phoneNumber || formData.permanentPhoneNumber || '',
+          password: tempPassword,
+          company_id: companyId,
+          project_id: projectId,
+          role_id: selectedUserRoleId || userRoleOptions[0]?.id || 0,
+          cost_centre_id: selectedConfigCostCentreId || null,
+          department_id: selectedConfigDepartmentId || null,
+          sub_department_id: selectedConfigSubDepartmentId || null,
+        };
+        console.log('[EmployeeForm] Configurator Payload:', JSON.stringify(configuratorPayload, null, 2));
+        console.log('[EmployeeForm] hasConfigToken:', hasConfigToken, 'companyId:', companyId, 'projectId:', projectId);
+
+        let configuratorFailed = false;
+        if (hasConfigToken && companyId > 0) {
+          try {
+            const configUser = await configuratorDataService.createConfiguratorUser(configuratorPayload);
+            console.log('[EmployeeForm] Configurator API raw response:', JSON.stringify(configUser));
+            // Extract fields from API response
+            const responseData = configUser?.data ?? configUser;
+            const realConfigUserId = responseData?.user_id ?? responseData?.id ?? configUser?.user_id ?? configUser?.id;
+            if (realConfigUserId) {
+              submitData.configuratorUserId = Number(realConfigUserId);
+            }
+            // Extract department, cost_centre, sub_department IDs from response (fallback to request payload)
+            const respDeptId = responseData?.department?.id ?? responseData?.department_id ?? configuratorPayload.department_id;
+            const respCCId = responseData?.cost_centre?.id ?? responseData?.cost_centre_id ?? configuratorPayload.cost_centre_id;
+            const respSubDeptId = responseData?.sub_department?.id ?? responseData?.sub_department_id ?? configuratorPayload.sub_department_id;
+            if (respDeptId) submitData.departmentConfiguratorId = Number(respDeptId);
+            if (respCCId) submitData.costCentreConfiguratorId = Number(respCCId);
+            if (respSubDeptId) submitData.subDepartmentConfiguratorId = Number(respSubDeptId);
+            // Always store company_id from the payload
+            if (companyId > 0) submitData.configuratorCompanyId = companyId;
+            console.log('[EmployeeForm] Configurator user created, id:', realConfigUserId,
+              'deptId:', respDeptId, 'ccId:', respCCId, 'subDeptId:', respSubDeptId, 'companyId:', companyId);
+          } catch (err: any) {
+            configuratorFailed = true;
+            const detail = err?.response?.data?.detail || err?.response?.data?.message || err?.message || 'Unknown error';
+            console.error('[EmployeeForm] Configurator user creation failed:', err?.response?.status, detail, err?.response?.data);
+            // Don't block HRMS creation — just log the warning
+          }
+        } else {
+          console.warn('[EmployeeForm] Skipping frontend Configurator call — hasConfigToken:', hasConfigToken, 'companyId:', companyId, '. Backend will handle.');
+        }
+
+        console.log('[EmployeeForm] Creating employee — HRMS submitData:', JSON.stringify({
+          email: submitData.email,
+          firstName: submitData.firstName,
+          configuratorUserId: submitData.configuratorUserId,
+          configuratorRoleId: submitData.configuratorRoleId,
+          departmentId: submitData.departmentId,
+          costCentreConfiguratorId: submitData.costCentreConfiguratorId,
+          departmentConfiguratorId: submitData.departmentConfiguratorId,
+          subDepartmentConfiguratorId: submitData.subDepartmentConfiguratorId,
+        }, null, 2));
+
+        // Step 2: Create employee in HRMS (backend will also try Configurator user creation as fallback)
         const result = await createEmployee(submitData);
+
         // Show temporary password modal if it was generated
         if (result.temporaryPassword) {
           setTemporaryPassword(result.temporaryPassword);
-          setCreatedEmployeeEmail((formData.email || formData.personalEmail || '').trim());
+          setCreatedEmployeeEmail(empEmail);
           setShowPasswordModal(true);
+          if (configuratorFailed && !submitData.configuratorUserId) {
+            console.warn('[EmployeeForm] WARNING: Configurator user may not have been created. Check backend logs.');
+          }
         } else {
           onSuccess?.();
         }
@@ -1425,26 +1778,105 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* 1️⃣ Cost Centre (first in cascading order) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Cost Centre</label>
+              <div className="flex gap-2">
+                <SearchableSelect
+                  name="costCentre"
+                  value={formData.costCentre}
+                  placeholder="Cost Centre"
+                  options={costCentreOptions.map((name) => ({ value: name, label: name }))}
+                  onChange={(val) => {
+                    // Simulate native event for handleChange
+                    const syntheticEvent = { target: { name: 'costCentre', value: val } } as React.ChangeEvent<HTMLSelectElement>;
+                    handleChange(syntheticEvent);
+                    // Cascading: clear Department and Sub-Department when Cost Centre changes
+                    setFormData((prev) => ({ ...prev, costCentre: val, departmentId: '', subDepartment: '' }));
+                    // Resolve and store the Configurator cost centre ID for create calls
+                    const ccName = val?.trim()?.toLowerCase();
+                    const matchedCC = ccName ? configCostCentres.find(c => c.name.toLowerCase() === ccName) : null;
+                    setSelectedConfigCostCentreId(matchedCC?.id ?? null);
+                    setSelectedConfigDepartmentId(null);
+                    setSelectedConfigSubDepartmentId(null);
+                    // Re-fetch departments filtered by the selected cost centre
+                    if (matchedCC?.id) {
+                      configuratorDataService.getDepartments(matchedCC.id).then((list) => {
+                        setConfigDepartments(list.map((d) => ({ id: d.id, name: d.name })));
+                      }).catch((err) => {
+                        console.warn('Failed to fetch departments for cost centre:', err);
+                      });
+                    } else {
+                      // No cost centre selected — load all departments
+                      configuratorDataService.getDepartments().then((list) => {
+                        setConfigDepartments(list.map((d) => ({ id: d.id, name: d.name })));
+                      }).catch(() => {});
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCostCentreModal(true);
+                    setNewCostCentreName('');
+                    setCostCentreError('');
+                  }}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
+                  title="Add New Cost Centre"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            {/* 2️⃣ Department (depends on Cost Centre) */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Department <span className="text-red-500">*</span></label>
               <div className="flex gap-2">
-                <select name="departmentId" value={formData.departmentId} onChange={(e) => {
-                  handleChange(e);
-                  setFormData((prev) => ({ ...prev, subDepartment: '', positionId: '' }));
-                }}
-                  className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-                    errors.departmentId
-                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-                  }`}>
-                  <option value="">Department</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+                <SearchableSelect
+                  name="departmentId"
+                  value={formData.departmentId}
+                  placeholder={formData.costCentre?.trim() ? 'Department' : 'Select cost centre first'}
+                  disabled={!formData.costCentre?.trim()}
+                  options={(() => {
+                    const merged: { value: string; label: string }[] = [];
+                    const seenNames = new Set<string>();
+                    for (const d of localDepartments) {
+                      merged.push({ value: d.id, label: d.name });
+                      seenNames.add(d.name.toLowerCase());
+                    }
+                    for (const d of configDepartments) {
+                      if (!seenNames.has(d.name.toLowerCase())) {
+                        merged.push({ value: `config_${d.id}`, label: d.name });
+                        seenNames.add(d.name.toLowerCase());
+                      }
+                    }
+                    return merged;
+                  })()}
+                  onChange={(val) => {
+                    const syntheticEvent = { target: { name: 'departmentId', value: val } } as React.ChangeEvent<HTMLSelectElement>;
+                    handleChange(syntheticEvent);
+                    // Cascading: clear Sub-Department and Designation when Department changes
+                    setFormData((prev) => ({ ...prev, departmentId: val, subDepartment: '', positionId: '' }));
+                    // Track configurator department ID for the /api/v1/users/add call
+                    if (val.startsWith('config_')) {
+                      setSelectedConfigDepartmentId(Number(val.replace('config_', '')));
+                    } else {
+                      // Local HRMS department — try to match by name in configDepartments
+                      const localDept = localDepartments.find((d) => d.id === val);
+                      const configMatch = localDept ? configDepartments.find((c) => c.name.toLowerCase() === localDept.name.toLowerCase()) : null;
+                      setSelectedConfigDepartmentId(configMatch?.id ?? null);
+                    }
+                    setSelectedConfigSubDepartmentId(null);
+                  }}
+                />
                 <button
                   type="button"
-                  onClick={() => setShowDepartmentModal(true)}
-                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
-                  title="Add New Department"
+                  onClick={() => formData.costCentre?.trim() && setShowDepartmentModal(true)}
+                  disabled={!formData.costCentre?.trim()}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={formData.costCentre?.trim() ? 'Add New Department' : 'Select a cost centre first'}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1453,31 +1885,36 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {errors.departmentId && <p className="mt-1 text-sm text-red-600">{errors.departmentId}</p>}
             </div>
+            {/* 3️⃣ Sub-Department (depends on Department) */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Sub-Department</label>
               <div className="flex gap-2">
-                <select
+                <SearchableSelect
                   name="subDepartment"
                   value={formData.subDepartment}
-                  onChange={handleChange}
-                  className="flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                >
-                  <option value="">Sub-Department</option>
-                  {subDepartmentOptions.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder={formData.departmentId?.trim() ? 'Sub-Department' : 'Select department first'}
+                  disabled={!formData.departmentId?.trim()}
+                  options={subDepartmentOptions.map((name) => ({ value: name, label: name }))}
+                  onChange={(val) => {
+                    const syntheticEvent = { target: { name: 'subDepartment', value: val } } as React.ChangeEvent<HTMLSelectElement>;
+                    handleChange(syntheticEvent);
+                    // Resolve configurator sub-department ID from name
+                    const subName = val?.trim()?.toLowerCase();
+                    const configMatch = subName ? configSubDepartments.find((s) => s.name.toLowerCase() === subName) : null;
+                    setSelectedConfigSubDepartmentId(configMatch?.id ?? null);
+                  }}
+                />
                 <button
                   type="button"
                   onClick={() => {
+                    if (!formData.departmentId?.trim()) return;
                     setShowSubDepartmentModal(true);
                     setNewSubDepartmentName('');
                     setSubDepartmentError('');
                   }}
-                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
-                  title="Add New Sub-Department"
+                  disabled={!formData.departmentId?.trim()}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={formData.departmentId?.trim() ? 'Add New Sub-Department' : 'Select a department first'}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1562,17 +1999,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Cost Centre</label>
-              <input
-                type="text"
-                name="costCentre"
-                value={formData.costCentre}
-                onChange={handleChange}
-                placeholder="Cost Centre"
-                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
               <select
                 name="managerId"
@@ -1587,6 +2013,37 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </option>
                 ))}
               </select>
+            </div>
+            {/* User Role dropdown (same pattern as Cost Centre) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">User Role</label>
+              <div className="flex gap-2">
+                <SearchableSelect
+                  name="userRoleId"
+                  value={formData.userRoleId}
+                  placeholder="Select User Role"
+                  options={userRoleOptions.map((r) => ({ value: String(r.id), label: r.name }))}
+                  onChange={(val) => {
+                    const syntheticEvent = { target: { name: 'userRoleId', value: val } } as React.ChangeEvent<HTMLSelectElement>;
+                    handleChange(syntheticEvent);
+                    setSelectedUserRoleId(val ? Number(val) : null);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUserRoleModal(true);
+                    setNewUserRoleName('');
+                    setUserRoleError('');
+                  }}
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
+                  title="Add New User Role"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
           <div>
@@ -3540,28 +3997,105 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       </div> {/* end layout flex */}
     </form>
 
-    {/* Department Modal - Outside form to avoid nested forms */}
+    {/* Department Modal - Creates in Configurator DB (Bnc_Configurator.departments) */}
     {showDepartmentModal && (
       <Modal
         isOpen={showDepartmentModal}
         onClose={() => setShowDepartmentModal(false)}
         title="Create Department"
-        size="2xl"
+        size="md"
       >
-        <DepartmentForm
-          organizationId={organizationId}
-          onSuccess={async (createdDepartment) => {
-            console.log('Department created successfully:', createdDepartment);
-            // Refresh departments list
-            await fetchDepartments(organizationId);
-            // Auto-select the newly created department
-            if (createdDepartment) {
-              setFormData(prev => ({ ...prev, departmentId: createdDepartment.id }));
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const nameInput = (e.target as HTMLFormElement).elements.namedItem('deptName') as HTMLInputElement;
+            const name = nameInput?.value?.trim();
+            if (!name) return;
+            // Check for duplicates
+            const allDepts = [...localDepartments.map(d => d.name), ...configDepartments.map(d => d.name)];
+            if (allDepts.some(n => n.toLowerCase() === name.toLowerCase())) {
+              alert('A department with this name already exists.');
+              return;
             }
-            setShowDepartmentModal(false);
+            try {
+              // Use the pre-resolved Configurator cost centre ID (set when cost centre was selected)
+              const ccId = selectedConfigCostCentreId ?? configCostCentres.find(c => c.name.toLowerCase() === formData.costCentre?.trim()?.toLowerCase())?.id;
+              if (!ccId) {
+                alert('Could not resolve cost centre ID. Please re-select the cost centre and try again.');
+                return;
+              }
+              // 1. POST /api/v1/departments/ with { name, company_id, cost_centre_id }
+              const configResult = await configuratorDataService.createDepartment(name, ccId);
+              console.log('Department created:', configResult);
+              // 2. Also create in local HRMS DB for FK reference
+              let localId: string | undefined;
+              try {
+                const { createDepartment: createLocalDept } = useDepartmentStore.getState();
+                const localDept = await createLocalDept({ organizationId, name, isActive: true });
+                localId = localDept?.id;
+              } catch (localErr) {
+                console.warn('Local HRMS department creation failed (Configurator save succeeded):', localErr);
+              }
+              // 3. Refresh both lists
+              await fetchDepartments(organizationId);
+              try {
+                const freshList = await configuratorDataService.getDepartments();
+                setConfigDepartments(freshList.map(d => ({ id: d.id, name: d.name })));
+              } catch { /* ignore refresh failure */ }
+              // 4. Auto-select the new department
+              if (localId) {
+                setFormData(prev => ({ ...prev, departmentId: localId! }));
+              } else {
+                setFormData(prev => ({ ...prev, departmentId: `config_${configResult.id}` }));
+              }
+              setShowDepartmentModal(false);
+            } catch (err: any) {
+              console.error('Failed to create department:', err);
+              // Show full API error detail (FastAPI uses 'detail', not 'message')
+              const detail = err.response?.data?.detail;
+              let errMsg: string;
+              if (Array.isArray(detail)) {
+                errMsg = detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('\n');
+              } else if (typeof detail === 'string') {
+                errMsg = detail;
+              } else {
+                errMsg = err.response?.data?.message || err.message || 'Failed to create department.';
+              }
+              console.error('Department creation error detail:', JSON.stringify(err.response?.data));
+              alert(errMsg);
+            }
           }}
-          onCancel={() => setShowDepartmentModal(false)}
-        />
+          className="space-y-4"
+        >
+          <div>
+            <label htmlFor="deptName" className="block text-sm font-medium text-gray-700">
+              Department Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="deptName"
+              name="deptName"
+              autoFocus
+              className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              placeholder="e.g., Engineering, Sales"
+            />
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowDepartmentModal(false)}
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+            >
+              Create Department
+            </button>
+          </div>
+        </form>
       </Modal>
     )}
 
@@ -3674,14 +4208,36 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     return;
                   }
                   try {
-                    await subDepartmentService.create(organizationId, name);
-                    setSubDepartmentOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                    // Resolve department & cost centre Configurator IDs
+                    const selectedDeptConfig = configDepartments.find(d => formData.departmentId === `config_${d.id}` || localDepartments.find(ld => ld.id === formData.departmentId)?.name?.toLowerCase() === d.name.toLowerCase());
+                    const resolvedCCId = selectedConfigCostCentreId ?? configCostCentres.find(c => c.name.toLowerCase() === formData.costCentre?.trim()?.toLowerCase())?.id;
+                    if (!selectedDeptConfig?.id) {
+                      setSubDepartmentError('Could not resolve department ID. Please re-select the department.');
+                      return;
+                    }
+                    // POST /api/v1/sub-departments/ with { name, department_id, company_id, costcenter_id }
+                    await configuratorDataService.createSubDepartment(name, selectedDeptConfig.id, resolvedCCId);
+                    // Also save to local HRMS DB
+                    try { await subDepartmentService.create(organizationId, name); } catch { /* local save optional */ }
+                    // Refresh dropdown via GET /api/v1/sub-departments/
+                    try {
+                      const freshList = await configuratorDataService.getSubDepartments();
+                      setConfigSubDepartments(freshList.map((s) => ({ id: s.id, name: s.name, department_id: s.department_id })));
+                      const freshNames = freshList.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+                      setSubDepartmentOptions(freshNames);
+                    } catch {
+                      // Fallback: just add locally
+                      setSubDepartmentOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                    }
                     setFormData((prev) => ({ ...prev, subDepartment: name }));
                     setNewSubDepartmentName('');
                     setSubDepartmentError('');
                     setShowSubDepartmentModal(false);
                   } catch (err: any) {
-                    setSubDepartmentError(err.response?.data?.message || 'Failed to add sub-department. Try again.');
+                    const detail = err.response?.data?.detail;
+                    const errMsg = Array.isArray(detail) ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ') : (typeof detail === 'string' ? detail : err.response?.data?.message || err.message || 'Failed to add sub-department. Try again.');
+                    console.error('Sub-department creation error detail:', JSON.stringify(err.response?.data));
+                    setSubDepartmentError(errMsg);
                   }
                 }
               }}
@@ -3715,20 +4271,282 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   return;
                 }
                 try {
-                  await subDepartmentService.create(organizationId, name);
-                  setSubDepartmentOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                  // Resolve department & cost centre Configurator IDs
+                  const selectedDeptConfig = configDepartments.find(d => formData.departmentId === `config_${d.id}` || localDepartments.find(ld => ld.id === formData.departmentId)?.name?.toLowerCase() === d.name.toLowerCase());
+                  const resolvedCCId = selectedConfigCostCentreId ?? configCostCentres.find(c => c.name.toLowerCase() === formData.costCentre?.trim()?.toLowerCase())?.id;
+                  if (!selectedDeptConfig?.id) {
+                    setSubDepartmentError('Could not resolve department ID. Please re-select the department.');
+                    return;
+                  }
+                  // POST /api/v1/sub-departments/ with { name, department_id, company_id, costcenter_id }
+                  await configuratorDataService.createSubDepartment(name, selectedDeptConfig.id, resolvedCCId);
+                  // Also save to local HRMS DB
+                  try { await subDepartmentService.create(organizationId, name); } catch { /* local save optional */ }
+                  // Refresh dropdown via GET /api/v1/sub-departments/
+                  try {
+                    const freshList = await configuratorDataService.getSubDepartments();
+                    setConfigSubDepartments(freshList.map((s) => ({ id: s.id, name: s.name, department_id: s.department_id })));
+                    const freshNames = freshList.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+                    setSubDepartmentOptions(freshNames);
+                  } catch {
+                    setSubDepartmentOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                  }
                   setFormData((prev) => ({ ...prev, subDepartment: name }));
                   setNewSubDepartmentName('');
                   setSubDepartmentError('');
                   setShowSubDepartmentModal(false);
                 } catch (err: any) {
-                  setSubDepartmentError(err.response?.data?.message || 'Failed to add sub-department. Try again.');
+                  setSubDepartmentError(err.response?.data?.detail || err.response?.data?.message || err.message || 'Failed to add sub-department. Try again.');
                 }
               }}
               disabled={!newSubDepartmentName.trim()}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Add Sub-Department
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )}
+
+    {/* Add Cost Centre Modal */}
+    {showCostCentreModal && (
+      <Modal
+        isOpen={showCostCentreModal}
+        onClose={() => {
+          setShowCostCentreModal(false);
+          setNewCostCentreName('');
+          setCostCentreError('');
+        }}
+        title="Add Cost Centre"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="newCostCentreName" className="block text-sm font-medium text-gray-700">
+              Cost Centre Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="newCostCentreName"
+              value={newCostCentreName}
+              onChange={(e) => {
+                setNewCostCentreName(e.target.value);
+                if (costCentreError) setCostCentreError('');
+              }}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const name = newCostCentreName.trim();
+                  if (!name) return;
+                  const isDuplicate = costCentreOptions.some((o) => o.toLowerCase() === name.toLowerCase());
+                  if (isDuplicate) {
+                    setCostCentreError('This cost centre already exists. Please enter a different name.');
+                    return;
+                  }
+                  try {
+                    // POST /api/v1/cost-centres/ with { name, company_id }
+                    const created = await configuratorDataService.createCostCentre(name);
+                    // Refresh dropdown via GET /api/v1/cost-centres/
+                    try {
+                      const freshList = await configuratorDataService.getCostCentres();
+                      setConfigCostCentres(freshList.map((c) => ({ id: c.id, name: c.name })));
+                      setCostCentreOptions(freshList.map((c) => c.name).sort((a, b) => a.localeCompare(b)));
+                      // Auto-resolve the new cost centre ID
+                      const newCC = freshList.find((c) => c.name.toLowerCase() === name.toLowerCase());
+                      setSelectedConfigCostCentreId(newCC?.id ?? created.id ?? null);
+                    } catch {
+                      setCostCentreOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                      setSelectedConfigCostCentreId(created.id ?? null);
+                    }
+                    setFormData((prev) => ({ ...prev, costCentre: name, departmentId: '', subDepartment: '' }));
+                    setNewCostCentreName('');
+                    setCostCentreError('');
+                    setShowCostCentreModal(false);
+                  } catch (err: any) {
+                    const detail = err.response?.data?.detail;
+                    const errMsg = Array.isArray(detail) ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ') : (typeof detail === 'string' ? detail : err.response?.data?.message || err.message || 'Failed to add cost centre. Try again.');
+                    console.error('Cost centre creation error detail:', JSON.stringify(err.response?.data));
+                    setCostCentreError(errMsg);
+                  }
+                }
+              }}
+              className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
+                costCentreError ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="e.g., Engineering, Marketing"
+            />
+            {costCentreError && <p className="mt-1 text-sm text-red-600">{costCentreError}</p>}
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowCostCentreModal(false);
+                setNewCostCentreName('');
+                setCostCentreError('');
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const name = newCostCentreName.trim();
+                if (!name) return;
+                const isDuplicate = costCentreOptions.some((o) => o.toLowerCase() === name.toLowerCase());
+                if (isDuplicate) {
+                  setCostCentreError('This cost centre already exists. Please enter a different name.');
+                  return;
+                }
+                try {
+                  // POST /api/v1/cost-centres/ with { name, company_id }
+                  const created = await configuratorDataService.createCostCentre(name);
+                  try {
+                    const freshList = await configuratorDataService.getCostCentres();
+                    setConfigCostCentres(freshList.map((c) => ({ id: c.id, name: c.name })));
+                    setCostCentreOptions(freshList.map((c) => c.name).sort((a, b) => a.localeCompare(b)));
+                    const newCC = freshList.find((c) => c.name.toLowerCase() === name.toLowerCase());
+                    setSelectedConfigCostCentreId(newCC?.id ?? created.id ?? null);
+                  } catch {
+                    setCostCentreOptions((prev) => [...prev, name].sort((a, b) => a.localeCompare(b)));
+                    setSelectedConfigCostCentreId(created.id ?? null);
+                  }
+                  setFormData((prev) => ({ ...prev, costCentre: name, departmentId: '', subDepartment: '' }));
+                  setNewCostCentreName('');
+                  setCostCentreError('');
+                  setShowCostCentreModal(false);
+                } catch (err: any) {
+                  const detail = err.response?.data?.detail;
+                  const errMsg = Array.isArray(detail) ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ') : (typeof detail === 'string' ? detail : err.response?.data?.message || err.message || 'Failed to add cost centre. Try again.');
+                  console.error('Cost centre creation error detail:', JSON.stringify(err.response?.data));
+                  setCostCentreError(errMsg);
+                }
+              }}
+              disabled={!newCostCentreName.trim()}
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add Cost Centre
+            </button>
+          </div>
+        </div>
+      </Modal>
+    )}
+
+    {/* Add User Role Modal */}
+    {showUserRoleModal && (
+      <Modal
+        isOpen={showUserRoleModal}
+        onClose={() => {
+          setShowUserRoleModal(false);
+          setNewUserRoleName('');
+          setUserRoleError('');
+        }}
+        title="Add User Role"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="newUserRoleName" className="block text-sm font-medium text-gray-700">
+              User Role Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              id="newUserRoleName"
+              value={newUserRoleName}
+              onChange={(e) => {
+                setNewUserRoleName(e.target.value);
+                if (userRoleError) setUserRoleError('');
+              }}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const name = newUserRoleName.trim();
+                  if (!name) return;
+                  const isDuplicate = userRoleOptions.some((o) => o.name.toLowerCase() === name.toLowerCase());
+                  if (isDuplicate) {
+                    setUserRoleError('This user role already exists. Please enter a different name.');
+                    return;
+                  }
+                  try {
+                    const created = await configuratorDataService.createUserRole(name);
+                    try {
+                      const freshList = await configuratorDataService.getUserRoles();
+                      setUserRoleOptions(freshList.map((r) => ({ id: r.role_id, name: r.name })));
+                      const newRole = freshList.find((r) => r.name.toLowerCase() === name.toLowerCase());
+                      setSelectedUserRoleId(newRole?.role_id ?? created.role_id ?? null);
+                      setFormData((prev) => ({ ...prev, userRoleId: String(newRole?.role_id ?? created.role_id ?? '') }));
+                    } catch {
+                      setUserRoleOptions((prev) => [...prev, { id: created.role_id, name: created.name || name }]);
+                      setSelectedUserRoleId(created.role_id ?? null);
+                      setFormData((prev) => ({ ...prev, userRoleId: String(created.role_id ?? '') }));
+                    }
+                    setNewUserRoleName('');
+                    setUserRoleError('');
+                    setShowUserRoleModal(false);
+                  } catch (err: any) {
+                    const detail = err.response?.data?.detail;
+                    const errMsg = Array.isArray(detail) ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ') : (typeof detail === 'string' ? detail : err.response?.data?.message || err.message || 'Failed to add user role. Try again.');
+                    setUserRoleError(errMsg);
+                  }
+                }
+              }}
+              className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
+                userRoleError ? 'border-red-500' : 'border-gray-300'
+              }`}
+              placeholder="e.g., Admin, Manager, Employee"
+            />
+            {userRoleError && <p className="mt-1 text-sm text-red-600">{userRoleError}</p>}
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowUserRoleModal(false);
+                setNewUserRoleName('');
+                setUserRoleError('');
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const name = newUserRoleName.trim();
+                if (!name) return;
+                const isDuplicate = userRoleOptions.some((o) => o.name.toLowerCase() === name.toLowerCase());
+                if (isDuplicate) {
+                  setUserRoleError('This user role already exists. Please enter a different name.');
+                  return;
+                }
+                try {
+                  const created = await configuratorDataService.createUserRole(name);
+                  try {
+                    const freshList = await configuratorDataService.getUserRoles();
+                    setUserRoleOptions(freshList.map((r) => ({ id: r.role_id, name: r.name })));
+                    const newRole = freshList.find((r) => r.name.toLowerCase() === name.toLowerCase());
+                    setSelectedUserRoleId(newRole?.role_id ?? created.role_id ?? null);
+                    setFormData((prev) => ({ ...prev, userRoleId: String(newRole?.role_id ?? created.role_id ?? '') }));
+                  } catch {
+                    setUserRoleOptions((prev) => [...prev, { id: created.role_id, name: created.name || name }]);
+                    setSelectedUserRoleId(created.role_id ?? null);
+                    setFormData((prev) => ({ ...prev, userRoleId: String(created.role_id ?? '') }));
+                  }
+                  setNewUserRoleName('');
+                  setUserRoleError('');
+                  setShowUserRoleModal(false);
+                } catch (err: any) {
+                  const detail = err.response?.data?.detail;
+                  const errMsg = Array.isArray(detail) ? detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ') : (typeof detail === 'string' ? detail : err.response?.data?.message || err.message || 'Failed to add user role. Try again.');
+                  setUserRoleError(errMsg);
+                }
+              }}
+              disabled={!newUserRoleName.trim()}
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add User Role
             </button>
           </div>
         </div>

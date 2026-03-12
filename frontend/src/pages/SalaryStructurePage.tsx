@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import {
   salaryStructureService,
@@ -28,9 +29,9 @@ const SalaryStructurePage = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const canManage = isHRManager || isOrgAdmin;
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const structurePerms = getModulePermissions('/salary-structures');
+  const canManage = structurePerms.can_view;
   const organizationId = user?.employee?.organizationId;
 
   useEffect(() => {

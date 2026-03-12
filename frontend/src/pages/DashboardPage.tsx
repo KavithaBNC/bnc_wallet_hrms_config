@@ -1,403 +1,203 @@
+import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuthStore } from '../store/authStore';
-import employeeService from '../services/employee.service';
-import organizationService from '../services/organization.service';
-import { payrollCycleService, type PayrollCycle } from '../services/payroll.service';
-import api from '../services/api';
 import AppHeader from '../components/layout/AppHeader';
-import MonthlyAttendanceChart from '../components/dashboard/MonthlyAttendanceChart';
-import DepartmentEmployeesChart from '../components/dashboard/DepartmentEmployeesChart';
-import LeaveRequestsChart from '../components/dashboard/LeaveRequestsChart';
-import PayrollDistributionChart from '../components/dashboard/PayrollDistributionChart';
-import { usePermissions } from '../hooks/usePermissions';
 import {
   getAssignedModules,
+  getModulePermissions,
   CONFIGURATOR_CODE_TO_CARD,
 } from '../config/configurator-module-mapping';
 
-interface DashboardStats {
-  totalEmployees: number;
-  attendancePercentage: number;
-  payrollTotal: number;
-  performance: number;
-  leaveRequests: number;
+// Dashboard widgets
+import EmployeeProfile from '../components/dashboard/EmployeeProfile';
+import AttendanceSummary from '../components/dashboard/AttendanceSummary';
+import LeaveDetails from '../components/dashboard/LeaveDetails';
+import SalaryPayroll from '../components/dashboard/SalaryPayroll';
+import TasksWorkStatus from '../components/dashboard/TasksWorkStatus';
+import NotificationsWidget from '../components/dashboard/NotificationsWidget';
+import PerformanceWidget from '../components/dashboard/PerformanceWidget';
+import HolidaysWidget from '../components/dashboard/HolidaysWidget';
+import DocumentsWidget from '../components/dashboard/DocumentsWidget';
+import BirthdayReminders from '../components/dashboard/BirthdayReminders';
+import WorkAnniversaryReminders from '../components/dashboard/WorkAnniversaryReminders';
+import MotivationQuote from '../components/dashboard/MotivationQuote';
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 17) return 'Good Afternoon';
+  return 'Good Evening';
+}
+
+function formatCurrentDate(): string {
+  return new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const { logout, user } = useAuthStore();
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const permPerms = getModulePermissions('/permissions');
+  const leavePerms = getModulePermissions('/leave');
+  const employeePerms = getModulePermissions('/employees');
+  const canManagePermissions = permPerms.can_view;
+  const canViewLeaveApprovals = leavePerms.can_edit;
+  const isEmployee = !employeePerms.can_view && !employeePerms.can_add;
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const userRole = user?.role?.toUpperCase();
-  const canManagePermissions = userRole === 'ORG_ADMIN' || userRole === 'HR_MANAGER';
-  const isEmployee = userRole === 'EMPLOYEE';
-  const isManager = userRole === 'MANAGER';
-  const isHRManager = userRole === 'HR_MANAGER';
-  const isOrgAdmin = userRole === 'ORG_ADMIN';
   const organizationName = user?.employee?.organization?.name;
-  const { canView } = usePermissions();
-  const canViewLeaveApprovals = canView('leaves');
 
-  const userOrganizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
-  const [organizationId, setOrganizationId] = useState<string | undefined>(userOrganizationId);
-
-  const [stats, setStats] = useState<DashboardStats>({
-    totalEmployees: 0,
-    attendancePercentage: 0,
-    payrollTotal: 0,
-    performance: 8.9, // Default performance score
-    leaveRequests: 0,
-  });
-  const [loading, setLoading] = useState(true);
-
-  const fetchDashboardStats = useCallback(async () => {
-    let resolvedOrgId = organizationId;
-
-    // SUPER_ADMIN may not have employee/organization; use first organization for stats
-    if (!resolvedOrgId && isSuperAdmin) {
-      try {
-        const orgsResponse = await organizationService.getAll(1, 1);
-        const firstOrg = orgsResponse?.organizations?.[0];
-        if (firstOrg?.id) {
-          resolvedOrgId = firstOrg.id;
-          setOrganizationId(resolvedOrgId);
-        }
-      } catch (e) {
-        console.warn('Could not resolve organization for SUPER_ADMIN:', e);
-      }
-    }
-
-    if (!resolvedOrgId) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      const today = new Date().toISOString().split('T')[0];
-
-      const [employeeStats, leaveRequestsData, attendanceData, payrollData] = await Promise.allSettled([
-        employeeService.getStatistics(resolvedOrgId),
-        api.get('/leaves/requests', {
-          params: { status: 'PENDING', organizationId: resolvedOrgId, page: '1', limit: '1' },
-        }),
-        api.get('/attendance/records', {
-          params: {
-            startDate: today,
-            endDate: today,
-            organizationId: resolvedOrgId,
-            page: '1',
-            limit: '1000',
-          },
-        }),
-        payrollCycleService.getAll({ organizationId: resolvedOrgId, page: '1', limit: '1' }),
-      ]);
-
-      const newStats: DashboardStats = {
-        totalEmployees: 0,
-        attendancePercentage: 0,
-        payrollTotal: 0,
-        performance: 8.9,
-        leaveRequests: 0,
-      };
-
-      // Process employee stats – handle both direct object and nested response
-      if (employeeStats.status === 'fulfilled' && employeeStats.value != null) {
-        const raw = employeeStats.value as any;
-        newStats.totalEmployees =
-          Number(raw?.totalEmployees) ??
-          Number(raw?.data?.totalEmployees) ??
-          0;
-      }
-
-      // Fallback: get employee count from list pagination if stats failed or returned 0
-      if (newStats.totalEmployees === 0) {
-        try {
-          const list = await employeeService.getAll({
-            organizationId: resolvedOrgId,
-            page: 1,
-            limit: 1,
-          });
-          const total = (list as any)?.pagination?.total;
-          if (typeof total === 'number') newStats.totalEmployees = total;
-        } catch (_) {
-          /* ignore */
-        }
-      }
-
-      // Process leave requests
-      if (leaveRequestsData.status === 'fulfilled') {
-        const response = leaveRequestsData.value.data;
-        const pagination = response?.data?.pagination || response?.pagination;
-        newStats.leaveRequests = Number(pagination?.total) ?? 0;
-      }
-
-      // Process attendance percentage
-      if (attendanceData.status === 'fulfilled' && newStats.totalEmployees > 0) {
-        const response = attendanceData.value.data;
-        const records = response?.data?.data ?? response?.data ?? [];
-        const presentCount = Array.isArray(records)
-          ? records.filter((r: any) => r.status === 'PRESENT').length
-          : 0;
-        newStats.attendancePercentage = Math.round(
-          (presentCount / newStats.totalEmployees) * 100
-        );
-      }
-
-      // Process payroll total
-      if (payrollData.status === 'fulfilled') {
-        const raw = payrollData.value as PayrollCycle[] | { data?: PayrollCycle[] };
-        const cycles = Array.isArray(raw) ? raw : (raw?.data ?? []);
-        if (cycles.length > 0 && (cycles[0] as any).totalNet != null) {
-          newStats.payrollTotal = Number((cycles[0] as any).totalNet);
-        }
-      }
-
-      setStats(newStats);
-    } catch (error) {
-      console.error('Failed to fetch dashboard statistics:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [organizationId, isSuperAdmin]);
-
-  useEffect(() => {
-    if (userOrganizationId) setOrganizationId(userOrganizationId);
-  }, [userOrganizationId]);
-
-  useEffect(() => {
-    if (organizationId || isSuperAdmin) {
-      fetchDashboardStats();
-    } else {
-      setLoading(false);
-    }
-  }, [organizationId, isSuperAdmin, fetchDashboardStats]);
+  const firstName = user?.employee?.firstName || user?.email?.split('@')[0] || 'User';
+  const [currentTime, setCurrentTime] = useState(new Date());
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
-  // Format payroll amount in Indian Rupees
-  const formatPayroll = (amount: number): string => {
-    if (amount >= 100000) {
-      return `₹${(amount / 100000).toFixed(1)}L`;
-    }
-    return `₹${amount.toLocaleString('en-IN')}`;
-  };
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50">
+    <div className="flex flex-col flex-1 min-h-0 bg-[#F8F9FA]">
       <AppHeader
-        title="HRMS Dashboard"
+        title="Dashboard"
         subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
-        notificationCount={!isEmployee ? stats.leaveRequests : 0}
+        notificationCount={0}
         onLogout={handleLogout}
       />
 
-      {/* Main Content - scrollable, fills remaining height */}
-      <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stat Cards - Glassmorphism Design */}
-        {!isEmployee && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {/* Employees Card */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium mb-1">Employees</p>
-                  <p className="text-3xl font-bold text-blue-600">
-                    {loading ? '...' : stats.totalEmployees.toLocaleString()}
-                  </p>
-                </div>
-                <div className="bg-blue-500/20 rounded-xl p-3">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Attendance Card */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium mb-1">Attendance</p>
-                  <p className="text-3xl font-bold text-blue-600">
-                    {loading ? '...' : `${stats.attendancePercentage}%`}
-                  </p>
-                </div>
-                <div className="bg-green-500/20 rounded-xl p-3">
-                  <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Payroll Card */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium mb-1">Payroll</p>
-                  <p className="text-3xl font-bold text-blue-600">
-                    {loading ? '...' : formatPayroll(stats.payrollTotal)}
-                  </p>
-                </div>
-                <div className="bg-yellow-500/20 rounded-xl p-3">
-                  <svg className="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Performance Card */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-gray-600 text-sm font-medium mb-1">Performance</p>
-                  <p className="text-3xl font-bold text-blue-600">
-                    {loading ? '...' : stats.performance.toFixed(1)}
-                  </p>
-                </div>
-                <div className="bg-purple-500/20 rounded-xl p-3">
-                  <svg className="w-8 h-8 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
+      <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 py-6">
+        {/* Welcome section */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {getGreeting()}, {firstName}!
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Here's what's happening today
+            </p>
           </div>
-        )}
-
-        {/* Chart Blocks - Glassmorphism Design */}
-        {!isEmployee && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Monthly Attendance Overview */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Monthly Attendance Overview</h3>
-              <div className="h-64 flex items-center justify-center">
-                <MonthlyAttendanceChart organizationId={organizationId || ''} />
-              </div>
-            </div>
-
-            {/* Department-wise Employees */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Department-wise Employees</h3>
-              <div className="h-64 flex items-center justify-center">
-                <DepartmentEmployeesChart organizationId={organizationId || ''} />
-              </div>
-            </div>
-
-            {/* Leave Requests */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">Leave Requests</h3>
-                {(isManager || isHRManager || isOrgAdmin || isSuperAdmin) && canViewLeaveApprovals && (
-                  <Link
-                    to="/leave/approvals"
-                    className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                  >
-                    View & Approve →
-                  </Link>
-                )}
-              </div>
-              <div className="h-64 flex items-center justify-center">
-                <LeaveRequestsChart organizationId={organizationId || ''} />
-              </div>
-            </div>
-
-            {/* Payroll Distribution */}
-            <div className="bg-white/70 backdrop-blur-lg rounded-2xl shadow-lg p-6 border border-white/20 hover:shadow-xl transition-all duration-300">
-              <h3 className="text-lg font-semibold text-gray-800 mb-4">Payroll Distribution</h3>
-              <div className="h-64 flex items-center justify-center">
-                <PayrollDistributionChart organizationId={organizationId || ''} />
-              </div>
-            </div>
+          <div className="text-right hidden sm:block">
+            <p className="text-sm font-medium text-gray-700">
+              {currentTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+            <p className="text-xs text-gray-400">{formatCurrentDate()}</p>
           </div>
-        )}
+        </div>
+
+        {/* Motivation Quote - Full width */}
+        <div className="mb-6">
+          <MotivationQuote />
+        </div>
+
+        {/* Main dashboard grid - 3 columns on xl, 2 on md, 1 on mobile */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-6">
+          {/* Row 1: Profile, Attendance, Leaves */}
+          <EmployeeProfile />
+          <AttendanceSummary />
+          <LeaveDetails />
+
+          {/* Row 2: Payroll, Tasks, Notifications */}
+          <SalaryPayroll />
+          <TasksWorkStatus />
+          <NotificationsWidget />
+
+          {/* Row 3: Performance, Holidays, Documents */}
+          <PerformanceWidget />
+          <HolidaysWidget />
+          <DocumentsWidget />
+        </div>
+
+        {/* Additional widgets - 2-column layout for birthdays/anniversaries */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <BirthdayReminders />
+          <WorkAnniversaryReminders />
+        </div>
 
         {/* Quick Access - Organization Management (SUPER_ADMIN only) */}
         {isSuperAdmin && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Organization Management</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <Link
-                to="/organizations"
-                className="bg-white/70 backdrop-blur-lg rounded-xl shadow hover:shadow-md transition p-4 flex items-center border border-white/20"
-              >
-                <div className="flex-shrink-0 bg-indigo-500 rounded-md p-3">
-                  <span className="text-white text-xl">🏢</span>
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Organizations</h3>
-                  <p className="text-gray-600 text-sm">Manage organizations and create admins</p>
-                </div>
-              </Link>
-            </div>
-          </div>
-        )}
-
-        {/* Quick Access - Employee Management - hidden for EMPLOYEE role */}
-        {!isEmployee && (
-          <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Employee Management</h2>
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Organization Management</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Link
-                to="/employees"
-                className="rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-slate-200/80"
-                style={{ backgroundColor: '#f8fafc' }}
+                to="/organizations"
+                className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-gray-100"
               >
-                <div className="flex-shrink-0 bg-blue-500 rounded-md p-3">
-                  <span className="text-white text-xl">👥</span>
+                <div className="flex-shrink-0 bg-indigo-100 rounded-lg p-3">
+                  <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                  </svg>
                 </div>
                 <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Employees</h3>
-                  <p className="text-gray-600 text-sm">Manage employee records</p>
-                </div>
-              </Link>
-
-              <Link
-                to="/departments"
-                className="rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-slate-200/80"
-                style={{ backgroundColor: '#f8fafc' }}
-              >
-                <div className="flex-shrink-0 bg-green-500 rounded-md p-3">
-                  <span className="text-white text-xl">🏢</span>
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Departments</h3>
-                  <p className="text-gray-600 text-sm">Organize departments</p>
-                </div>
-              </Link>
-
-              <Link
-                to="/positions"
-                className="rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-slate-200/80"
-                style={{ backgroundColor: '#f8fafc' }}
-              >
-                <div className="flex-shrink-0 bg-purple-500 rounded-md p-3">
-                  <span className="text-white text-xl">💼</span>
-                </div>
-                <div className="ml-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Positions</h3>
-                  <p className="text-gray-600 text-sm">Manage job positions</p>
+                  <h3 className="text-sm font-semibold text-gray-900">Organizations</h3>
+                  <p className="text-xs text-gray-500">Manage organizations</p>
                 </div>
               </Link>
             </div>
           </div>
         )}
 
-        {/* Assigned Modules Grid - from Config DB modules table, filtered by role_module_permissions */}
-        <AssignedModulesGrid
-          canManagePermissions={canManagePermissions}
-          isEmployee={isEmployee}
-        />
+        {/* Quick Access - shown based on module permissions */}
+        {employeePerms.can_view && (
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Quick Access</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {employeePerms.can_view && <QuickLink to="/employees" icon={employeesIcon} color="bg-blue-100 text-blue-600" title="Employees" subtitle="Manage employee records" />}
+              {getModulePermissions('/departments').can_view && <QuickLink to="/departments" icon={departmentsIcon} color="bg-green-100 text-green-600" title="Departments" subtitle="Organize departments" />}
+              {canViewLeaveApprovals && (
+                <QuickLink to="/leave/approvals" icon={leaveIcon} color="bg-amber-100 text-amber-600" title="Leave Approvals" subtitle="Review leave requests" />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Assigned Modules Grid */}
+        <AssignedModulesGrid canManagePermissions={canManagePermissions} isEmployee={isEmployee} />
       </main>
     </div>
   );
 };
+
+// Quick access link component
+function QuickLink({ to, icon, color, title, subtitle }: { to: string; icon: JSX.Element; color: string; title: string; subtitle: string }) {
+  return (
+    <Link to={to} className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-gray-100">
+      <div className={`flex-shrink-0 rounded-lg p-3 ${color}`}>{icon}</div>
+      <div className="ml-4">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        <p className="text-xs text-gray-500">{subtitle}</p>
+      </div>
+    </Link>
+  );
+}
+
+const employeesIcon = (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+  </svg>
+);
+const departmentsIcon = (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+  </svg>
+);
+const positionsIcon = (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0" />
+  </svg>
+);
+const leaveIcon = (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+  </svg>
+);
 
 /** Assigned modules from Config DB (project_modules) filtered by role_module_permissions */
 function AssignedModulesGrid({
@@ -414,9 +214,9 @@ function AssignedModulesGrid({
         const code = (m.code || '').toUpperCase().trim();
         const card = CONFIGURATOR_CODE_TO_CARD[code];
         if (!card?.path) return false;
-        if (code === 'PERMISSIONS' && !canManagePermissions) return false;
-        const employeeAllowedCodes = ['ATTENDANCE', 'EVENT', 'LEAVES', 'LEAVE_MANAGEMENT'];
-        if (isEmployee && !employeeAllowedCodes.includes(code)) return false;
+        // Use API module permissions: only show if can_view is true
+        const modPerms = getModulePermissions(card.path);
+        if (!modPerms.can_view) return false;
         return true;
       })
       .map((m) => {
@@ -435,60 +235,49 @@ function AssignedModulesGrid({
       });
   }, [canManagePermissions, isEmployee]);
 
-  if (assignedModules.length === 0) {
-    return (
-      <div className="rounded-xl bg-amber-50 border border-amber-200 p-6 text-amber-800 text-sm">
-        No modules assigned. Contact your admin to assign modules in Configurator (role-module-permissions).
-      </div>
-    );
-  }
+  if (assignedModules.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {assignedModules.map((module, index) => {
-        const isPermissionsModule = (module.code || '').toUpperCase() === 'PERMISSIONS';
-        const isDisabled = isPermissionsModule && !canManagePermissions;
+    <div className="mb-6">
+      <h2 className="text-lg font-semibold text-gray-900 mb-3">Modules</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {assignedModules.map((module, index) => {
+          const isDisabled = false; // Filtering already done by can_view check above
 
-        if (isDisabled) {
+          if (isDisabled) {
+            return (
+              <div
+                key={`permissions-disabled-${module.id}-${index}`}
+                className="bg-white rounded-xl shadow-md p-5 opacity-60 cursor-not-allowed border border-gray-100"
+                title="You don't have permission to access this module"
+              >
+                <div className="flex items-center mb-3">
+                  <span className="text-3xl mr-3">{module.icon}</span>
+                  <h3 className="text-sm font-semibold text-gray-900">{module.name}</h3>
+                </div>
+                <p className="text-xs text-gray-500">{module.description}</p>
+              </div>
+            );
+          }
+
           return (
-            <div
-              key={`permissions-disabled-${module.id}-${index}`}
-              className="bg-white/70 backdrop-blur-lg rounded-xl shadow p-6 opacity-60 cursor-not-allowed border border-white/20"
-              title="You don't have permission to access this module"
+            <Link
+              key={`module-${module.id}-${index}`}
+              to={module.route}
+              className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-5 border border-gray-100"
             >
-              <div className="flex items-center mb-4">
-                <span className="text-4xl mr-4">{module.icon}</span>
-                <h3 className="text-xl font-semibold text-gray-900">{module.name}</h3>
+              <div className="flex items-center mb-3">
+                <span className="text-3xl mr-3">{module.icon}</span>
+                <h3 className="text-sm font-semibold text-gray-900">{module.name}</h3>
               </div>
-              <p className="text-gray-600 text-sm">{module.description}</p>
-              <div className="mt-4">
-                <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">
-                  Assigned
-                </span>
-              </div>
-            </div>
-          );
-        }
-
-        return (
-          <Link
-            key={`module-${module.id}-${index}`}
-            to={module.route}
-            className="bg-white/70 backdrop-blur-lg rounded-xl shadow hover:shadow-lg transition p-6 cursor-pointer border border-white/20"
-          >
-            <div className="flex items-center mb-4">
-              <span className="text-4xl mr-4">{module.icon}</span>
-              <h3 className="text-xl font-semibold text-gray-900">{module.name}</h3>
-            </div>
-            <p className="text-gray-600 text-sm">{module.description}</p>
-            <div className="mt-4">
-              <span className="inline-block px-3 py-1 bg-blue-100 text-blue-600 text-xs rounded-full font-medium">
+              <p className="text-xs text-gray-500">{module.description}</p>
+              <span className="inline-block mt-3 px-2.5 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-medium rounded-full">
                 Assigned
               </span>
-            </div>
-          </Link>
-        );
-      })}
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }

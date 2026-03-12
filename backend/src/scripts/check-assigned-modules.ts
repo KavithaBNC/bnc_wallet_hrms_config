@@ -1,7 +1,7 @@
 /**
  * Check assigned modules for a user (superadmin@bncmotors.com / ORG_ADMIN)
  * Run: npx ts-node -r tsconfig-paths/register src/scripts/check-assigned-modules.ts
- * Requires: Backend running (or set API_BASE), Configurator at bnc-ai.com:8001
+ * Requires: Backend running (or set API_BASE), Configurator at CONFIGURATOR_API_URL
  */
 
 const API_BASE = process.env.API_BASE || 'http://localhost:5001';
@@ -19,7 +19,7 @@ async function main() {
     body: JSON.stringify({
       username: EMAIL,
       password: PASSWORD,
-      company_id: 59,
+      company_name_or_code: 'Bnc Motors',
     }),
   });
 

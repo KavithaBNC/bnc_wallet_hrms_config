@@ -31,10 +31,12 @@ interface AppConfig {
   maxPageSize: number;
   frontendUrl: string;
   configuratorApiUrl: string;
+  configuratorApiFallbackUrl: string;
   configuratorHrmsProjectId: number;
   configuratorDefaultCompanyId: number;
   /** Module code → path mapping. Load from MODULE_CODE_TO_PATH JSON env. Config DB path preferred when available. */
   configuratorModulePathMapping: Record<string, string>;
+  configuratorRoleIds: Record<string, number>;
   configuratorPlaceholderPasswordHash: string;
 }
 
@@ -95,7 +97,9 @@ export const config: AppConfig = {
   configuratorApiUrl:
     process.env.CONFIGURATOR_API_URL ||
     process.env.RAG_API_URL ||
-    'http://bnc-ai.com:8001',
+    'http://localhost:8000',
+  // Fallback URL when primary is unreachable (e.g. LAN IP from outside office)
+  configuratorApiFallbackUrl: process.env.CONFIGURATOR_API_FALLBACK_URL || '',
   configuratorHrmsProjectId: process.env.CONFIGURATOR_HRMS_PROJECT_ID ? parseInt(process.env.CONFIGURATOR_HRMS_PROJECT_ID, 10) : 0,
   configuratorDefaultCompanyId: process.env.CONFIGURATOR_DEFAULT_COMPANY_ID ? parseInt(process.env.CONFIGURATOR_DEFAULT_COMPANY_ID, 10) : 0,
   /** Module code → path fallback. Optional when Config DB project_modules.page_name is populated. */
@@ -104,6 +108,15 @@ export const config: AppConfig = {
       const raw = process.env.MODULE_CODE_TO_PATH;
       if (!raw) return {};
       return JSON.parse(raw) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  })(),
+  configuratorRoleIds: (() => {
+    try {
+      const raw = process.env.CONFIGURATOR_ROLE_IDS;
+      if (!raw) return {};
+      return JSON.parse(raw) as Record<string, number>;
     } catch {
       return {};
     }

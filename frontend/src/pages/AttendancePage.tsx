@@ -4,6 +4,7 @@ import api from '../services/api';
 import { attendanceService, type CompOffSummary, type CompOffRequestItem } from '../services/attendance.service';
 import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import shiftService, { Shift } from '../services/shift.service';
 import shiftAssignmentRuleService from '../services/shiftAssignmentRule.service';
@@ -1138,16 +1139,14 @@ const AttendancePage = () => {
   const [lateEarlyPolicy, setLateEarlyPolicy] = useState<LateEarlyPolicy>(null);
   const [showLeaveAppliedBanner, setShowLeaveAppliedBanner] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  // Check if user is a manager
-  const isManager = user?.role === 'MANAGER';
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const canViewTeamAttendance = isManager || isHRManager || isOrgAdmin;
-  const canSyncBiometric = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
-  const canManualPunch = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
+  // Module permissions from /api/v1/user-role-modules/project API response
+  const attendancePerms = getModulePermissions('/attendance');
+  const canViewTeamAttendance = attendancePerms.can_view;
+  const canSyncBiometric = attendancePerms.can_edit;
+  const canManualPunch = attendancePerms.can_add;
   // HR-only: calendar view requires selecting one employee (no "all employees" by default)
-  const isHRForCalendar = isHRManager || isOrgAdmin;
-  const canChooseEmployeeCompOffSummary = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN' || isManager;
+  const isHRForCalendar = attendancePerms.can_edit;
+  const canChooseEmployeeCompOffSummary = attendancePerms.can_view;
 
   // HR-only: single-employee selection for calendar/table (searchable dropdown); restore from URL on refresh
   const employeeIdFromUrl = searchParams.get('employeeId') || null;
@@ -1950,7 +1949,7 @@ const AttendancePage = () => {
                               const emp = employeeList.find((e) => e.id === selectedEmployeeId);
                               return emp ? `Attendance: ${emp.firstName} ${emp.lastName}` : 'Attendance';
                             })()
-                          : isManager ? 'Team Attendance' : 'All Employees Attendance')
+                          : 'All Employees Attendance')
                       : 'My Attendance Records')
                   : 'My Attendance Records'}
               </h2>
@@ -2005,7 +2004,7 @@ const AttendancePage = () => {
                             : 'text-gray-600 hover:text-gray-900'
                         }`}
                       >
-                        {isManager ? '👥 Team' : '👥 All Employees'}
+                        {'👥 All Employees'}
                       </button>
                       <button
                         onClick={() => setViewMode('my')}

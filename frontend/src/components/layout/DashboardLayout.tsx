@@ -31,6 +31,16 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
     </svg>
   ),
+  '/hrms-051': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+    </svg>
+  ),
+  '/cost-centre-department': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+    </svg>
+  ),
   '/positions': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v8a2 2 0 002 2z" />
@@ -326,36 +336,49 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const isSuperAdmin = role === 'SUPER_ADMIN';
 
   // Modules from Config DB (localStorage, set at login / loadUser)
+  // Builds parent-child hierarchy from API's parent_module_id / parent_module fields
   const visibleNavItems = useMemo(() => {
     const configModules = getAssignedModules();
-    const pathToLabel: Record<string, string> = { '/dashboard': 'Dashboard' };
     const items: { path: string; label: string; parentPath?: string }[] = [
       { path: '/dashboard', label: 'Dashboard' },
     ];
+
+    // Build a map: module id → resolved path (for parent lookup)
+    const idToPath: Record<number, string> = {};
     for (const m of configModules) {
       const path = m.path || `/${(m.code || '').toLowerCase().replace(/_/g, '-')}`;
-      if (path && path !== '/dashboard') {
-        const parts = path.split('/').filter(Boolean);
-        const parentPath = parts.length > 1 ? `/${parts.slice(0, -1).join('/')}` : undefined;
-        pathToLabel[path] = m.name || m.code;
-        if (parentPath && !pathToLabel[parentPath]) {
-          pathToLabel[parentPath] = parentPath.split('/').pop() || parentPath;
-        }
-        items.push({ path, label: m.name || m.code, parentPath });
-      }
+      if (m.id != null) idToPath[m.id] = path;
     }
-    // Ensure parent paths exist as top-level items for dropdowns
+
+    for (const m of configModules) {
+      const path = m.path || `/${(m.code || '').toLowerCase().replace(/_/g, '-')}`;
+      if (!path || path === '/dashboard') continue;
+
+      // Determine parentPath from API's parent_module_id
+      let parentPath: string | undefined;
+      if (m.parent_module_id != null && idToPath[m.parent_module_id]) {
+        parentPath = idToPath[m.parent_module_id];
+      }
+
+      items.push({ path, label: m.name || m.code, parentPath });
+    }
+
+    // Ensure parent paths exist as top-level items (if parent module wasn't in list)
     const existingPaths = new Set(items.map((i) => i.path));
-    for (const item of items) {
-      if (item.parentPath && !existingPaths.has(item.parentPath)) {
-        existingPaths.add(item.parentPath);
-        items.push({
-          path: item.parentPath,
-          label: pathToLabel[item.parentPath] || item.parentPath.split('/').pop() || item.parentPath,
-          parentPath: undefined,
-        });
+    for (const m of configModules) {
+      if (m.parent_module && m.parent_module.id != null) {
+        const parentModPath = idToPath[m.parent_module.id];
+        if (parentModPath && !existingPaths.has(parentModPath)) {
+          existingPaths.add(parentModPath);
+          items.push({
+            path: parentModPath,
+            label: m.parent_module.name || parentModPath.split('/').pop() || parentModPath,
+            parentPath: undefined,
+          });
+        }
       }
     }
+
     return items;
   }, [user?.id]);
 
