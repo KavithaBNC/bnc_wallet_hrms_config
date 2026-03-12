@@ -47,3 +47,18 @@ docker/volumes/
 # Temporary files
 *.tmp
 temp/
+
+# Sensitive / credentials files
+LOGIN_CREDENTIALS.txt
+env
+DATABASE_SCHEMA.sql
+
+# Dev-only scripts
+test_rbac.sh
+fix-prisma-generate.ps1
+run.ps1
+run-face-service.ps1
+
+# Requirement docs
+esop requirement/
+requirement/

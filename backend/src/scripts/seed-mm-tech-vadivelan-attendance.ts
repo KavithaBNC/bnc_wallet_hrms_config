@@ -292,7 +292,6 @@ async function main() {
       punchesCreated += 2;
 
       const isEarly    = plan.isEarly ?? false;
-      const earlyMin   = plan.earlyMin ?? 0;
       const shiftEndIST = ist(2026, 2, day, 18, 0);
       const earlyMinutes = isEarly
         ? Math.round((shiftEndIST.getTime() - checkOut.getTime()) / 60000)

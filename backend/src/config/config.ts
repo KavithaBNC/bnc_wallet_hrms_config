@@ -33,10 +33,10 @@ interface AppConfig {
 }
 
 export const config: AppConfig = {
-  // Server (default 5001 to match root "npm run dev" and frontend proxy)
+  // Server
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '5001', 10),
-  baseUrl: process.env.BASE_URL || 'http://localhost:5001',
+  port: parseInt(process.env.PORT || '5000', 10),
+  baseUrl: process.env.BASE_URL || 'http://localhost:5000',
 
   // CORS
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',

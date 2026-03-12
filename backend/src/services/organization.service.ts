@@ -1,6 +1,7 @@
 
 import { AppError } from '../middlewares/errorHandler';
 import { prisma } from '../utils/prisma';
+import { logger } from '../utils/logger';
 import { CreateOrganizationInput, UpdateOrganizationInput } from '../utils/organization.validation';
 import { CreateOrgAdminInput } from '../utils/validation';
 import { hashPassword } from '../utils/password';
@@ -280,7 +281,7 @@ export class OrganizationService {
     if (existingUser) {
       // If user exists but doesn't have employee record, create it
       if (!existingUser.employee) {
-        console.log(`⚠️  User ${data.email} exists but has no employee record. Creating employee record...`);
+        logger.warn(`User ${data.email} exists but has no employee record. Creating employee record...`);
         
         // Generate unique employee code
         let employeeCode = `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -375,7 +376,7 @@ export class OrganizationService {
         },
       });
 
-      console.log(`✅ Created ORG_ADMIN: ${user.email} with employee record (Org: ${organization.name})`);
+      logger.info(`Created ORG_ADMIN: ${user.email} with employee record (Org: ${organization.name})`);
 
       return {
         user: {

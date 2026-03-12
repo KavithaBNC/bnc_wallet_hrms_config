@@ -2,6 +2,7 @@
 import { AppError } from '../middlewares/errorHandler';
 import { AttendanceStatus, CheckInMethod, LeaveStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { logger } from '../utils/logger';
 import { shiftService } from './shift.service';
 import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
 import { ValidationProcessRuleService } from './validation-process-rule.service';
@@ -551,8 +552,7 @@ export class AttendanceService {
                 if (action) {
                   // For now, just log the decision; Phase 5 will actually create
                   // tasks / apply events based on autoApply.
-                  // eslint-disable-next-line no-console
-                  console.log('[ValidationProcessRule] Late detected', {
+                  logger.debug('[ValidationProcessRule] Late detected', {
                     employeeId,
                     date: dayStart.toISOString().slice(0, 10),
                     lateMinutes: computed.lateMinutes,
@@ -970,7 +970,7 @@ export class AttendanceService {
         );
       } catch (error) {
         // If policy rules fetch fails, continue without them
-        console.warn('Failed to fetch policy rules:', error);
+        logger.warn('Failed to fetch policy rules:', error);
       }
     }
 
@@ -1141,7 +1141,7 @@ export class AttendanceService {
           employee.organizationId
         );
       } catch (error) {
-        console.warn('Failed to fetch policy rules:', error);
+        logger.warn('Failed to fetch policy rules:', error);
       }
     }
 
@@ -1888,7 +1888,7 @@ export class AttendanceService {
         organizationId
       );
     } catch (error) {
-      console.warn('Failed to fetch policy rules for recalculation:', error);
+      logger.warn('Failed to fetch policy rules for recalculation:', error);
     }
 
     const checkIn = record.checkIn;
@@ -3199,9 +3199,9 @@ export class AttendanceService {
     };
 
     const logPrefix = '[ValidationProcess]';
-    console.log(`${logPrefix} run: fromDate=${fromDate} toDate=${toDate} employeeIds=${employeeIds.length} records=${records.length}`);
+    logger.debug(`${logPrefix} run: fromDate=${fromDate} toDate=${toDate} employeeIds=${employeeIds.length} records=${records.length}`);
     const recordDateKeys = [...new Set(records.map((r) => this.toDateKey(r.date)))].sort();
-    console.log(`${logPrefix} record dates in range: ${recordDateKeys.join(', ')}`);
+    logger.debug(`${logPrefix} record dates in range: ${recordDateKeys.join(', ')}`);
 
     const punchDayMap = new Map<string, { count: number; hasIn: boolean; hasOut: boolean }>();
     for (const p of punches) {
@@ -3339,7 +3339,7 @@ export class AttendanceService {
               isShortfall = computed.isDeviation;
 
               if (!policyFound && (isLate || isEarly || computed.isDeviation)) {
-                console.log(`${logPrefix} policy null but compute returned flags date=${dateKey} (will apply shift-only fallback)`);
+                logger.debug(`${logPrefix} policy null but compute returned flags date=${dateKey} (will apply shift-only fallback)`);
               }
 
               if (!policyFound) {
@@ -3358,9 +3358,9 @@ export class AttendanceService {
                   isShortfall = isShortfall || isLate || isEarly;
                 }
               }
-              console.log(`${logPrefix} BEFORE INSERT date=${dateKey} shiftStart=${shiftStartTime} shiftEnd=${shiftEndTime} policyFound=${policyFound} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
+              logger.debug(`${logPrefix} BEFORE INSERT date=${dateKey} shiftStart=${shiftStartTime} shiftEnd=${shiftEndTime} policyFound=${policyFound} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
             } catch (err) {
-              console.warn(`${logPrefix} compute failed employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} error=${err instanceof Error ? err.message : String(err)}`);
+              logger.warn(`${logPrefix} compute failed employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} error=${err instanceof Error ? err.message : String(err)}`);
               const checkInDate = new Date(r.checkIn);
               const checkOutDate = new Date(r.checkOut);
               const dayStartLocal = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate(), 0, 0, 0, 0);
@@ -3373,10 +3373,10 @@ export class AttendanceService {
               isLate = checkInDate.getTime() > shiftStart.getTime();
               isEarly = checkOutDate.getTime() < shiftEnd.getTime();
               if (isLate || isEarly) isShortfall = true;
-              console.log(`${logPrefix} AFTER FALLBACK date=${dateKey} shiftStart=${shiftForCompute!.startTime} shiftEnd=${shiftForCompute!.endTime} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
+              logger.debug(`${logPrefix} AFTER FALLBACK date=${dateKey} shiftStart=${shiftForCompute!.startTime} shiftEnd=${shiftForCompute!.endTime} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
             }
           } else {
-            console.log(`${logPrefix} skip compute employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} shiftForCompute=${!!shiftForCompute} startTime=${!!shiftForCompute?.startTime} endTime=${!!shiftForCompute?.endTime}`);
+            logger.debug(`${logPrefix} skip compute employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} shiftForCompute=${!!shiftForCompute} startTime=${!!shiftForCompute?.startTime} endTime=${!!shiftForCompute?.endTime}`);
           }
         }
 
@@ -3629,7 +3629,7 @@ export class AttendanceService {
     }
 
     const rowDateKeys = [...new Set(rows.map((r) => this.toDateKey(r.date)))].sort();
-    console.log(`${logPrefix} before insert: rows=${rows.length} dates=${rowDateKeys.join(', ')}`);
+    logger.debug(`${logPrefix} before insert: rows=${rows.length} dates=${rowDateKeys.join(', ')}`);
 
     await prisma.$transaction(async (tx) => {
       await tx.attendanceValidationResult.deleteMany({
@@ -4225,7 +4225,7 @@ export class AttendanceService {
       const hasBalance = component.hasBalance ?? false;
 
       if (!leaveTypeId && (component.eventCategory ?? '').toLowerCase() === 'leave') {
-        console.warn(`[DirectComponent] No matching LeaveType found for component "${component.eventName}" (${component.shortName}). Leave request will NOT be created. Check LeaveType names in DB.`);
+        logger.warn(`[DirectComponent] No matching LeaveType found for component "${component.eventName}" (${component.shortName}). Leave request will NOT be created. Check LeaveType names in DB.`);
       }
 
       // Group rows by employee

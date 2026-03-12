@@ -1,10 +1,9 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
-// In dev: use relative /api/v1 so Vite proxy forwards to backend (avoids CORS, single port)
-// In prod or when VITE_API_BASE_URL is set: use that
+// In dev: Vite proxy forwards /api/v1 to backend (avoids CORS)
+// In prod: nginx proxies /api/ to backend, so relative path works
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? '/api/v1' : 'http://localhost:5000/api/v1');
+  import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
