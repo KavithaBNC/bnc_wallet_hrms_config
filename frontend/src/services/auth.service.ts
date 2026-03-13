@@ -145,6 +145,7 @@ export interface User {
   role: string;
   fullname?: string;
   isEmailVerified: boolean;
+  organizationId?: string;
   employee?: {
     id: string;
     organizationId: string;
@@ -300,11 +301,14 @@ class AuthService {
           localStorage.setItem('accessToken', tokens.accessToken);
           localStorage.setItem('refreshToken', tokens.refreshToken);
         }
-        // Merge employee data into user
+        // Merge employee and organization data into user
+        user.id = hrmsData.user.id || user.id;
+        user.role = normalizeRole(hrmsData.user.role || user.role);
         if (hrmsData.user?.employee) {
-          user.id = hrmsData.user.id || user.id;
           user.employee = hrmsData.user.employee;
-          user.role = normalizeRole(hrmsData.user.role || user.role);
+        }
+        if (hrmsData.user?.organizationId) {
+          user.organizationId = hrmsData.user.organizationId;
         }
         localStorage.setItem('user', JSON.stringify(user));
       }
@@ -466,6 +470,7 @@ class AuthService {
           ...stored,
           role: stored.role || backendUser.role,
           employee: backendUser.employee ?? stored.employee,
+          organizationId: backendUser.organizationId ?? stored.organizationId,
         };
         localStorage.setItem('user', JSON.stringify(merged));
         return merged;

@@ -7,6 +7,29 @@ import { prisma } from '../utils/prisma';
 import { config } from '../config/config';
 
 /**
+ * Valid HRMS UserRole enum values (must match prisma schema enum exactly).
+ */
+const VALID_HRMS_ROLES = ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'] as const;
+type HrmsRole = typeof VALID_HRMS_ROLES[number];
+
+/**
+ * Normalize a Configurator role code to a valid HRMS UserRole enum value.
+ * Configurator may return codes like 'HRMS001_SUPER_ADMIN', 'HRMS_ORG_ADMIN', 'Super Admin', etc.
+ * Strategy: uppercase + strip digits/prefix → match against known roles by suffix.
+ */
+function normalizeToHrmsRole(code: string | undefined | null): HrmsRole | undefined {
+  if (!code) return undefined;
+  const upper = code.trim().toUpperCase().replace(/\s+/g, '_');
+  // Direct match first
+  if ((VALID_HRMS_ROLES as readonly string[]).includes(upper)) return upper as HrmsRole;
+  // Suffix match: HRMS001_SUPER_ADMIN → SUPER_ADMIN, HRMS_ORG_ADMIN → ORG_ADMIN
+  for (const role of VALID_HRMS_ROLES) {
+    if (upper.endsWith('_' + role) || upper.endsWith(role)) return role;
+  }
+  return undefined;
+}
+
+/**
  * Map Configurator module name → frontend sidebar path.
  * Used to resolve paths for modules returned by the my-modules API.
  * Key: lowercase module name, Value: sidebar path.
@@ -270,8 +293,9 @@ export class AuthController {
           const roleRes = await configuratorService.getUserRole(loginRes.access_token, (loginRes as any).user_role_id);
           roleCode = roleRes?.code;
         }
-        if (roleCode && hrmsUser.role !== roleCode) {
-          updates.role = roleCode as import('@prisma/client').UserRole;
+        const normalizedRoleCode = normalizeToHrmsRole(roleCode);
+        if (normalizedRoleCode && hrmsUser.role !== normalizedRoleCode) {
+          updates.role = normalizedRoleCode as import('@prisma/client').UserRole;
         }
         if (Object.keys(updates).length > 0) {
           await prisma.user.update({
@@ -346,12 +370,14 @@ export class AuthController {
               configRole = roleRes?.code;
             }
           }
-          if (!configRole) {
+          const normalizedConfigRole = normalizeToHrmsRole(configRole);
+          if (!normalizedConfigRole) {
             throw new AppError(
               'User has no role assigned. Assign a role in Configurator and try again.',
               403
             );
           }
+          configRole = normalizedConfigRole;
           const nameParts = email.split('@')[0].split(/[._]/);
           const firstName = nameParts[0] || 'User';
           const lastName = nameParts.slice(1).join(' ') || ' ';
@@ -426,8 +452,9 @@ export class AuthController {
         throw new AppError('Your employment has been separated. You cannot log in.', 401);
       }
 
-      // Resolve role: prefer Configurator role, fall back to HRMS user role
-      const roleFromConfig = (hrmsUser as any).role as string;
+      // Resolve role: normalize Configurator role code → valid HRMS UserRole
+      const rawRole = (hrmsUser as any).role as string;
+      const roleFromConfig = normalizeToHrmsRole(rawRole) ?? rawRole;
 
       // Fetch modules for the logged-in user.
       // Priority: 1) my-modules API (user's assigned modules), 2) role-module permissions, 3) empty
@@ -504,6 +531,7 @@ export class AuthController {
         email: hrmsUser.email,
         role: roleFromConfig,
         isEmailVerified: hrmsUser.isEmailVerified,
+        organizationId: hrmsUser.employee?.organizationId ?? (hrmsUser as any).organizationId ?? null,
         employee: hrmsUser.employee,
       };
 

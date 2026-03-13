@@ -195,6 +195,7 @@ export default function EmployeesPage() {
   const [orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [showPaygroupModal, setShowPaygroupModal] = useState(false);
+  const [paygroupModalOrgId, setPaygroupModalOrgId] = useState<string | null>(null);
   const [selectedPaygroupId, setSelectedPaygroupId] = useState<string | null>(null);
   const [selectedPaygroupName, setSelectedPaygroupName] = useState<string | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -228,6 +229,7 @@ export default function EmployeesPage() {
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
   const [superAdminOrganizations, setSuperAdminOrganizations] = useState<Organization[]>([]);
+  const superAdminOrganizationsRef = useRef<Organization[]>([]);
   const [superAdminSelectedOrgId, setSuperAdminSelectedOrgId] = useState<string | 'ALL'>('ALL');
   const [_loadingOrgs, setLoadingOrgs] = useState(false);
   // View Credentials page filters
@@ -260,8 +262,11 @@ export default function EmployeesPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showExportMenu]);
 
-  // Get organizationId from logged-in user (check both possible shapes)
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  // Get organizationId from logged-in user (check both possible shapes, fallback to user-level organizationId)
+  const organizationId =
+    user?.employee?.organizationId ||
+    user?.employee?.organization?.id ||
+    (user as any)?.organizationId;
 
   // Super Admin: can view all orgs or pick one; others use their linked org
   const baseRole = resolveBaseRole(user?.role);
@@ -357,6 +362,7 @@ export default function EmployeesPage() {
     organizationService.getAll(1, 100).then((res) => {
       const orgs = res.organizations ?? [];
       setSuperAdminOrganizations(orgs);
+      superAdminOrganizationsRef.current = orgs;
       // Auto-select the user's own organization so Add Employee is immediately available
       const userOrgId = organizationId; // from user.employee.organizationId or .organization.id
       if (userOrgId && orgs.some((o) => o.id === userOrgId)) {
@@ -364,7 +370,7 @@ export default function EmployeesPage() {
       } else if (orgs.length === 1) {
         setSuperAdminSelectedOrgId(orgs[0].id);
       }
-    }).catch(() => setSuperAdminOrganizations([])).finally(() => setLoadingOrgs(false));
+    }).catch(() => { setSuperAdminOrganizations([]); superAdminOrganizationsRef.current = []; }).finally(() => setLoadingOrgs(false));
   }, [isSuperAdmin, organizationId]);
 
   useEffect(() => {
@@ -608,20 +614,67 @@ export default function EmployeesPage() {
 
 
 
-  const handleCreate = () => {
-    // Super Admin with "All organizations": auto-select first org so modals can render
-    if (isSuperAdmin && !effectiveOrganizationId && superAdminOrganizations.length > 0) {
-      setSuperAdminSelectedOrgId(superAdminOrganizations[0].id);
-    }
+  const handleCreate = async () => {
     setEditingEmployee(null);
     setSelectedPaygroupId(null);
     setSelectedPaygroupName(null);
-    // If no organization context, skip paygroup selection and open form directly
-    if (!effectiveOrganizationId && superAdminOrganizations.length === 0) {
-      setShowForm(true);
-    } else {
-      setShowPaygroupModal(true);
+
+    let resolvedOrgId: string | undefined = effectiveOrganizationId;
+
+    if (isSuperAdmin && !resolvedOrgId) {
+      // SUPER_ADMIN with "All organizations" selected — resolve org dynamically
+      // Try ref first (always-fresh), then state, then fetch fresh from API
+      let orgs: Organization[] =
+        superAdminOrganizationsRef.current.length > 0
+          ? superAdminOrganizationsRef.current
+          : superAdminOrganizations.length > 0
+          ? superAdminOrganizations
+          : [];
+
+      if (orgs.length === 0) {
+        try {
+          const res = await organizationService.getAll(1, 100);
+          orgs = res.organizations ?? [];
+          setSuperAdminOrganizations(orgs);
+          superAdminOrganizationsRef.current = orgs;
+        } catch {
+          orgs = [];
+        }
+      }
+
+      if (orgs.length > 0) {
+        // Prefer the user's own org; fall back to first org in the list
+        const latestUser = useAuthStore.getState().user;
+        const userOrgId =
+          latestUser?.employee?.organizationId ||
+          latestUser?.employee?.organization?.id ||
+          (latestUser as any)?.organizationId ||
+          organizationId;
+        const ownOrg = userOrgId ? orgs.find((o) => o.id === userOrgId) : undefined;
+        resolvedOrgId = (ownOrg ?? orgs[0]).id;
+        setSuperAdminSelectedOrgId(resolvedOrgId);
+      }
+    } else if (!resolvedOrgId && !isSuperAdmin) {
+      // Non-super-admin: org hasn't loaded yet — refresh user data
+      try {
+        await loadUser();
+        const refreshedUser = useAuthStore.getState().user;
+        resolvedOrgId =
+          refreshedUser?.employee?.organizationId ||
+          refreshedUser?.employee?.organization?.id ||
+          (refreshedUser as any)?.organizationId;
+      } catch {
+        // ignore
+      }
     }
+
+    if (!resolvedOrgId) {
+      alert('Could not determine organization. Please select an organization from the dropdown and try again.');
+      return;
+    }
+
+    setPaygroupModalOrgId(resolvedOrgId);
+    setShowPaygroupModal(true);
   };
 
   const handleView = async (employee: Employee) => {
@@ -733,6 +786,7 @@ export default function EmployeesPage() {
     setRejoinMode(false);
     setSelectedPaygroupId(null);
     setSelectedPaygroupName(null);
+    setPaygroupModalOrgId(null);
   };
 
   const handlePaygroupSubmit = (paygroupId: string, paygroupName: string) => {
@@ -2416,11 +2470,11 @@ export default function EmployeesPage() {
 
         </div>
       {/* Paygroup Selection Modal (Create flow only) */}
-      {effectiveOrganizationId && (
+      {showPaygroupModal && (
         <PaygroupSelectionModal
           isOpen={showPaygroupModal}
-          onClose={() => setShowPaygroupModal(false)}
-          organizationId={effectiveOrganizationId}
+          onClose={() => { setShowPaygroupModal(false); setPaygroupModalOrgId(null); }}
+          organizationId={paygroupModalOrgId ?? ''}
           onSubmit={handlePaygroupSubmit}
         />
       )}

@@ -426,6 +426,7 @@ export class AuthService {
         isEmailVerified: true,
         isActive: true,
         createdAt: true,
+        organizationId: true,
         employee: {
           select: {
             id: true,
