@@ -36,31 +36,54 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) {
+        // Strategy 1: Try HRMS backend refresh first (uses HRMS refresh token)
+        const hrmsRefreshToken = localStorage.getItem('refreshToken');
+        if (hrmsRefreshToken) {
+          try {
+            const hrmsRes = await axios.post(`${API_BASE_URL}/auth/refresh-token`, {
+              refreshToken: hrmsRefreshToken,
+            });
+            const newTokens = hrmsRes.data?.data?.tokens;
+            if (newTokens?.accessToken) {
+              localStorage.setItem('accessToken', newTokens.accessToken);
+              localStorage.setItem('refreshToken', newTokens.refreshToken || hrmsRefreshToken);
+              originalRequest.headers.Authorization = `Bearer ${newTokens.accessToken}`;
+              return api(originalRequest);
+            }
+          } catch {
+            // HRMS refresh failed, try Configurator refresh below
+          }
+        }
+
+        // Strategy 2: Refresh via Configurator API (uses Configurator refresh token)
+        const configuratorRefreshToken = localStorage.getItem('configuratorRefreshToken')
+          || localStorage.getItem('refreshToken');
+        if (!configuratorRefreshToken) {
           throw new Error('No refresh token');
         }
 
-        // Try to refresh via Configurator API
         const response = await axios.post('/configurator-api/api/v1/auth/token/refresh', {
-          refresh_token: refreshToken,
+          refresh_token: configuratorRefreshToken,
         });
 
-        const accessToken = response.data.access_token || '';
-        const newRefreshToken = response.data.refresh_token || refreshToken;
+        const newConfigAccessToken = response.data.access_token || '';
+        const newConfigRefreshToken = response.data.refresh_token || configuratorRefreshToken;
 
-        // Save new tokens
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', newRefreshToken);
-        localStorage.setItem('configuratorAccessToken', accessToken);
+        // Update Configurator tokens
+        localStorage.setItem('configuratorAccessToken', newConfigAccessToken);
+        localStorage.setItem('configuratorRefreshToken', newConfigRefreshToken);
 
-        // Retry original request with new token
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        // Use Configurator token for HRMS backend as well
+        // (the HRMS authenticate middleware has a Configurator token fallback
+        //  that decodes and looks up/creates the user)
+        localStorage.setItem('accessToken', newConfigAccessToken);
+        originalRequest.headers.Authorization = `Bearer ${newConfigAccessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
         // Refresh failed, logout user
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
+        localStorage.removeItem('configuratorRefreshToken');
         localStorage.removeItem('user');
         window.location.href = '/login';
         return Promise.reject(refreshError);

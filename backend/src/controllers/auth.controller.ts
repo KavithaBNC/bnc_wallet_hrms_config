@@ -222,11 +222,12 @@ export class AuthController {
           company_id = localOrg.configuratorCompanyId;
         }
       }
-      // Final fallback: use default from config
-      if (!company_id && config.configuratorDefaultCompanyId) {
+      // Final fallback: use default from config only when no company_name_or_code is provided
+      // (avoids sending mismatched company_id when company_name_or_code already identifies the company)
+      if (!company_id && !company_name_or_code && config.configuratorDefaultCompanyId) {
         company_id = config.configuratorDefaultCompanyId;
       }
-      console.log('[configuratorLogin] Step 2 login —', username);
+      console.log('[configuratorLogin] Step 2 login —', username, 'company_id:', company_id, 'company_name:', company_name_or_code);
       const loginRes = await configuratorService.login({ username, password, company_name_or_code, company_id });
 
       const decoded = configuratorService.decodeToken(loginRes.access_token);

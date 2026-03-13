@@ -256,6 +256,9 @@ class AuthService {
     // Store Configurator access token for direct Configurator API calls (departments, etc.)
     localStorage.setItem('configuratorAccessToken', tokens.accessToken);
 
+    // Store Configurator refresh token separately (HRMS backend login will overwrite 'refreshToken')
+    localStorage.setItem('configuratorRefreshToken', tokens.refreshToken);
+
     // Store company details
     if (company.id != null) {
       localStorage.setItem('configuratorCompanyId', String(company.id));
@@ -286,6 +289,7 @@ class AuthService {
         username: data.username,
         password: data.password,
         company_name_or_code: data.company_name_or_code,
+        company_id: company.id || undefined,
       });
       const hrmsData = hrmsLoginRes.data?.data;
       if (hrmsData) {
@@ -428,6 +432,7 @@ class AuthService {
       localStorage.removeItem('modules');
       localStorage.removeItem('modulePermissions');
       localStorage.removeItem('configuratorAccessToken');
+      localStorage.removeItem('configuratorRefreshToken');
       localStorage.removeItem('configuratorCompanyId');
       localStorage.removeItem('configuratorProjectId');
       localStorage.removeItem('companyName');
@@ -532,31 +537,36 @@ class AuthService {
   }
 
   /**
-   * Refresh access token via Configurator API
+   * Refresh access token — tries HRMS backend first, then Configurator API
    */
   async refreshToken(refreshToken: string) {
+    // Try HRMS backend refresh first (uses HRMS refresh token)
     try {
-      const response = await configuratorApi.post('/api/v1/auth/token/refresh', {
-        refresh_token: refreshToken,
-      });
-
-      const newAccessToken = response.data.access_token || '';
-      const newRefreshToken = response.data.refresh_token || refreshToken;
-
-      // Save new tokens
-      localStorage.setItem('accessToken', newAccessToken);
-      localStorage.setItem('refreshToken', newRefreshToken);
-      localStorage.setItem('configuratorAccessToken', newAccessToken);
-
-      return { accessToken: newAccessToken, refreshToken: newRefreshToken };
-    } catch (error) {
-      // Fallback: try HRMS backend refresh
       const response = await api.post('/auth/refresh-token', { refreshToken });
       const { tokens } = response.data.data;
       localStorage.setItem('accessToken', tokens.accessToken);
       localStorage.setItem('refreshToken', tokens.refreshToken);
       return tokens;
+    } catch {
+      // HRMS refresh failed, try Configurator API
     }
+
+    // Fallback: Configurator API refresh (use stored Configurator refresh token)
+    const configuratorRefresh = localStorage.getItem('configuratorRefreshToken') || refreshToken;
+    const response = await configuratorApi.post('/api/v1/auth/token/refresh', {
+      refresh_token: configuratorRefresh,
+    });
+
+    const newAccessToken = response.data.access_token || '';
+    const newRefreshToken = response.data.refresh_token || configuratorRefresh;
+
+    // Save Configurator tokens
+    localStorage.setItem('configuratorAccessToken', newAccessToken);
+    localStorage.setItem('configuratorRefreshToken', newRefreshToken);
+    // Also use as main accessToken (HRMS backend has Configurator token fallback)
+    localStorage.setItem('accessToken', newAccessToken);
+
+    return { accessToken: newAccessToken, refreshToken: newRefreshToken };
   }
 
   /**

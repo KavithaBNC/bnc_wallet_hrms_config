@@ -24,13 +24,14 @@ const BASE_URL = '/configurator-api';
 /**
  * Create a dedicated axios instance for the Configurator API.
  * Uses the configuratorAccessToken (from login) as Bearer token.
+ * Includes a response interceptor to refresh the token on 401.
  */
 function getConfiguratorApi(): AxiosInstance {
   const token = localStorage.getItem('configuratorAccessToken');
   if (!token) {
     console.error('[configuratorDataService] No configuratorAccessToken in localStorage. User must log in again.');
   }
-  return axios.create({
+  const instance = axios.create({
     baseURL: BASE_URL,
     headers: {
       'Content-Type': 'application/json',
@@ -38,6 +39,35 @@ function getConfiguratorApi(): AxiosInstance {
     },
     timeout: 15000,
   });
+
+  // Add 401 response interceptor to refresh Configurator token
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const originalRequest: any = error.config;
+      if (error.response?.status === 401 && !originalRequest._retry) {
+        originalRequest._retry = true;
+        try {
+          const refreshToken = localStorage.getItem('configuratorRefreshToken');
+          if (!refreshToken) throw new Error('No configurator refresh token');
+          const res = await axios.post(`${BASE_URL}/api/v1/auth/token/refresh`, {
+            refresh_token: refreshToken,
+          });
+          const newToken = res.data.access_token || '';
+          const newRefresh = res.data.refresh_token || refreshToken;
+          localStorage.setItem('configuratorAccessToken', newToken);
+          localStorage.setItem('configuratorRefreshToken', newRefresh);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return instance(originalRequest);
+        } catch {
+          // Refresh failed — let the error propagate
+        }
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  return instance;
 }
 
 /** Get the numeric company_id stored at login */

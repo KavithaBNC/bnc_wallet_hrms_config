@@ -125,15 +125,20 @@ export const authenticate = async (
 
           // If no org found, auto-create one from the Configurator company data
           if (!org && decoded.company_id) {
-            const companyName = `Company_${decoded.company_id}`;
-            org = await prisma.organization.create({
-              data: {
-                name: companyName,
-                legalName: companyName,
-                configuratorCompanyId: decoded.company_id,
-              },
-            });
-            console.log('[auth] Auto-created organization for company_id:', decoded.company_id);
+            try {
+              const companyName = `Company_${decoded.company_id}`;
+              org = await prisma.organization.create({
+                data: {
+                  name: companyName,
+                  legalName: companyName,
+                  configuratorCompanyId: decoded.company_id,
+                },
+              });
+              console.log('[auth] Auto-created organization for company_id:', decoded.company_id);
+            } catch {
+              // Another concurrent request may have created the org — retry lookup
+              org = await prisma.organization.findFirst({ where: { configuratorCompanyId: decoded.company_id } });
+            }
           }
 
           if (org) {
@@ -148,38 +153,53 @@ export const authenticate = async (
             const prefix = (org as any).employeeIdPrefix || 'EMP';
             const nextNum = ((org as any).employeeIdNextNumber ?? 0) + 1;
             const employeeCode = `${prefix}${nextNum.toString().padStart(2, '0')}`;
-            const newUser = await prisma.user.create({
-              data: {
-                email,
-                passwordHash: config.configuratorPlaceholderPasswordHash,
-                role: 'SUPER_ADMIN' as any,
-                organizationId: org.id,
-                configuratorUserId: configuratorUserId ?? undefined,
-                isEmailVerified: true,
-              },
-            });
-            await prisma.organization.update({
-              where: { id: org.id },
-              data: { employeeIdNextNumber: nextNum },
-            });
-            await prisma.employee.create({
-              data: {
-                organizationId: org.id,
-                userId: newUser.id,
-                employeeCode,
-                firstName,
-                lastName,
-                email,
-                dateOfJoining: new Date(),
-                employeeStatus: 'ACTIVE',
-                configuratorUserId: configuratorUserId ?? undefined,
-              },
-            });
-            user = { id: newUser.id, email: newUser.email, role: newUser.role, isActive: true };
-            console.log('[auth] Auto-created HRMS user from Configurator token:', email);
+            try {
+              const newUser = await prisma.user.create({
+                data: {
+                  email,
+                  passwordHash: config.configuratorPlaceholderPasswordHash,
+                  role: 'SUPER_ADMIN' as any,
+                  organizationId: org.id,
+                  configuratorUserId: configuratorUserId ?? undefined,
+                  isEmailVerified: true,
+                },
+              });
+              await prisma.organization.update({
+                where: { id: org.id },
+                data: { employeeIdNextNumber: nextNum },
+              });
+              await prisma.employee.create({
+                data: {
+                  organizationId: org.id,
+                  userId: newUser.id,
+                  employeeCode,
+                  firstName,
+                  lastName,
+                  email,
+                  dateOfJoining: new Date(),
+                  employeeStatus: 'ACTIVE',
+                  configuratorUserId: configuratorUserId ?? undefined,
+                },
+              });
+              user = { id: newUser.id, email: newUser.email, role: newUser.role, isActive: true };
+              console.log('[auth] Auto-created HRMS user from Configurator token:', email);
+            } catch {
+              // Another concurrent request may have created the user — retry lookup
+              user = await prisma.user.findFirst({
+                where: { email: { equals: email, mode: 'insensitive' } },
+                select: { id: true, email: true, role: true, isActive: true },
+              });
+            }
           }
         } catch (autoCreateErr) {
           console.warn('[auth] Failed to auto-create HRMS user:', (autoCreateErr as any)?.message);
+          // Retry user lookup — another concurrent request may have created it
+          user = await prisma.user.findFirst({
+            where: email
+              ? { email: { equals: email, mode: 'insensitive' } }
+              : { configuratorUserId: configuratorUserId! },
+            select: { id: true, email: true, role: true, isActive: true },
+          });
         }
       }
 
