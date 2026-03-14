@@ -434,11 +434,22 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const content = !allowed ? null : children;
 
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   return (
     <div className="flex h-screen w-full overflow-hidden bg-gray-100">
-      <aside className="w-64 flex-shrink-0 bg-white text-gray-900 flex flex-col overflow-hidden border-r border-gray-200 shadow-sm">
-        <div className="p-6 flex items-center justify-center">
-          <span className="text-2xl font-bold tracking-tight text-black">HRMS</span>
+      <aside className={`${sidebarCollapsed ? 'w-20' : 'w-64'} flex-shrink-0 bg-white text-gray-900 flex flex-col overflow-hidden border-r border-gray-200 shadow-sm transition-all duration-300`}>
+        <div className="p-6 flex items-center justify-between">
+          {!sidebarCollapsed && <span className="text-2xl font-bold tracking-tight text-black">HRMS</span>}
+          <button
+            onClick={() => setSidebarCollapsed((prev) => !prev)}
+            className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${sidebarCollapsed ? 'mx-auto' : ''}`}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <svg className={`w-5 h-5 text-gray-600 transition-transform duration-300 ${sidebarCollapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+            </svg>
+          </button>
         </div>
         <nav className="flex-1 py-4 px-4 space-y-2 overflow-y-auto">
           {topLevelNavItems.map((mod) => {
@@ -454,12 +465,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               return (
                 <div key={mod.path} className="space-y-1">
                   <div
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
+                    className={`flex items-center ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer ${
                       isActive || dropdownOpen
                         ? 'bg-gray-100 text-black shadow-sm'
                         : 'text-gray-900 hover:bg-gray-100 hover:text-black'
                     }`}
                     onClick={() => {
+                      if (sidebarCollapsed) {
+                        setSidebarCollapsed(false);
+                        setExpandedPaths((prev) => new Set(prev).add(mod.path));
+                        return;
+                      }
                       if (location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'))) {
                         setExpandedPaths((prev) => {
                           const next = new Set(prev);
@@ -474,9 +490,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     }}
                     role="button"
                     tabIndex={0}
+                    title={sidebarCollapsed ? mod.label : undefined}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
+                        if (sidebarCollapsed) {
+                          setSidebarCollapsed(false);
+                          setExpandedPaths((prev) => new Set(prev).add(mod.path));
+                          return;
+                        }
                         if (location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'))) {
                           setExpandedPaths((prev) => {
                             const next = new Set(prev);
@@ -492,17 +514,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                     }}
                   >
                     {icon ?? null}
-                    <span className="flex-1">{mod.label}</span>
-                    <svg
-                      className={`w-5 h-5 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {!sidebarCollapsed && <span className="flex-1">{mod.label}</span>}
+                    {!sidebarCollapsed && (
+                      <svg
+                        className={`w-5 h-5 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    )}
                   </div>
-                  {expanded && (
+                  {expanded && !sidebarCollapsed && (
                     <div className="pl-4 space-y-1 border-l-2 border-gray-200 ml-4">
                       {childItems.map((child) => {
                         const childActive = location.pathname === child.path;
@@ -532,45 +556,48 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <Link
                 key={mod.path}
                 to={mod.path}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                className={`flex items-center ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                   isActive
                     ? 'bg-gray-100 text-black shadow-sm'
                     : 'text-gray-900 hover:bg-gray-100 hover:text-black'
                 }`}
+                title={sidebarCollapsed ? mod.label : undefined}
               >
                 {icon ?? null}
-                <span>{mod.label}</span>
+                {!sidebarCollapsed && <span>{mod.label}</span>}
               </Link>
             );
           })}
         </nav>
 
-        <div className="px-4 pb-6 space-y-2 border-t border-gray-200 pt-4 mt-auto">
+        <div className={`${sidebarCollapsed ? 'px-2' : 'px-4'} pb-6 space-y-2 border-t border-gray-200 pt-4 mt-auto`}>
           {bottomNavItems.map((item) => {
             const isActive = location.pathname === item.to;
             return (
               <Link
                 key={item.to}
                 to={item.to}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                className={`flex items-center ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
                   isActive
                     ? 'bg-gray-100 text-black shadow-sm'
                     : 'text-gray-900 hover:bg-gray-100 hover:text-black'
                 }`}
+                title={sidebarCollapsed ? item.label : undefined}
               >
                 {item.icon}
-                <span>{item.label}</span>
+                {!sidebarCollapsed && <span>{item.label}</span>}
               </Link>
             );
           })}
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 text-gray-900 hover:bg-gray-100 hover:text-black"
+            className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center px-2' : 'gap-3 px-4'} py-3 rounded-xl text-sm font-medium transition-all duration-200 text-gray-900 hover:bg-gray-100 hover:text-black`}
+            title={sidebarCollapsed ? 'Logout' : undefined}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
-            <span>Logout</span>
+            {!sidebarCollapsed && <span>Logout</span>}
           </button>
         </div>
       </aside>

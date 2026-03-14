@@ -109,6 +109,7 @@ export const createEmployeeSchema = z.object({
   })).optional(),
 
   faceEncoding: z.array(z.number()).length(128).optional().nullable(),
+  encryptedPassword: z.string().optional().nullable(), // encrypted_password from Configurator API response
 });
 
 /**

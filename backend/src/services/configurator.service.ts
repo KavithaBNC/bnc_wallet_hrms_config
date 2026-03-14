@@ -631,24 +631,27 @@ export class ConfiguratorService {
       sub_department_id?: number;
       password: string;
       username?: string;
+      manager_id?: number | null;
     }
-  ): Promise<{ id: number; email: string; first_name?: string; last_name?: string }> {
+  ): Promise<{ id: number; email: string; first_name?: string; last_name?: string; encrypted_password?: string }> {
     try {
+      const body: Record<string, unknown> = {
+        email: data.email,
+        first_name: data.first_name ?? '',
+        last_name: data.last_name ?? '',
+        phone: data.phone ?? '',
+        company_id: data.company_id,
+        project_id: data.project_id ?? 0,
+        role_id: data.role_id ?? 0,
+        cost_centre_id: data.cost_centre_id ?? 0,
+        department_id: data.department_id ?? 0,
+        sub_department_id: data.sub_department_id ?? 0,
+        password: data.password,
+      };
+      if (data.manager_id != null) body.manager_id = data.manager_id;
       const res = await axios.post(
         `${CONFIGURATOR_BASE}/api/v1/users/add`,
-        {
-          email: data.email,
-          first_name: data.first_name ?? '',
-          last_name: data.last_name ?? '',
-          phone: data.phone ?? '',
-          company_id: data.company_id,
-          project_id: data.project_id ?? 0,
-          role_id: data.role_id ?? 0,
-          cost_centre_id: data.cost_centre_id ?? 0,
-          department_id: data.department_id ?? 0,
-          sub_department_id: data.sub_department_id ?? 0,
-          password: data.password,
-        },
+        body,
         {
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
           timeout: 15000,
@@ -686,6 +689,7 @@ export class ConfiguratorService {
       department_id?: number | null;
       cost_centre_id?: number | null;
       sub_department_id?: number | null;
+      manager_id?: number | null;
     }
   ): Promise<{ id: number; email: string; first_name?: string; last_name?: string }> {
     try {
@@ -704,6 +708,7 @@ export class ConfiguratorService {
       if (data.department_id != null) body.department_id = data.department_id;
       if (data.cost_centre_id != null) body.cost_centre_id = data.cost_centre_id;
       if (data.sub_department_id != null) body.sub_department_id = data.sub_department_id;
+      if (data.manager_id != null) body.manager_id = data.manager_id;
       const res = await axios.put(
         `${CONFIGURATOR_BASE}/api/v1/users/${userId}`,
         body,

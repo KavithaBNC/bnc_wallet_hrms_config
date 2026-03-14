@@ -11,22 +11,13 @@ export class EmployeeController {
    */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await employeeService.create(req.body, req.user?.userId);
-      const { temporaryPassword, ...employee } = result;
+      const employee = await employeeService.create(req.body, req.user?.userId);
 
-      const response: any = {
+      res.status(201).json({
         status: 'success',
         message: 'Employee created successfully',
         data: { employee },
-      };
-
-      // Include temporary password in response if it was generated
-      if (temporaryPassword) {
-        response.data.temporaryPassword = temporaryPassword;
-        response.message += '. Please save the temporary password below.';
-      }
-
-      res.status(201).json(response);
+      });
     } catch (error) {
       next(error);
     }
@@ -45,18 +36,12 @@ export class EmployeeController {
               where: { id: req.user!.userId },
               select: { organizationId: true },
             }))?.organizationId ?? undefined;
-      const result = await employeeService.rejoin(req.body, allowedOrganizationId);
-      const { temporaryPassword, ...employee } = result;
-      const response: any = {
+      const employee = await employeeService.rejoin(req.body, allowedOrganizationId);
+      res.status(201).json({
         status: 'success',
         message: 'Employee rejoin successful. New employee record created.',
         data: { employee },
-      };
-      if (temporaryPassword) {
-        response.data.temporaryPassword = temporaryPassword;
-        response.message += ' Please save the temporary password below.';
-      }
-      res.status(201).json(response);
+      });
     } catch (error) {
       next(error);
     }

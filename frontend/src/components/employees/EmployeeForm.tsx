@@ -86,9 +86,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [entities, setEntities] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [costCentres, setCostCentres] = useState<{ id: string; name: string; code?: string }[]>([]);
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
-  const [createdEmployeeEmail, setCreatedEmployeeEmail] = useState<string>('');
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [submittingApproval, setSubmittingApproval] = useState(false);
   const [showDepartmentModal, setShowDepartmentModal] = useState(false);
@@ -1230,6 +1227,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         const projectId = Number(localStorage.getItem('configuratorProjectId')) || 0;
 
         if (configUserId && hasConfigToken) {
+          const updatedManagerConfigId = formData.managerId
+            ? (availableManagers.find(m => m.id === formData.managerId)?.configuratorUserId ?? null)
+            : null;
           const configuratorPayload = {
             user_id: configUserId,
             first_name: formData.firstName?.trim() || null,
@@ -1242,6 +1242,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             department_id: selectedConfigDepartmentId || null,
             sub_department_id: selectedConfigSubDepartmentId || null,
             cost_centre_id: selectedConfigCostCentreId || null,
+            manager_id: updatedManagerConfigId,
           };
           console.log('[EmployeeForm] 1st API: PUT /api/v1/users/ payload:', configuratorPayload);
           const configResponse = await configuratorDataService.updateConfiguratorUser(configuratorPayload);
@@ -1298,6 +1299,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         const projectId = Number(localStorage.getItem('configuratorProjectId')) || 0;
         const hasConfigToken = !!localStorage.getItem('configuratorAccessToken');
 
+        const selectedManagerConfigId = formData.managerId
+          ? (availableManagers.find(m => m.id === formData.managerId)?.configuratorUserId ?? null)
+          : null;
         const configuratorPayload = {
           first_name: formData.firstName.trim(),
           last_name: formData.lastName.trim() || '',
@@ -1310,6 +1314,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           cost_centre_id: selectedConfigCostCentreId || null,
           department_id: selectedConfigDepartmentId || null,
           sub_department_id: selectedConfigSubDepartmentId || null,
+          manager_id: selectedManagerConfigId,
         };
         console.log('[EmployeeForm] Configurator Payload:', JSON.stringify(configuratorPayload, null, 2));
         console.log('[EmployeeForm] hasConfigToken:', hasConfigToken, 'companyId:', companyId, 'projectId:', projectId);
@@ -1324,6 +1329,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             const realConfigUserId = responseData?.user_id ?? responseData?.id ?? configUser?.user_id ?? configUser?.id;
             if (realConfigUserId) {
               submitData.configuratorUserId = Number(realConfigUserId);
+            }
+            // Store encrypted_password so backend writes it directly to password_hash column
+            const encryptedPwd = responseData?.encrypted_password ?? configUser?.encrypted_password;
+            if (encryptedPwd) {
+              submitData.encryptedPassword = encryptedPwd;
             }
             // Extract department, cost_centre, sub_department IDs from response (fallback to request payload)
             const respDeptId = responseData?.department?.id ?? responseData?.department_id ?? configuratorPayload.department_id;
@@ -1358,19 +1368,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         }, null, 2));
 
         // Step 2: Create employee in HRMS (backend will also try Configurator user creation as fallback)
-        const result = await createEmployee(submitData);
-
-        // Show temporary password modal if it was generated
-        if (result.temporaryPassword) {
-          setTemporaryPassword(result.temporaryPassword);
-          setCreatedEmployeeEmail(empEmail);
-          setShowPasswordModal(true);
-          if (configuratorFailed && !submitData.configuratorUserId) {
-            console.warn('[EmployeeForm] WARNING: Configurator user may not have been created. Check backend logs.');
-          }
-        } else {
-          onSuccess?.();
-        }
+        await createEmployee(submitData);
+        onSuccess?.();
       }
     } catch (error: any) {
       console.error('Error creating employee:', error);
@@ -3922,77 +3921,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         </div>
       )}
 
-      {/* Temporary Password Modal */}
-      {showPasswordModal && temporaryPassword && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-            <div className="flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mx-auto mb-4">
-              <svg
-                className="w-8 h-8 text-green-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 text-center mb-2">
-              Employee Created Successfully!
-            </h2>
-            <p className="text-gray-600 text-center mb-6">
-              Please save the temporary password below and share it with the employee.
-            </p>
-            
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-              <div className="mb-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email:</label>
-                <p className="text-sm text-gray-900 font-mono">{createdEmployeeEmail}</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Temporary Password:</label>
-                <div className="flex items-center justify-between bg-white border border-gray-300 rounded px-3 py-2">
-                  <p className="text-sm font-mono text-gray-900 font-bold">{temporaryPassword}</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(temporaryPassword);
-                      alert('Password copied to clipboard!');
-                    }}
-                    className="ml-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6">
-              <p className="text-sm text-yellow-800">
-                <strong>Important:</strong> The employee should change this password after their first login.
-                They can do this from their Profile page.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowPasswordModal(false);
-                setTemporaryPassword(null);
-                setCreatedEmployeeEmail('');
-                onSuccess?.();
-              }}
-              className="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 transition duration-300"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
       </div> {/* end tab content */}
       </div> {/* end layout flex */}
     </form>

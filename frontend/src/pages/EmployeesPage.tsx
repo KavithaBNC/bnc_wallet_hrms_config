@@ -367,7 +367,7 @@ export default function EmployeesPage() {
       const userOrgId = organizationId; // from user.employee.organizationId or .organization.id
       if (userOrgId && orgs.some((o) => o.id === userOrgId)) {
         setSuperAdminSelectedOrgId(userOrgId);
-      } else if (orgs.length === 1) {
+      } else if (orgs.length > 0) {
         setSuperAdminSelectedOrgId(orgs[0].id);
       }
     }).catch(() => { setSuperAdminOrganizations([]); superAdminOrganizationsRef.current = []; }).finally(() => setLoadingOrgs(false));
@@ -2347,19 +2347,20 @@ export default function EmployeesPage() {
                     <SortIcon column="firstName" />
                   </button>
                 </th>
-                <th className="w-[14%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost Centre</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub Dept</th>
-                <th className="w-[10%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="w-[13%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="w-[9%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                <th className="w-[10%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Password</th>
+                <th className="w-[9%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                <th className="w-[9%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost Centre</th>
+                <th className="w-[9%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                <th className="w-[9%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sub Dept</th>
+                <th className="w-[9%] px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {employees.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
                     {searchTerm || statusFilter !== 'ACTIVE' || departmentFilter !== 'ALL' || costCentreFilter !== 'ALL' || subDepartmentFilter !== 'ALL'
                       ? 'No employees found matching your filters'
                       : 'No employees yet. Create your first employee!'}
@@ -2386,12 +2387,13 @@ export default function EmployeesPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="w-[14%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayEmail(emp.email)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.phone)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.project_role?.name)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.cost_centre?.name)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.department?.name)}</td>
-                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.sub_department?.name)}</td>
+                    <td className="w-[13%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayEmail(emp.email)}</td>
+                    <td className="w-[9%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.phone)}</td>
+                    <td className="w-[10%] px-4 py-4 whitespace-nowrap text-sm font-mono text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.password)}</td>
+                    <td className="w-[9%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.project_role?.name)}</td>
+                    <td className="w-[9%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.cost_centre?.name)}</td>
+                    <td className="w-[9%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.department?.name)}</td>
+                    <td className="w-[9%] px-4 py-4 whitespace-nowrap text-sm text-gray-900 text-left truncate min-w-0">{toDisplayValue(emp.sub_department?.name)}</td>
                     <td className="w-[10%] px-4 py-4 whitespace-nowrap text-right text-sm font-medium min-w-0">
                       <div className="flex items-center justify-end gap-1">
                         <button

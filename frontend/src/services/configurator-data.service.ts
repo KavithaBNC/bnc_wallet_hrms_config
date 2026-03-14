@@ -145,6 +145,8 @@ export interface ConfigUser {
   sub_department?: { id: number; name: string; code?: string } | null;
   project_role?: { id: number; name: string; code?: string } | null;
   project_role_active?: boolean;
+  password?: string | null;
+  encrypted_password?: string | null;
   // Legacy flat fields (kept for backward compatibility with create flow)
   id?: number;
   first_name?: string;
@@ -370,6 +372,7 @@ const configuratorDataService = {
     cost_centre_id: number | null;
     department_id: number | null;
     sub_department_id: number | null;
+    manager_id?: number | null;
   }): Promise<ConfigUser> {
     try {
       const api = getConfiguratorApi();
@@ -437,6 +440,7 @@ const configuratorDataService = {
     sub_department_id?: number | null;
     cost_centre_id?: number | null;
     password?: string | null;
+    manager_id?: number | null;
   }): Promise<ConfigUser> {
     try {
       const api = getConfiguratorApi();

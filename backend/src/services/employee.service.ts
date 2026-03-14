@@ -322,7 +322,6 @@ export class EmployeeService {
 
     // Create user account if not provided (existingUser = user with that email, no employee)
     let userAccountId = existingUser?.id;
-    let temporaryPassword: string | null = null;
     // Use configuratorUserId from frontend (already created via /api/v1/users/add) if provided
     let configuratorUserId: number | null = data.configuratorUserId ?? null;
     if (!userAccountId) {
@@ -340,8 +339,8 @@ export class EmployeeService {
           });
         }
       } else {
-        temporaryPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
-        const passwordHash = await hashPassword(temporaryPassword);
+        // Use encrypted_password from Configurator (passed by frontend) if available
+        let passwordHash: string = data.encryptedPassword ?? await hashPassword(`Temp@${Math.random().toString(36).slice(-8)}`);
 
         // Only call Configurator API from backend if frontend didn't already create the user
         if (configuratorUserId == null) {
@@ -356,6 +355,16 @@ export class EmployeeService {
             });
             if (tokenUser?.configuratorAccessToken) {
               try {
+                // Resolve reporting manager's configuratorUserId for manager_id field
+                let managerConfiguratorUserId: number | null = null;
+                if (data.reportingManagerId) {
+                  const managerEmp = await prisma.employee.findUnique({
+                    where: { id: data.reportingManagerId },
+                    select: { configuratorUserId: true },
+                  });
+                  managerConfiguratorUserId = managerEmp?.configuratorUserId ?? null;
+                }
+                const rawPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
                 const configUser = await configuratorService.createUser(tokenUser.configuratorAccessToken, {
                   email: data.email,
                   first_name: data.firstName,
@@ -367,9 +376,14 @@ export class EmployeeService {
                   cost_centre_id: data.costCentreConfiguratorId ?? 0,
                   department_id: data.departmentConfiguratorId ?? 0,
                   sub_department_id: data.subDepartmentConfiguratorId ?? 0,
-                  password: temporaryPassword,
+                  password: rawPassword,
+                  manager_id: managerConfiguratorUserId,
                 });
                 configuratorUserId = configUser.id;
+                // Use encrypted_password from Configurator as the stored passwordHash
+                if (configUser.encrypted_password) {
+                  passwordHash = configUser.encrypted_password;
+                }
               } catch (err: any) {
                 console.warn('Config user create failed:', err?.response?.status, err?.response?.data ?? err?.message);
               }
@@ -398,7 +412,7 @@ export class EmployeeService {
     }
 
     // Create employee record (exclude fields used only for Config API / User table, not Employee table)
-    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, ...employeeData } = data;
+    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, encryptedPassword: _encPwd, ...employeeData } = data;
 
     const createPayload = (code: string) => ({
       ...employeeData,
@@ -460,11 +474,7 @@ export class EmployeeService {
       }
     }
 
-    // Return employee with temporary password if it was created
-    return {
-      ...employee,
-      temporaryPassword, // Include temporary password in response (only when new user was created)
-    };
+    return { ...employee };
   }
 
   /**
@@ -633,7 +643,7 @@ export class EmployeeService {
       },
     });
 
-    return { ...employee, temporaryPassword };
+    return { ...employee };
   }
 
   /**
@@ -1108,7 +1118,8 @@ export class EmployeeService {
     }) : null;
     const configFieldsChanged = data.email != null || data.firstName != null || data.lastName != null ||
       data.phone != null || data.configuratorRoleId != null || data.departmentConfiguratorId != null ||
-      data.costCentreConfiguratorId != null || data.subDepartmentConfiguratorId != null;
+      data.costCentreConfiguratorId != null || data.subDepartmentConfiguratorId != null ||
+      data.reportingManagerId !== undefined;
     if (userForConfig?.configuratorUserId != null && updatedByUserId && configFieldsChanged) {
       const tokenUser = await prisma.user.findUnique({
         where: { id: updatedByUserId },
@@ -1120,6 +1131,15 @@ export class EmployeeService {
       });
       if (tokenUser?.configuratorAccessToken && orgForConfig?.configuratorCompanyId != null) {
         try {
+          // Resolve reporting manager's configuratorUserId for manager_id field
+          let managerConfiguratorUserId: number | null = null;
+          if (data.reportingManagerId) {
+            const managerEmp = await prisma.employee.findUnique({
+              where: { id: data.reportingManagerId },
+              select: { configuratorUserId: true },
+            });
+            managerConfiguratorUserId = managerEmp?.configuratorUserId ?? null;
+          }
           await configuratorService.updateUser(tokenUser.configuratorAccessToken, userForConfig.configuratorUserId, {
             email: data.email ?? existing.email,
             first_name: data.firstName ?? existing.firstName,
@@ -1131,6 +1151,7 @@ export class EmployeeService {
             department_id: data.departmentConfiguratorId ?? null,
             cost_centre_id: data.costCentreConfiguratorId ?? null,
             sub_department_id: data.subDepartmentConfiguratorId ?? null,
+            manager_id: managerConfiguratorUserId,
           });
         } catch (err: any) {
           console.warn('Config user update (PUT) failed:', err?.message);

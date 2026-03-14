@@ -216,6 +216,7 @@ export const getEmployeeFieldsByRole = (role: UserRole): any => {
     taxInformation: true,
     costCentreId: true,
     placeOfTaxDeduction: true,
+    configuratorUserId: true,
   };
 
   switch (role) {
@@ -232,6 +233,7 @@ export const getEmployeeFieldsByRole = (role: UserRole): any => {
         reportingManagerId: true,
         dateOfJoining: true,
         employmentType: true,
+        configuratorUserId: true,
       };
 
     case 'EMPLOYEE':
