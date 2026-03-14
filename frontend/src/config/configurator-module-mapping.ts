@@ -185,12 +185,20 @@ export interface ModulePermissions {
   can_delete: boolean;
 }
 
-/** Default permissions when no module permission entry is found */
+/** Default permissions when no module permission entry is found for a specific path */
 const DEFAULT_PERMISSIONS: ModulePermissions = {
   can_view: false,
   can_add: false,
   can_edit: false,
   can_delete: false,
+};
+
+/** Full-access permissions used as fallback when modulePermissions hasn't been loaded yet */
+const FULL_ACCESS_PERMISSIONS: ModulePermissions = {
+  can_view: true,
+  can_add: true,
+  can_edit: true,
+  can_delete: true,
 };
 
 /**
@@ -199,11 +207,13 @@ const DEFAULT_PERMISSIONS: ModulePermissions = {
  * from POST /api/v1/user-role-modules/project.
  *
  * Tries exact match first, then checks if any stored path is a prefix of the given path.
+ * Returns FULL_ACCESS if modulePermissions hasn't been populated yet (pre-login sessions).
  */
 export function getModulePermissions(path: string): ModulePermissions {
   try {
     const raw = localStorage.getItem('modulePermissions');
-    if (!raw) return DEFAULT_PERMISSIONS;
+    // No permissions map yet (e.g. session from before this feature was deployed) → allow all
+    if (!raw) return FULL_ACCESS_PERMISSIONS;
     const map: Record<string, ModulePermissions> = JSON.parse(raw);
 
     // Exact match

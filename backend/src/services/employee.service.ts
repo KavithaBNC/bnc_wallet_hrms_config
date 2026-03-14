@@ -1224,8 +1224,12 @@ export class EmployeeService {
 
   /**
    * Delete employee (soft delete)
+   * 1. Calls Configurator DELETE /api/v1/users/ { user_id }
+   * 2. Sets configurator_active_status = false on both employees and users tables
+   * 3. Sets deletedAt, employeeStatus = TERMINATED on employees table
+   * 4. Sets isActive = false on users table
    */
-  async delete(id: string) {
+  async delete(id: string, requestingUserId?: string) {
     const employee = await prisma.employee.findFirst({
       where: {
         id,
@@ -1236,6 +1240,7 @@ export class EmployeeService {
           where: { deletedAt: null },
         },
         managedDepartments: true,
+        user: { select: { id: true, configuratorUserId: true, configuratorAccessToken: true } },
       },
     });
 
@@ -1259,23 +1264,95 @@ export class EmployeeService {
       );
     }
 
-    // Soft delete: clear face encoding so "Face already registered" does not show if record is viewed later
+    // Step 1: Call Configurator delete API if we have a configuratorUserId
+    const configuratorUserId = employee.configuratorUserId ?? employee.user?.configuratorUserId;
+    if (configuratorUserId) {
+      try {
+        // Get the requesting user's Configurator token for the API call
+        let accessToken: string | null = null;
+        if (requestingUserId) {
+          const reqUser = await prisma.user.findUnique({
+            where: { id: requestingUserId },
+            select: { configuratorAccessToken: true },
+          });
+          accessToken = reqUser?.configuratorAccessToken ?? null;
+        }
+        if (!accessToken) {
+          // Fall back to the employee's own token
+          accessToken = employee.user?.configuratorAccessToken ?? null;
+        }
+        if (accessToken) {
+          await configuratorService.deleteUser(accessToken, configuratorUserId);
+        }
+      } catch (err) {
+        // Log but don't block the HRMS soft-delete if Configurator call fails
+        console.error('[employeeService.delete] Configurator deleteUser failed:', err);
+      }
+    }
+
+    // Step 2: Soft delete employee record + set configurator_active_status = false
     await prisma.employee.update({
       where: { id },
       data: {
         deletedAt: new Date(),
         employeeStatus: 'TERMINATED',
         faceEncoding: Prisma.JsonNull,
+        configuratorActiveStatus: false,
       },
     });
 
-    // Deactivate user account
+    // Step 3: Deactivate user account + set configurator_active_status = false
     await prisma.user.update({
       where: { id: employee.userId },
-      data: { isActive: false },
+      data: {
+        isActive: false,
+        configuratorActiveStatus: false,
+      },
     });
 
     return { message: 'Employee deleted successfully' };
+  }
+
+  /**
+   * Delete employee by Configurator user_id (soft delete)
+   * Looks up the HRMS employee via configuratorUserId, then runs the full delete flow.
+   */
+  async deleteByConfiguratorUserId(configuratorUserId: number, requestingUserId?: string) {
+    const employee = await prisma.employee.findFirst({
+      where: {
+        configuratorUserId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    if (!employee) {
+      // Employee not in HRMS — still update users table by configuratorUserId
+      await prisma.user.updateMany({
+        where: { configuratorUserId },
+        data: {
+          isActive: false,
+          configuratorActiveStatus: false,
+        },
+      });
+      // Also call Configurator delete API
+      if (requestingUserId) {
+        const reqUser = await prisma.user.findUnique({
+          where: { id: requestingUserId },
+          select: { configuratorAccessToken: true },
+        });
+        if (reqUser?.configuratorAccessToken) {
+          try {
+            await configuratorService.deleteUser(reqUser.configuratorAccessToken, configuratorUserId);
+          } catch (err) {
+            console.error('[employeeService.deleteByConfiguratorUserId] Configurator deleteUser failed:', err);
+          }
+        }
+      }
+      return { message: 'User deactivated successfully' };
+    }
+
+    return this.delete(employee.id, requestingUserId);
   }
 
   /**

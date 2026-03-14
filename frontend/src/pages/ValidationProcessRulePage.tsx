@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import validationProcessRuleService from '../services/validationProcessRule.service';
 
@@ -182,6 +183,11 @@ export default function ValidationProcessRulePage() {
   const startEntry = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
   const endEntry = Math.min(pagination.page * pagination.limit, pagination.total);
 
+  const modulePerms = getModulePermissions('/others-configuration/validation-process-rule');
+  const canAdd = modulePerms.can_add;
+  const canEdit = modulePerms.can_edit;
+  const canDelete = modulePerms.can_delete;
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
@@ -257,6 +263,7 @@ export default function ValidationProcessRulePage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                {canAdd && (
                 <button
                   type="button"
                   onClick={handleAdd}
@@ -267,6 +274,7 @@ export default function ValidationProcessRulePage() {
                   </svg>
                   Add
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={handlePrint}
@@ -419,6 +427,7 @@ export default function ValidationProcessRulePage() {
                         {visibleColumns.has('action') && (
                           <td className="px-4 py-3 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-1">
+                              {canEdit && (
                               <button
                                 type="button"
                                 onClick={() => handleEdit(rule)}
@@ -434,6 +443,8 @@ export default function ValidationProcessRulePage() {
                                   />
                                 </svg>
                               </button>
+                              )}
+                              {canDelete && (
                               <button
                                 type="button"
                                 onClick={() => handleDelete(rule)}
@@ -449,6 +460,7 @@ export default function ValidationProcessRulePage() {
                                   />
                                 </svg>
                               </button>
+                              )}
                             </div>
                           </td>
                         )}

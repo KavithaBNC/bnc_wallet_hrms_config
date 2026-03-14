@@ -7,6 +7,7 @@ import Modal from '../components/common/Modal';
 import DepartmentForm from '../components/departments/DepartmentForm';
 import DepartmentTree from '../components/departments/DepartmentTree';
 import AppHeader from '../components/layout/AppHeader';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 export default function DepartmentsPage() {
   const navigate = useNavigate();
@@ -85,6 +86,11 @@ export default function DepartmentsPage() {
     await logout();
     navigate('/login');
   };
+
+  const modulePerms = getModulePermissions('/departments');
+  const canAdd = modulePerms.can_add;
+  const canEdit = modulePerms.can_edit;
+  const canDelete = modulePerms.can_delete;
 
   // Show error if no organizationId (after trying to load user data)
   if (!organizationId && !loadingUser) {
@@ -173,12 +179,14 @@ export default function DepartmentsPage() {
               </button>
             </div>
 
-            <button
-              onClick={handleCreate}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
-            >
-              + New Department
-            </button>
+            {canAdd && (
+              <button
+                onClick={handleCreate}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium"
+              >
+                + New Department
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -302,18 +310,22 @@ export default function DepartmentsPage() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handleEdit(dept)}
-                            className="text-blue-600 hover:text-blue-900 mr-4"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(dept.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Delete
-                          </button>
+                          {canEdit && (
+                            <button
+                              onClick={() => handleEdit(dept)}
+                              className="text-blue-600 hover:text-blue-900 mr-4"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={() => handleDelete(dept.id)}
+                              className="text-red-600 hover:text-red-900"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -326,8 +338,8 @@ export default function DepartmentsPage() {
             <div className="bg-white rounded-lg shadow p-6">
               <DepartmentTree
                 organizationId={organizationId!}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
+                onEdit={canEdit ? handleEdit : undefined}
+                onDelete={canDelete ? handleDelete : undefined}
               />
             </div>
           )}

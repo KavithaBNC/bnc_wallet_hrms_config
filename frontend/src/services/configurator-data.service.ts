@@ -395,8 +395,8 @@ const configuratorDataService = {
   async deleteConfiguratorUser(userId: number): Promise<void> {
     try {
       const api = getConfiguratorApi();
-      // DELETE /api/v1/users/{user_id} with { user_id } in request body
-      await api.delete(`/api/v1/users/${userId}`, { data: { user_id: userId } });
+      // DELETE /api/v1/users/  body: { user_id }
+      await api.delete('/api/v1/users/', { data: { user_id: userId } });
       console.log('[configuratorDataService.deleteConfiguratorUser] Deleted user:', userId);
     } catch (err: any) {
       console.error('[configuratorDataService.deleteConfiguratorUser] FAILED:', {
@@ -455,6 +455,52 @@ const configuratorDataService = {
         message: err?.message,
       });
       throw err;
+    }
+  },
+
+  /**
+   * Reset a Configurator user's password.
+   * POST /api/v1/users/reset-password
+   * Returns encrypted_password (preferred) or plain password from response — to be stored as password_hash.
+   */
+  async resetConfiguratorUserPassword(userId: number, newPassword: string): Promise<string> {
+    try {
+      const company_id = getCompanyId() ?? 0;
+      const project_id = getProjectId();
+      const api = getConfiguratorApi();
+      const payload = { company_id, project_id, user_id: userId, password: newPassword };
+      console.log('[configuratorDataService.resetConfiguratorUserPassword] POST /api/v1/users/reset-password with user_id:', userId);
+      const { data } = await api.post('/api/v1/users/reset-password', payload);
+      console.log('[configuratorDataService.resetConfiguratorUserPassword] Response:', data);
+      // Use encrypted_password if available (same as employee create flow), else plain password
+      return data?.encrypted_password ?? data?.password ?? newPassword;
+    } catch (err: any) {
+      console.error('[configuratorDataService.resetConfiguratorUserPassword] FAILED:', {
+        status: err?.response?.status,
+        data: err?.response?.data,
+        message: err?.message,
+      });
+      throw err;
+    }
+  },
+
+  /**
+   * Get a Configurator user's plain password and user_id by email.
+   * Calls POST /api/v1/users/list and finds the matching user.
+   */
+  async getConfiguratorUserByEmail(email: string): Promise<{ user_id: number; password: string | null } | null> {
+    try {
+      const company_id = getCompanyId() ?? 0;
+      const project_id = getProjectId();
+      const api = getConfiguratorApi();
+      const { data } = await api.post('/api/v1/users/list', { company_id, project_id });
+      const list: any[] = Array.isArray(data) ? data : (data?.data ?? data?.users ?? data?.results ?? []);
+      const user = list.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+      if (!user) return null;
+      return { user_id: user.user_id, password: user.password ?? null };
+    } catch (err: any) {
+      console.error('[configuratorDataService.getConfiguratorUserByEmail] FAILED:', err?.message);
+      return null;
     }
   },
 

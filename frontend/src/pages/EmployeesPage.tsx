@@ -481,7 +481,7 @@ export default function EmployeesPage() {
   }, [showCredentials, canManageCredentials, credentials.length, loadingCredentials, fetchCredentials]);
 
   const handleDelete = async (id: string | number) => {
-    if (window.confirm('Are you sure you want to delete this employee? This will remove them from the Configurator database.')) {
+    if (window.confirm('Are you sure you want to delete this employee? This action will deactivate the employee record.')) {
       try {
         await deleteEmployee(id);
         alert('Employee deleted successfully');

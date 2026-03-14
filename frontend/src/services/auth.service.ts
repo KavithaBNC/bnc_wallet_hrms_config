@@ -92,6 +92,46 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   'module permission': '/permissions',
   'master': '/master',
   'cost centre': '/cost-centre-department',
+  // page_name values returned by /api/v1/user-role-modules/project (lowercased)
+  '/employees': '/employees',
+  '/departmentmasters': '/departments',
+  '/departmentmaster': '/departments',
+  '/departments': '/departments',
+  '/department': '/departments',
+  '/positions': '/positions',
+  '/position': '/positions',
+  '/attendance': '/attendance',
+  '/leave': '/leave',
+  '/payroll': '/payroll',
+  '/salary-structures': '/salary-structures',
+  '/salarystructures': '/salary-structures',
+  '/employee-salaries': '/employee-salaries',
+  '/employeesalaries': '/employee-salaries',
+  '/permissions': '/permissions',
+  '/organizations': '/organizations',
+  '/cost-centre-department': '/cost-centre-department',
+  '/costcentredepartment': '/cost-centre-department',
+  '/core-hr': '/core-hr',
+  '/corehr': '/core-hr',
+  '/hr-activities': '/hr-activities',
+  '/hractivities': '/hr-activities',
+  '/event-configuration': '/event-configuration',
+  '/eventconfiguration': '/event-configuration',
+  '/attendance-policy': '/attendance-policy',
+  '/attendancepolicy': '/attendance-policy',
+  '/time-attendance': '/time-attendance',
+  '/timeattendance': '/time-attendance',
+  '/transaction': '/transaction',
+  '/payroll-master': '/payroll-master',
+  '/payrollmaster': '/payroll-master',
+  '/hr-audit-settings': '/hr-audit-settings',
+  '/hrauditsettings': '/hr-audit-settings',
+  '/employee-master-approval': '/employee-master-approval',
+  '/employeemasterapproval': '/employee-master-approval',
+  '/esop': '/esop',
+  '/others-configuration': '/others-configuration',
+  '/othersconfiguration': '/others-configuration',
+  '/dashboard': '/dashboard',
 };
 
 export interface CreateOrganizationData {
@@ -598,11 +638,19 @@ class AuthService {
   }
 
   /**
-   * Change password
+   * Change password (legacy HRMS bcrypt flow — kept for compatibility)
    */
   async changePassword(data: { currentPassword: string; newPassword: string }) {
     const response = await api.post('/auth/change-password', data);
     return response.data;
+  }
+
+  /**
+   * Sync password_hash in HRMS DB after Configurator password reset.
+   * Stores the encrypted_password from Configurator as password_hash.
+   */
+  async syncPasswordHash(encryptedPassword: string): Promise<void> {
+    await api.post('/auth/sync-password-hash', { encryptedPassword });
   }
 
   /**

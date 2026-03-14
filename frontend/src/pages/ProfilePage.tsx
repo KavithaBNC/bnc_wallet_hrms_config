@@ -3,13 +3,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import employeeService, { type Employee } from '../services/employee.service';
 import AppHeader from '../components/layout/AppHeader';
+import configuratorDataService from '../services/configurator-data.service';
+import { authService } from '../services/auth.service';
 
 // ─── View modes ───
 type ViewMode = 'card' | 'details';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
-  const { user, loadUser, logout, changePassword, updateProfile } = useAuthStore();
+  const { user, loadUser, logout, updateProfile } = useAuthStore();
 
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [employee, setEmployee] = useState<Employee | null>(null);
@@ -92,20 +94,52 @@ const ProfilePage = () => {
     }
   };
 
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+
   const handlePasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setErrors({}); setSuccessMessage(null);
+    e.preventDefault();
+    setErrors({});
+    setSuccessMessage(null);
+
+    // Basic field validation
     if (!passwordFormData.currentPassword) { setErrors({ currentPassword: 'Current password is required' }); return; }
     if (!passwordFormData.newPassword) { setErrors({ newPassword: 'New password is required' }); return; }
-    if (passwordFormData.newPassword.length < 8) { setErrors({ newPassword: 'Password must be at least 8 characters' }); return; }
     if (passwordFormData.newPassword !== passwordFormData.confirmPassword) { setErrors({ confirmPassword: 'Passwords do not match' }); return; }
+
+    setPasswordSubmitting(true);
     try {
-      await changePassword({ currentPassword: passwordFormData.currentPassword, newPassword: passwordFormData.newPassword });
+      const userEmail = user?.email;
+      if (!userEmail) throw new Error('User email not found');
+
+      // Step 1: Fetch current plain password from Configurator
+      const configUser = await configuratorDataService.getConfiguratorUserByEmail(userEmail);
+      if (!configUser) throw new Error('User not found in Configurator');
+
+      // Step 2: Compare current password
+      if (configUser.password !== passwordFormData.currentPassword) {
+        setErrors({ currentPassword: 'Password wrong' });
+        setPasswordSubmitting(false);
+        return;
+      }
+
+      // Step 3: Call Configurator reset-password API
+      const encryptedPassword = await configuratorDataService.resetConfiguratorUserPassword(
+        configUser.user_id,
+        passwordFormData.newPassword
+      );
+
+      // Step 4: Sync encrypted password to HRMS users.password_hash
+      await authService.syncPasswordHash(encryptedPassword);
+
       setSuccessMessage('Password changed successfully!');
       setShowPasswordModal(false);
       setPasswordFormData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error: any) {
-      setErrors({ submit: error.response?.data?.message || 'Failed to change password' });
+      const msg = error.response?.data?.message || error.message || 'Failed to change password';
+      setErrors({ submit: msg });
+    } finally {
+      setPasswordSubmitting(false);
     }
   };
 
@@ -514,8 +548,8 @@ const ProfilePage = () => {
               <button type="button" onClick={() => { setShowPasswordModal(false); setErrors({}); }} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button type="submit" className="px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors">
-                Change Password
+              <button type="submit" disabled={passwordSubmitting} className="px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                {passwordSubmitting ? 'Changing...' : 'Change Password'}
               </button>
             </div>
           </form>

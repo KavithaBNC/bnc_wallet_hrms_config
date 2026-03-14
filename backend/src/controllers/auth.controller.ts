@@ -860,6 +860,27 @@ export class AuthController {
   }
 
   /**
+   * Sync password_hash in HRMS DB after Configurator password reset.
+   * POST /api/v1/auth/sync-password-hash
+   * Body: { encryptedPassword: string }  — the encrypted_password from Configurator reset response
+   */
+  async syncPasswordHash(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Not authenticated', 401);
+      }
+      const { encryptedPassword } = req.body;
+      if (!encryptedPassword || typeof encryptedPassword !== 'string') {
+        return res.status(400).json({ status: 'fail', message: 'encryptedPassword is required' });
+      }
+      await authService.syncPasswordHash(req.user.userId, encryptedPassword);
+      return res.status(200).json({ status: 'success', message: 'Password updated successfully' });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Update profile
    * PUT /api/v1/auth/profile
    */

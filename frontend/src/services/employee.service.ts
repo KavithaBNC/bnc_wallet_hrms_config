@@ -214,10 +214,19 @@ const employeeService = {
   },
 
   /**
-   * Delete employee
+   * Delete employee by HRMS UUID
    */
   async delete(id: string): Promise<void> {
     await api.delete(`/employees/${id}`);
+  },
+
+  /**
+   * Delete employee by Configurator user_id.
+   * Calls DELETE /api/v1/employees/configurator/:userId
+   * Backend handles: Configurator API call + sets configurator_active_status = false on both tables.
+   */
+  async deleteByConfiguratorUserId(configuratorUserId: number): Promise<void> {
+    await api.delete(`/employees/configurator/${configuratorUserId}`);
   },
 
   /**

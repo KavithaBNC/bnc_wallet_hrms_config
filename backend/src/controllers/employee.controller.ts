@@ -174,12 +174,30 @@ export class EmployeeController {
         }
       }
 
-      const result = await employeeService.delete(id);
+      const result = await employeeService.delete(id, req.user?.userId);
 
       res.status(200).json({
         status: 'success',
         message: result.message,
       });
+      return;
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Delete employee by Configurator user_id (soft delete)
+   * DELETE /api/v1/employees/configurator/:configuratorUserId
+   */
+  async deleteByConfiguratorUserId(req: Request, res: Response, next: NextFunction) {
+    try {
+      const configuratorUserId = parseInt(req.params.configuratorUserId, 10);
+      if (isNaN(configuratorUserId) || configuratorUserId <= 0) {
+        return res.status(400).json({ status: 'fail', message: 'Invalid configurator user ID' });
+      }
+      const result = await employeeService.deleteByConfiguratorUserId(configuratorUserId, req.user?.userId);
+      res.status(200).json({ status: 'success', message: result.message });
       return;
     } catch (error) {
       return next(error);

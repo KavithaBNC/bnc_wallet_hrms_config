@@ -32,6 +32,9 @@ const SalaryStructurePage = () => {
   // Module permissions from /api/v1/user-role-modules/project API response
   const structurePerms = getModulePermissions('/salary-structures');
   const canManage = structurePerms.can_view;
+  const canAdd = structurePerms.can_add;
+  const canEdit = structurePerms.can_edit;
+  const canDelete = structurePerms.can_delete;
   const organizationId = user?.employee?.organizationId;
 
   useEffect(() => {
@@ -191,12 +194,14 @@ const SalaryStructurePage = () => {
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Define salary components and structures for your organization</h2>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-          >
-            + Create Salary Structure
-          </button>
+          {canAdd && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            >
+              + Create Salary Structure
+            </button>
+          )}
         </div>
 
       {error && (
@@ -268,31 +273,35 @@ const SalaryStructurePage = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => {
-                            // TODO: Implement edit/view functionality
-                            alert('Edit functionality coming soon!');
-                          }}
-                          className="text-blue-600 hover:text-blue-900 mr-3"
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={async () => {
-                            if (confirm('Are you sure you want to delete this salary structure?')) {
-                              try {
-                                await salaryStructureService.delete(structure.id);
-                                alert('Salary structure deleted successfully!');
-                                fetchSalaryStructures();
-                              } catch (err: any) {
-                                alert(err.response?.data?.message || 'Failed to delete salary structure');
+                        {canEdit && (
+                          <button
+                            onClick={() => {
+                              // TODO: Implement edit/view functionality
+                              alert('Edit functionality coming soon!');
+                            }}
+                            className="text-blue-600 hover:text-blue-900 mr-3"
+                          >
+                            View
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={async () => {
+                              if (confirm('Are you sure you want to delete this salary structure?')) {
+                                try {
+                                  await salaryStructureService.delete(structure.id);
+                                  alert('Salary structure deleted successfully!');
+                                  fetchSalaryStructures();
+                                } catch (err: any) {
+                                  alert(err.response?.data?.message || 'Failed to delete salary structure');
+                                }
                               }
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Delete
-                        </button>
+                            }}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

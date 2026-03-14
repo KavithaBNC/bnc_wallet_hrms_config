@@ -165,6 +165,17 @@ router.post(
 );
 
 /**
+ * @route   POST /api/v1/auth/sync-password-hash
+ * @desc    Update password_hash in HRMS DB after Configurator password reset
+ * @access  Private
+ */
+router.post(
+  '/sync-password-hash',
+  authenticate,
+  authController.syncPasswordHash.bind(authController)
+);
+
+/**
  * @route   PUT /api/v1/auth/profile
  * @desc    Update user profile
  * @access  Private

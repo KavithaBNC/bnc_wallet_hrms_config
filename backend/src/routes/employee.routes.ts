@@ -114,6 +114,17 @@ router.put(
 );
 
 /**
+ * @route   DELETE /api/v1/employees/configurator/:configuratorUserId
+ * @desc    Delete employee by Configurator user_id (soft delete)
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN)
+ */
+router.delete(
+  '/configurator/:configuratorUserId',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  employeeController.deleteByConfiguratorUserId.bind(employeeController)
+);
+
+/**
  * @route   DELETE /api/v1/employees/:id
  * @desc    Delete employee (soft delete)
  * @access  Private (SUPER_ADMIN, ORG_ADMIN)

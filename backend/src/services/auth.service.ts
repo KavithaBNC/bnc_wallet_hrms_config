@@ -583,6 +583,19 @@ export class AuthService {
   }
 
   /**
+   * Sync password_hash in HRMS DB after Configurator password reset.
+   * Stores the encrypted_password returned by Configurator directly as password_hash
+   * (same logic as employee create flow).
+   */
+  async syncPasswordHash(userId: string, encryptedPassword: string) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: encryptedPassword },
+    });
+    return { message: 'Password hash synced' };
+  }
+
+  /**
    * Update profile
    */
   async updateProfile(userId: string, data: { firstName?: string; lastName?: string; phone?: string }) {

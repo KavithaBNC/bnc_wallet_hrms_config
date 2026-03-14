@@ -28,7 +28,7 @@ interface EmployeeStore {
   clearError: () => void;
 }
 
-export const useEmployeeStore = create<EmployeeStore>((set) => ({
+export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
   employees: [],
   currentEmployee: null,
   loading: false,
@@ -154,14 +154,17 @@ export const useEmployeeStore = create<EmployeeStore>((set) => ({
     try {
       const userId = typeof id === 'string' ? parseInt(id, 10) : id;
 
-      // Delete from Configurator DB: DELETE /api/v1/users/{user_id}
-      if (userId && !isNaN(userId)) {
-        await configuratorDataService.deleteConfiguratorUser(userId);
-        console.log('[employeeStore.deleteEmployee] Deleted Configurator user:', userId);
+      if (!userId || isNaN(userId)) {
+        throw new Error('Invalid user ID');
       }
 
+      // Call HRMS backend DELETE /api/v1/employees/configurator/:userId
+      // This handles: Configurator API call + sets configurator_active_status = false on both tables
+      await employeeService.deleteByConfiguratorUserId(userId);
+      console.log('[employeeStore.deleteEmployee] Delete successful for configurator user_id:', userId);
+
       set((state) => ({
-        employees: state.employees.filter((e) => e.user_id !== userId),
+        employees: state.employees.filter((e: any) => e.user_id !== userId),
         loading: false,
       }));
     } catch (error: any) {

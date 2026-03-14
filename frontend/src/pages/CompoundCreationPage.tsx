@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import compoundService, { type Compound } from '../services/compound.service';
 
@@ -114,6 +115,11 @@ export default function CompoundCreationPage() {
   const startEntry = total === 0 ? 0 : (page - 1) * effectivePageSize + 1;
   const endEntry = Math.min(page * effectivePageSize, total);
 
+  const modulePerms = getModulePermissions('/core-hr/compound-creation');
+  const canAdd = modulePerms.can_add;
+  const canEdit = modulePerms.can_edit;
+  const canDelete = modulePerms.can_delete;
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
@@ -165,6 +171,7 @@ export default function CompoundCreationPage() {
 
             {/* Action buttons – project theme: Add orange, Print/Save gray */}
             <div className="px-6 py-3 border-b border-gray-200 bg-gray-50 flex flex-wrap items-center justify-end gap-2">
+              {canAdd && (
               <button
                 type="button"
                 onClick={handleAdd}
@@ -175,6 +182,7 @@ export default function CompoundCreationPage() {
                 </svg>
                 Add
               </button>
+              )}
               <button
                 type="button"
                 onClick={handlePrint}
@@ -354,6 +362,7 @@ export default function CompoundCreationPage() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
+                            {canEdit && (
                             <button
                               type="button"
                               onClick={() => handleEdit(row)}
@@ -364,6 +373,8 @@ export default function CompoundCreationPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                               </svg>
                             </button>
+                            )}
+                            {canDelete && (
                             <button
                               type="button"
                               onClick={() => handleDelete(row)}
@@ -374,6 +385,7 @@ export default function CompoundCreationPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             </button>
+                            )}
                           </div>
                         </td>
                       </tr>

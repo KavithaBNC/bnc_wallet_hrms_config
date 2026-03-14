@@ -729,6 +729,30 @@ export class ConfiguratorService {
       throw err;
     }
   }
+
+  /**
+   * Soft-delete a user in the Configurator DB.
+   * DELETE /api/v1/users/  body: { user_id }
+   */
+  async deleteUser(accessToken: string, userId: number): Promise<void> {
+    try {
+      await withFallback((base) =>
+        axios.delete(`${base}/api/v1/users/`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          data: { user_id: userId },
+        })
+      );
+    } catch (err) {
+      const axiosErr = err as AxiosError<any>;
+      if (axiosErr.response) {
+        const msg = axiosErr.response.data?.detail
+          ? axiosErr.response.data.detail
+          : JSON.stringify(axiosErr.response?.data ?? 'User delete failed');
+        throw new AppError(msg, axiosErr.response.status);
+      }
+      throw err;
+    }
+  }
 }
 
 export const configuratorService = new ConfiguratorService();

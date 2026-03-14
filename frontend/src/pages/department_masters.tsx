@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import configuratorDataService, {
   ConfigDepartment,
   ConfigSubDepartment,
@@ -42,6 +43,11 @@ export default function DepartmentMastersPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const organizationName = (user as any)?.employee?.organization?.name;
+
+  const modulePerms = getModulePermissions('/departments');
+  const canAdd = modulePerms.can_add;
+  const canEdit = modulePerms.can_edit;
+  const canDelete = modulePerms.can_delete;
 
   /* ── Core state ── */
   const [activeTab, setActiveTab] = useState('all');
@@ -358,6 +364,7 @@ export default function DepartmentMastersPage() {
           </div>
 
           {/* ── Add Buttons ── */}
+          {canAdd && (
           <div className="flex flex-wrap gap-3 mb-6">
             <button type="button" onClick={openAddDept}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-sm transition">
@@ -375,6 +382,7 @@ export default function DepartmentMastersPage() {
               Add Cost Centre
             </button>
           </div>
+          )}
 
           {/* ── Tab Filters ── */}
           <div className="flex flex-wrap gap-2 mb-6">
@@ -468,12 +476,16 @@ export default function DepartmentMastersPage() {
                           if (col.key === 'actions') return (
                             <td key={col.key} className="px-4 py-3">
                               <div className="flex items-center gap-1">
-                                <button type="button" onClick={() => openEdit(row)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="Edit">
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                                </button>
-                                <button type="button" onClick={() => setDeleteRow(row)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition" title="Delete">
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                </button>
+                                {canEdit && (
+                                  <button type="button" onClick={() => openEdit(row)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition" title="Edit">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                  </button>
+                                )}
+                                {canDelete && (
+                                  <button type="button" onClick={() => setDeleteRow(row)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition" title="Delete">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                  </button>
+                                )}
                               </div>
                             </td>
                           );

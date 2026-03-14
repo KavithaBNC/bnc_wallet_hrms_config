@@ -990,13 +990,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           newJoiningDate: formData.joiningDate!.trim(),
           newLoginEmail: rejoinNewEmail.trim(),
         });
-        if (result.temporaryPassword) {
-          setTemporaryPassword(result.temporaryPassword);
-          setCreatedEmployeeEmail(rejoinNewEmail.trim());
-          setShowPasswordModal(true);
-        } else {
-          onSuccess?.();
-        }
+        onSuccess?.();
       } catch (error: any) {
         const msg = error.response?.data?.message || error.message || 'Rejoin failed';
         setRejoinErrors({ newLoginEmail: msg });

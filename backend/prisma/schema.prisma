@@ -162,6 +162,7 @@ model User {
   role                    UserRole
   organizationId          String?                 @map("organization_id") @db.Uuid
   isActive                Boolean                 @default(true) @map("is_active")
+  configuratorActiveStatus Boolean               @default(true) @map("configurator_active_status")
   isEmailVerified         Boolean                 @default(false) @map("is_email_verified")
   emailVerificationToken  String?                 @map("email_verification_token") @db.VarChar(255)
   passwordResetToken      String?                 @map("password_reset_token") @db.VarChar(255)
@@ -390,6 +391,7 @@ model Employee {
   placeOfTaxDeduction          PlaceOfTaxDeduction?           @map("place_of_tax_deduction")
   jobResponsibility            String?                        @map("job_responsibility")
   employmentType               EmploymentType?                @map("employment_type")
+  configuratorActiveStatus     Boolean                        @default(true) @map("configurator_active_status")
   employeeStatus               EmployeeStatus                 @default(ACTIVE) @map("employee_status")
   dateOfJoining                DateTime                       @map("date_of_joining") @db.Date
   probationEndDate             DateTime?                      @map("probation_end_date") @db.Date
