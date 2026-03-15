@@ -558,10 +558,11 @@ export default function EmployeesPage() {
       const hrmsEmployee = await employeeService.getByEmail(email);
       if (!hrmsEmployee) {
         // Fallback: open form with Configurator data so the user can still edit/create
+        const _fallbackFullName = user.full_name || user.name || user.fullname || '';
         const fallback: any = {
           id: user.user_id || user.id || '',
-          firstName: user.first_name || (user.name || user.fullname || '').split(' ')[0] || '',
-          lastName: user.last_name || (user.name || user.fullname || '').split(' ').slice(1).join(' ') || '',
+          firstName: user.first_name || _fallbackFullName.split(' ')[0] || '',
+          lastName: user.last_name || _fallbackFullName.split(' ').slice(1).join(' ') || '',
           email: user.email,
           phone: user.phone || '',
           employeeCode: user.code || user.employee_code || '',
@@ -595,10 +596,11 @@ export default function EmployeesPage() {
     } catch (err: any) {
       console.error('Failed to load employee for edit', err);
       const configFields = buildConfigFields(user);
+      const _catchFullName = user.full_name || user.name || user.fullname || '';
       const fallback: any = {
         id: user.user_id || user.id || '',
-        firstName: user.first_name || (user.name || user.fullname || '').split(' ')[0] || '',
-        lastName: user.last_name || (user.name || user.fullname || '').split(' ').slice(1).join(' ') || '',
+        firstName: user.first_name || _catchFullName.split(' ')[0] || '',
+        lastName: user.last_name || _catchFullName.split(' ').slice(1).join(' ') || '',
         email: user.email,
         phone: user.phone || '',
         employeeCode: user.code || user.employee_code || '',

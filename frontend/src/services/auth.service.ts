@@ -29,6 +29,74 @@ function normalizeRole(role: string): string {
  * Map Configurator module name → frontend sidebar route path.
  * Key: lowercase module name, Value: sidebar path.
  */
+/** Display label for a resolved path — used when API provides no name */
+const PATH_TO_LABEL: Record<string, string> = {
+  '/dashboard': 'Dashboard',
+  '/employees': 'Employees',
+  '/departments': 'Departments',
+  '/positions': 'Positions',
+  '/attendance': 'Attendance',
+  '/attendance/my-requests/excess-time-request': 'Excess Time Request',
+  '/attendance/excess-time-approval': 'Excess Time Approval',
+  '/attendance/apply-event': 'Apply Event',
+  '/attendance-policy': 'Attendance Policy',
+  '/attendance-policy/late-and-others': 'Late & Others',
+  '/attendance-policy/week-of-assign': 'Week Off Assign',
+  '/attendance-policy/holiday-assign': 'Holiday Assign',
+  '/attendance-policy/excess-time-conversion': 'Excess Time Conversion',
+  '/attendance-policy/ot-usage-rule': 'OT Usage Rule',
+  '/leave': 'Event',
+  '/leave/approvals': 'Approvals',
+  '/event': 'Event',
+  '/event/requests': 'Event Requests',
+  '/event/balance-entry': 'Balance Entry',
+  '/event-configuration': 'Event Configuration',
+  '/event-configuration/attendance-components': 'Attendance Components',
+  '/event-configuration/approval-workflow': 'Approval Workflow',
+  '/event-configuration/workflow-mapping': 'Workflow Mapping',
+  '/event-configuration/rights-allocation': 'Rights Allocation',
+  '/event-configuration/rule-setting': 'Rule Setting',
+  '/event-configuration/auto-credit-setting': 'Auto Credit Setting',
+  '/event-configuration/encashment-carry-forward': 'Encashment / Carry Forward',
+  '/hr-activities': 'HR Activities',
+  '/hr-activities/validation-process': 'Validation Process',
+  '/hr-activities/post-to-payroll': 'Post to Payroll',
+  '/others-configuration': 'Others Configuration',
+  '/others-configuration/validation-process-rule': 'Validation Process Rule',
+  '/others-configuration/attendance-lock': 'Attendance Lock',
+  '/others-configuration/post-to-payroll': 'Post to Payroll Setup',
+  '/time-attendance': 'Time Attendance',
+  '/time-attendance/shift-master': 'Shift Master',
+  '/time-attendance/shift-assign': 'Shift Assign',
+  '/time-attendance/associate-shift-change': 'Associate Shift Change',
+  '/payroll': 'Payroll',
+  '/payroll-master': 'Payroll Master',
+  '/payroll/employee-separation': 'Employee Separation',
+  '/payroll/employee-rejoin': 'Employee Rejoin',
+  '/salary-structures': 'Salary Structure',
+  '/employee-salaries': 'Employee Salary',
+  '/hr-audit-settings': 'HR Audit Settings',
+  '/employee-master-approval': 'Employee Master Approval',
+  '/esop': 'ESOP',
+  '/esop/add': 'Add ESOP',
+  '/transaction': 'Transaction',
+  '/transaction/transfer-promotions': 'Increment',
+  '/transaction/transfer-promotion-entry': 'Transfer & Promotion Entry',
+  '/transaction/emp-code-transfer': 'Emp Code Transfer',
+  '/transaction/paygroup-transfer': 'Pay Group Transfer',
+  '/permissions': 'Module Permission',
+  '/organizations': 'Organization Management',
+  '/user-module': 'User Module',
+  '/core-hr': 'Core HR',
+  '/core-hr/overview': 'Overview',
+  '/core-hr/compound-creation': 'Component Creation',
+  '/core-hr/rules-engine': 'Rules Engine',
+  '/core-hr/variable-input': 'Variable Input',
+  '/cost-centre-department': 'Cost Centre',
+  '/master': 'Master',
+  '/master/department': 'Department Masters',
+};
+
 const MODULE_NAME_TO_PATH: Record<string, string> = {
   'dashboard': '/dashboard',
   'department': '/departments',
@@ -90,9 +158,46 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   'pay group transfer': '/transaction/paygroup-transfer',
   'organization management': '/organizations',
   'module permission': '/permissions',
+  'user module': '/user-module',
   'master': '/master',
   'cost centre': '/cost-centre-department',
-  // page_name values returned by /api/v1/user-role-modules/project (lowercased)
+  // page_name fragments returned by /api/v1/user-role-modules/project (no leading slash)
+  'apply-event': '/attendance/apply-event',
+  'approvals': '/leave/approvals',
+  'balance-entry': '/event/balance-entry',
+  'requests': '/event/requests',
+  'excess-time-request': '/attendance/my-requests/excess-time-request',
+  'excess-time-approval': '/attendance/excess-time-approval',
+  'late-and-others': '/attendance-policy/late-and-others',
+  'week-of-assign': '/attendance-policy/week-of-assign',
+  'holiday-assign': '/attendance-policy/holiday-assign',
+  'excess-time-conversion': '/attendance-policy/excess-time-conversion',
+  'ot-usage-rule': '/attendance-policy/ot-usage-rule',
+  'shift-master': '/time-attendance/shift-master',
+  'shift-assign': '/time-attendance/shift-assign',
+  'associate-shift-change': '/time-attendance/associate-shift-change',
+  'employee-separation': '/payroll/employee-separation',
+  'employee-rejoin': '/payroll/employee-rejoin',
+  'transfer-promotions': '/transaction/transfer-promotions',
+  'transfer-promotion-entry': '/transaction/transfer-promotion-entry',
+  'emp-code-transfer': '/transaction/emp-code-transfer',
+  'paygroup-transfer': '/transaction/paygroup-transfer',
+  'validation-process': '/hr-activities/validation-process',
+  'post-to-payroll': '/hr-activities/post-to-payroll',
+  'validation-process-rule': '/others-configuration/validation-process-rule',
+  'attendance-lock': '/others-configuration/attendance-lock',
+  'attendance-components': '/event-configuration/attendance-components',
+  'approval-workflow': '/event-configuration/approval-workflow',
+  'workflow-mapping': '/event-configuration/workflow-mapping',
+  'rights-allocation': '/event-configuration/rights-allocation',
+  'rule-setting': '/event-configuration/rule-setting',
+  'auto-credit-setting': '/event-configuration/auto-credit-setting',
+  'encashment-carry-forward': '/event-configuration/encashment-carry-forward',
+  'compound-creation': '/core-hr/compound-creation',
+  'rules-engine': '/core-hr/rules-engine',
+  'variable-input': '/core-hr/variable-input',
+  'overview': '/core-hr/overview',
+  // page_name values returned by /api/v1/user-role-modules/project (with leading slash)
   '/employees': '/employees',
   '/departmentmasters': '/departments',
   '/departmentmaster': '/departments',
@@ -132,6 +237,8 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   '/others-configuration': '/others-configuration',
   '/othersconfiguration': '/others-configuration',
   '/dashboard': '/dashboard',
+  '/user-module': '/user-module',
+  '/usermodule': '/user-module',
 };
 
 export interface CreateOrganizationData {
@@ -372,92 +479,74 @@ class AuthService {
   }
 
   /**
-   * Check if modules are enabled by calling POST /api/v1/user-role-modules/project.
-   * Returns true only when the API responds successfully with data.
-   * Also stores per-module permission flags (can_view, can_add, can_edit, can_delete)
-   * in localStorage keyed by page path for use by page components.
+   * Fetch modules + permissions from POST /api/v1/user-role-modules/project.
+   * Stores modulePermissions map in localStorage for page-level permission checks.
+   * Returns the raw list — single source of truth for both sidebar and permissions.
    */
-  private async checkUserRoleModulesProject(roleId: number, projectId: number, accessToken: string): Promise<boolean> {
-    try {
-      const response = await configuratorApi.post(
-        '/api/v1/user-role-modules/project',
-        { role_id: roleId, project_id: projectId },
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      );
-      const data = response.data;
-      const list = Array.isArray(data) ? data : (data?.data ?? []);
-      if (!Array.isArray(list) || list.length === 0) return false;
+  private async fetchUserRoleModulesProject(roleId: number, projectId: number, accessToken: string): Promise<any[]> {
+    const response = await configuratorApi.post(
+      '/api/v1/user-role-modules/project',
+      { role_id: roleId, project_id: projectId },
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const data = response.data;
+    const list = Array.isArray(data) ? data : (data?.data ?? []);
+    if (!Array.isArray(list) || list.length === 0) return [];
 
-      // Build permissions map: path → { can_view, can_add, can_edit, can_delete }
-      const permissionsMap: Record<string, { can_view: boolean; can_add: boolean; can_edit: boolean; can_delete: boolean }> = {};
-      for (const item of list) {
-        // Resolve path from page_name or module name
-        const pageName = (item.page_name || '').toLowerCase().trim();
-        const moduleName = (item.module_name || item.name || '').toLowerCase().trim();
-        const path = MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || pageName || '';
-        if (path) {
-          permissionsMap[path] = {
-            can_view: item.can_view === true || item.can_view === 1,
-            can_add: item.can_add === true || item.can_add === 1,
-            can_edit: item.can_edit === true || item.can_edit === 1,
-            can_delete: item.can_delete === true || item.can_delete === 1,
-          };
-        }
+    // Build permissions map: path → { is_enabled, can_view, can_add, can_edit, can_delete }
+    const permissionsMap: Record<string, { is_enabled: boolean; can_view: boolean; can_add: boolean; can_edit: boolean; can_delete: boolean }> = {};
+    for (const item of list) {
+      const pageName = (item.page_name || '').toLowerCase().trim();
+      const moduleName = (item.module_name || item.name || '').toLowerCase().trim();
+      const path = MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || pageName || '';
+      if (path) {
+        permissionsMap[path] = {
+          is_enabled: item.is_enabled === true || item.is_enabled === 1,
+          can_view: item.can_view === true || item.can_view === 1,
+          can_add: item.can_add === true || item.can_add === 1,
+          can_edit: item.can_edit === true || item.can_edit === 1,
+          can_delete: item.can_delete === true || item.can_delete === 1,
+        };
       }
-      localStorage.setItem('modulePermissions', JSON.stringify(permissionsMap));
-      return true;
-    } catch {
-      return false;
     }
+    localStorage.setItem('modulePermissions', JSON.stringify(permissionsMap));
+    return list;
   }
 
   /**
-   * Step 3: Fetch modules for the logged-in user's role
-   * GET /api/v1/modules/my-modules?project_id=X&role_id=Y
-   * Authorization: Bearer {accessToken} (token from login response)
-   *
-   * project_id → projects[0].id from login response
-   * role_id    → projects[0].role_id from login response
-   *
-   * Returns modules mapped to the ConfiguratorModule format
-   * that the sidebar/DashboardLayout expects.
-   *
-   * Modules are only returned when POST /api/v1/user-role-modules/project
-   * responds successfully with data; otherwise an empty array is returned.
+   * Fetch sidebar modules for the logged-in user's role.
+   * Uses POST /api/v1/user-role-modules/project as the single source of truth.
+   * Only modules with is_enabled = true are included in the sidebar list.
    */
   async fetchRoleModules(roleId: number, projectId: number, accessToken: string): Promise<any[]> {
-    // Gate: only enable modules when /api/v1/user-role-modules/project returns data
-    const enabled = await this.checkUserRoleModulesProject(roleId, projectId, accessToken);
-    if (!enabled) {
+    let list: any[];
+    try {
+      list = await this.fetchUserRoleModulesProject(roleId, projectId, accessToken);
+    } catch {
       return [];
     }
+    if (list.length === 0) return [];
 
-    const response = await configuratorApi.get('/api/v1/modules/my-modules', {
-      params: { project_id: projectId, role_id: roleId },
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    const rawModules: any[] = Array.isArray(response.data)
-      ? response.data
-      : (response.data?.data ?? response.data?.modules ?? []);
-
-    // Map API modules to frontend-friendly objects for the sidebar
-    // API returns: { id, name, code, project_id, is_active, parent_module_id, parent_module: { id, name, code } }
-    // Sidebar needs: { name, code, path, parent_module_id, parent_module }
-    return rawModules
-      .filter((m: any) => m.is_active)
-      .map((m: any) => ({
-        id: m.id,
-        name: m.name || '',
-        code: m.code || '',
-        path: MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '',
-        is_active: m.is_active,
-        is_enabled: true,
-        project_id: m.project_id,
-        parent_module_id: m.parent_module_id ?? null,
-        parent_module: m.parent_module ?? null,
-        description: m.description,
-      }));
+    // Build sidebar module objects — only include is_enabled entries
+    return list
+      .filter((m: any) => m.is_enabled === true || m.is_enabled === 1)
+      .map((m: any) => {
+        const pageName = (m.page_name || '').toLowerCase().trim();
+        const moduleName = (m.module_name || m.name || '').toLowerCase().trim();
+        const path = MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || m.page_name || '';
+        const label = m.module_name || m.name || PATH_TO_LABEL[path] || path.split('/').filter(Boolean).pop() || '';
+        return {
+          id: m.module_id ?? m.id,
+          name: label,
+          code: m.code || '',
+          path,
+          is_active: true,
+          is_enabled: true,
+          project_id: m.project_id,
+          parent_module_id: m.parent_module_id ?? null,
+          parent_module: m.parent_module ?? null,
+        };
+      });
   }
 
   /**

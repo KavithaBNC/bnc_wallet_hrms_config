@@ -163,6 +163,11 @@ export const CONFIGURATOR_CODE_TO_CARD: Record<
     icon: '🏗️',
     description: 'Cost Centre & Department setup',
   },
+  USER_MODULE: {
+    path: '/user-module',
+    icon: '👤',
+    description: 'User role and module permission management',
+  },
 };
 
 /** Get assigned modules from localStorage (set on Configurator login) */
@@ -179,6 +184,7 @@ export function getAssignedModules(): ConfiguratorModule[] {
 
 /** Per-module permission flags from /api/v1/user-role-modules/project */
 export interface ModulePermissions {
+  is_enabled: boolean;
   can_view: boolean;
   can_add: boolean;
   can_edit: boolean;
@@ -187,6 +193,7 @@ export interface ModulePermissions {
 
 /** Default permissions when no module permission entry is found for a specific path */
 const DEFAULT_PERMISSIONS: ModulePermissions = {
+  is_enabled: false,
   can_view: false,
   can_add: false,
   can_edit: false,
@@ -195,6 +202,7 @@ const DEFAULT_PERMISSIONS: ModulePermissions = {
 
 /** Full-access permissions used as fallback when modulePermissions hasn't been loaded yet */
 const FULL_ACCESS_PERMISSIONS: ModulePermissions = {
+  is_enabled: true,
   can_view: true,
   can_add: true,
   can_edit: true,
@@ -230,4 +238,13 @@ export function getModulePermissions(path: string): ModulePermissions {
   } catch {
     return DEFAULT_PERMISSIONS;
   }
+}
+
+/**
+ * Check if a module/page is enabled (visible in sidebar) for the current user's role.
+ * Uses the is_enabled flag from /api/v1/user-role-modules/project.
+ * Returns true when modulePermissions hasn't been loaded yet (backward compat).
+ */
+export function isModuleEnabled(path: string): boolean {
+  return getModulePermissions(path).is_enabled;
 }

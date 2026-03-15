@@ -24,6 +24,7 @@ export const APP_MODULES: AppModule[] = [
   { path: '/dashboard', label: 'Dashboard', resource: 'dashboard', visibility: 'all' },
   { path: '/organizations', label: 'Organization Management', resource: 'organizations', visibility: 'super_admin_only' },
   { path: '/permissions', label: 'Module Permission', resource: 'permissions', visibility: 'module_permission_only' },
+  { path: '/user-module', label: 'User Module', resource: 'user_module', visibility: 'all' },
   { path: '/employees', label: 'Employees', resource: 'employees', visibility: 'all' },
   { path: '/departments', label: 'Department', resource: 'departments', visibility: 'all' },
   { path: '/positions', label: 'Position', resource: 'positions', visibility: 'all' },

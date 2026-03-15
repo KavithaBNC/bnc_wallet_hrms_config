@@ -88,6 +88,8 @@ import EsopPage from './pages/EsopPage';
 import LeaveApprovalPage from './pages/LeaveApprovalPage';
 import EventRequestPage from './pages/EventRequestPage';
 import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
+import UserRolesPage from './pages/UserRolesPage';
+import ModulePermissionPage from './pages/ModulePermissionPage';
 import NotFoundPage from './pages/NotFoundPage';
 import VariableInputPage from './pages/VariableInputPage';
 import VariableInputEntryPage from './pages/VariableInputEntryPage';
@@ -1176,6 +1178,26 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <PermissionsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user-module"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <UserRolesPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user-module/permissions/:roleId"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ModulePermissionPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

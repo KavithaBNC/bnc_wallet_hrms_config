@@ -105,6 +105,7 @@ const LoginPage = () => {
         else if (data.error?.message) msg = data.error.message;
         else if (typeof data.detail === 'string') msg = data.detail;
       }
+      clearError();
       setLoginError(msg);
     } finally {
       setIsLoading(false);

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { getAssignedModules } from '../../config/configurator-module-mapping';
+import { getAssignedModules, getModulePermissions } from '../../config/configurator-module-mapping';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -19,6 +19,11 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
   '/dashboard': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+    </svg>
+  ),
+  '/user-module': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
   '/employees': (
@@ -413,16 +418,21 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     navigate('/login');
   };
 
-  // Page access: allow if path is in assigned modules (Config DB) or dashboard/profile
-  const isDashboardOrProfile = location.pathname === '/dashboard' || location.pathname === '/profile';
+  // Page access: allow if path is in assigned modules (Config DB) or dashboard/profile/user-module
+  const isDashboardOrProfile = location.pathname === '/dashboard' || location.pathname === '/profile' || location.pathname === '/user-module' || location.pathname.startsWith('/user-module/');
   const assignedPaths = useMemo(
     () => new Set(visibleNavItems.flatMap((m) => [m.path, m.parentPath].filter(Boolean))),
     [visibleNavItems]
   );
   const hasPathAccess = useMemo(() => {
-    return (path: string) =>
-      assignedPaths.has(path) ||
-      Array.from(assignedPaths).some((p) => p && path.startsWith(p + '/'));
+    return (path: string) => {
+      const inAssigned = assignedPaths.has(path) ||
+        Array.from(assignedPaths).some((p) => p && path.startsWith(p + '/'));
+      if (!inAssigned) return false;
+      // Also check can_view permission for the page
+      const perms = getModulePermissions(path);
+      return perms.can_view;
+    };
   }, [assignedPaths]);
   const allowed = isDashboardOrProfile || hasPathAccess(location.pathname);
 

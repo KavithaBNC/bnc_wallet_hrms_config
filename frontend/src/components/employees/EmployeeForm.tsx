@@ -117,7 +117,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [newUserRoleName, setNewUserRoleName] = useState('');
   const [userRoleError, setUserRoleError] = useState('');
   const [userRoleOptions, setUserRoleOptions] = useState<{ id: number; name: string }[]>([]);
-  const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(null);
+  const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(
+    (employee as any)?.configuratorRoleId ? Number((employee as any).configuratorRoleId) : null
+  );
 
   const [salaryTab, setSalaryTab] = useState<'earnings' | 'deductions' | 'reimbursement'>('earnings');
   const [salaryFixedGross, setSalaryFixedGross] = useState(0);
@@ -302,7 +304,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     costCentreId: (employee as any)?.costCentreId || '',
     costCentre: (employee as any)?.costCentre?.name || (employee as any)?.profileExtensions?.costCentre || '',
     managerId: employee?.reportingManagerId || '',
-    userRoleId: '',
+    userRoleId: (employee as any)?.configuratorRoleId ? String((employee as any).configuratorRoleId) : '',
     grade: (employee as any)?.grade || '',
     placeOfTaxDeduction: (employee as any)?.placeOfTaxDeduction || '',
     jobResponsibility: (employee as any)?.jobResponsibility || '',
