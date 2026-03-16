@@ -38,7 +38,7 @@ const LeaveDetails = () => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse">
+      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse h-full">
         <div className="h-4 bg-gray-200 rounded w-1/3 mb-6" />
         <div className="grid grid-cols-3 gap-3 mb-4">
           {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-lg" />)}
@@ -53,7 +53,7 @@ const LeaveDetails = () => {
   const totalRemaining = balances.reduce((sum, b) => sum + b.remaining, 0);
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -92,9 +92,9 @@ const LeaveDetails = () => {
       </div>
 
       {/* Recent requests */}
-      <div>
+      <div className="flex-1 flex flex-col">
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent Requests</h4>
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 flex-1 overflow-y-auto">
           {requests.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-3">No recent requests</p>
           ) : (

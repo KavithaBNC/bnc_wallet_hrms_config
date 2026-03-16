@@ -95,6 +95,7 @@ export interface UserRole {
 export interface RoleModule {
   module_id: number;
   module_name: string;
+  page_name?: string;
   is_enabled: boolean;
   can_view: boolean;
   can_add: boolean;

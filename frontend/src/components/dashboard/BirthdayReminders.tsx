@@ -5,7 +5,7 @@ const BirthdayReminders = () => {
   const [birthdays] = useState<BirthdayPerson[]>(() => getMockBirthdays());
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -20,7 +20,7 @@ const BirthdayReminders = () => {
       </div>
 
       {/* Birthday list */}
-      <div className="space-y-2.5">
+      <div className="space-y-2.5 flex-1">
         {birthdays.map((person) => (
           <div key={person.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-pink-50/50 transition-colors">
             {person.profilePictureUrl ? (

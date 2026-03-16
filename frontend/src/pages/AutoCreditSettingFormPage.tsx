@@ -528,7 +528,7 @@ export default function AutoCreditSettingFormPage() {
   if (loading) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
-        <AppHeader title="Event Configuration" subtitle={organizationName ? `Organization: ${organizationName}` : undefined} onLogout={handleLogout} />
+        <AppHeader title="Event Configuration" subtitle={organizationName ? organizationName : undefined} onLogout={handleLogout} />
         <main className="flex-1 flex items-center justify-center">
           <p className="text-gray-500">Loading...</p>
         </main>
@@ -540,7 +540,7 @@ export default function AutoCreditSettingFormPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Event Configuration"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
 

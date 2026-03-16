@@ -11,6 +11,7 @@ export interface ConfiguratorModule {
   description?: string;
   is_active?: boolean;
   is_enabled?: boolean;
+  can_view?: boolean;
   path?: string;
   page_name?: string;
   page_name_mobile?: string;

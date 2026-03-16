@@ -11,6 +11,7 @@ import DashboardPage from './pages/DashboardPage';
 import ProfilePage from './pages/ProfilePage';
 import DepartmentsPage from './pages/DepartmentsPage';
 import EmployeesPage from './pages/EmployeesPage';
+import EmployeeFormPage from './pages/EmployeeFormPage';
 import PositionsPage from './pages/PositionsPage';
 import EventConfigurationPage from './pages/EventConfigurationPage';
 import OthersConfigurationPage from './pages/OthersConfigurationPage';
@@ -188,6 +189,36 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <EmployeesPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees/create"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees/view/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeFormPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

@@ -341,45 +341,63 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const isSuperAdmin = role === 'SUPER_ADMIN';
 
   // Modules from Config DB (localStorage, set at login / loadUser)
-  // Builds parent-child hierarchy from API's parent_module_id / parent_module fields
+  // Builds parent-child hierarchy from page_name / path structure:
+  //   page_name="/time-attendance/shift-master" → parent="/time-attendance", child="/time-attendance/shift-master"
+  //   page_name="/employees" → top-level (no slash after first segment)
   const visibleNavItems = useMemo(() => {
     const configModules = getAssignedModules();
-    const items: { path: string; label: string; parentPath?: string }[] = [
-      { path: '/dashboard', label: 'Dashboard' },
-    ];
 
-    // Build a map: module id → resolved path (for parent lookup)
-    const idToPath: Record<number, string> = {};
-    for (const m of configModules) {
-      const path = m.path || `/${(m.code || '').toLowerCase().replace(/_/g, '-')}`;
-      if (m.id != null) idToPath[m.id] = path;
-    }
+    // Helper: convert slug to Title Case label  ("time-attendance" → "Time Attendance")
+    const slugToLabel = (slug: string) =>
+      slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+    // Step 1: Build flat items from API, determine parentPath from path segments
+    const items: { path: string; label: string; parentPath?: string; canView: boolean }[] = [
+      { path: '/dashboard', label: 'Dashboard', canView: true },
+    ];
+    const parentPathsNeeded = new Map<string, string>(); // parentPath → label
 
     for (const m of configModules) {
       const path = m.path || `/${(m.code || '').toLowerCase().replace(/_/g, '-')}`;
       if (!path || path === '/dashboard') continue;
 
-      // Determine parentPath from API's parent_module_id
+      // Parse path segments to determine parent-child relationship
+      const segments = path.replace(/^\//, '').split('/').filter(Boolean);
       let parentPath: string | undefined;
-      if (m.parent_module_id != null && idToPath[m.parent_module_id]) {
-        parentPath = idToPath[m.parent_module_id];
+
+      if (segments.length >= 2) {
+        // Has parent: e.g. "/time-attendance/shift-master" → parent="/time-attendance"
+        parentPath = '/' + segments[0];
+        // Track that we need this parent to exist
+        if (!parentPathsNeeded.has(parentPath)) {
+          parentPathsNeeded.set(parentPath, slugToLabel(segments[0]));
+        }
       }
 
-      items.push({ path, label: m.name || m.code, parentPath });
+      items.push({
+        path,
+        label: m.name || m.code || slugToLabel(segments[segments.length - 1]),
+        parentPath,
+        canView: m.can_view !== false,
+      });
     }
 
-    // Ensure parent paths exist as top-level items (if parent module wasn't in list)
+    // Step 2: Ensure parent entries exist (auto-create if not already in list)
     const existingPaths = new Set(items.map((i) => i.path));
-    for (const m of configModules) {
-      if (m.parent_module && m.parent_module.id != null) {
-        const parentModPath = idToPath[m.parent_module.id];
-        if (parentModPath && !existingPaths.has(parentModPath)) {
-          existingPaths.add(parentModPath);
-          items.push({
-            path: parentModPath,
-            label: m.parent_module.name || parentModPath.split('/').pop() || parentModPath,
-            parentPath: undefined,
-          });
+    for (const [pPath, pLabel] of parentPathsNeeded) {
+      if (!existingPaths.has(pPath)) {
+        // Check if any module in the list IS the parent (same path, no parentPath)
+        // If not, create a synthetic parent entry
+        const existingParent = items.find((i) => i.path === pPath);
+        if (!existingParent) {
+          items.push({ path: pPath, label: pLabel, parentPath: undefined, canView: true });
+          existingPaths.add(pPath);
+        }
+      } else {
+        // Parent exists — make sure it's treated as top-level (clear its parentPath)
+        const existing = items.find((i) => i.path === pPath);
+        if (existing && existing.parentPath) {
+          existing.parentPath = undefined;
         }
       }
     }
@@ -486,17 +504,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                         setExpandedPaths((prev) => new Set(prev).add(mod.path));
                         return;
                       }
-                      if (location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'))) {
-                        setExpandedPaths((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(mod.path)) next.delete(mod.path);
-                          else next.add(mod.path);
-                          return next;
-                        });
-                      } else {
-                        setExpandedPaths((prev) => new Set(prev).add(mod.path));
-                        navigate(mod.path);
-                      }
+                      setExpandedPaths((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(mod.path)) next.delete(mod.path);
+                        else next.add(mod.path);
+                        return next;
+                      });
                     }}
                     role="button"
                     tabIndex={0}
@@ -509,17 +522,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                           setExpandedPaths((prev) => new Set(prev).add(mod.path));
                           return;
                         }
-                        if (location.pathname === mod.path || (mod.path && location.pathname.startsWith(mod.path + '/'))) {
-                          setExpandedPaths((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(mod.path)) next.delete(mod.path);
-                            else next.add(mod.path);
-                            return next;
-                          });
-                        } else {
-                          setExpandedPaths((prev) => new Set(prev).add(mod.path));
-                          navigate(mod.path);
-                        }
+                        setExpandedPaths((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(mod.path)) next.delete(mod.path);
+                          else next.add(mod.path);
+                          return next;
+                        });
                       }
                     }}
                   >
@@ -541,6 +549,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                       {childItems.map((child) => {
                         const childActive = location.pathname === child.path;
                         const childIcon = ICONS_BY_PATH[child.path] ?? DEFAULT_ICON;
+                        const childCanView = child.canView !== false;
+                        if (!childCanView) {
+                          return (
+                            <div
+                              key={child.path}
+                              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 cursor-not-allowed"
+                              title="You do not have permission to view this page"
+                            >
+                              {childIcon ?? null}
+                              <span>{child.label}</span>
+                            </div>
+                          );
+                        }
                         return (
                           <Link
                             key={child.path}

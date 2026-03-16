@@ -327,7 +327,7 @@ export default function DepartmentMastersPage() {
   if (!hasCompanyId) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
-        <AppHeader title="Department Masters" subtitle={organizationName ? `Organization: ${organizationName}` : undefined} onLogout={handleLogout} />
+        <AppHeader title="Department Masters" subtitle={organizationName ? organizationName : undefined} onLogout={handleLogout} />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50">
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-700 text-sm">
             No Configurator company found. Please ensure your account is linked to an organization with a Configurator company.
@@ -349,7 +349,7 @@ export default function DepartmentMastersPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
-      <AppHeader title="Department Masters" subtitle={organizationName ? `Organization: ${organizationName}` : undefined} onLogout={handleLogout} />
+      <AppHeader title="Department Masters" subtitle={organizationName ? organizationName : undefined} onLogout={handleLogout} />
 
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50">
         <div className="w-full max-w-[1600px] mx-auto">

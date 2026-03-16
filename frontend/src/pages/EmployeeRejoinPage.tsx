@@ -163,7 +163,7 @@ export default function EmployeeRejoinPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
       <AppHeader
         title="Employee Rejoin"
-        subtitle={organizationName ? `Organization: ${organizationName}` : 'Separation list'}
+        subtitle={organizationName ? organizationName : 'Separation list'}
         onLogout={handleLogout}
       />
 

@@ -272,7 +272,7 @@ export default function TransferAndPromotionsPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Increment"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
 

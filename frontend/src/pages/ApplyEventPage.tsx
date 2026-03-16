@@ -640,7 +640,7 @@ export default function ApplyEventPage() {
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
         <AppHeader
           title={pageMode === 'Permission' ? 'Apply Permission' : pageMode === 'Onduty' ? 'Apply On Duty' : 'Apply Event'}
-          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+          subtitle={organizationName ? organizationName : undefined}
           onLogout={handleLogout}
         />
         <div className="flex-1 p-4">
@@ -657,7 +657,7 @@ export default function ApplyEventPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title={pageMode === 'Permission' ? 'Apply Permission' : pageMode === 'Onduty' ? 'Apply On Duty' : 'Apply Event'}
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
 

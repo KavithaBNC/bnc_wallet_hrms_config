@@ -13,6 +13,7 @@ interface SearchableSelectProps {
   disabled?: boolean;
   className?: string;
   name?: string;
+  hasError?: boolean;
 }
 
 export default function SearchableSelect({
@@ -23,6 +24,7 @@ export default function SearchableSelect({
   disabled = false,
   className = '',
   name,
+  hasError = false,
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -84,17 +86,19 @@ export default function SearchableSelect({
   };
 
   return (
-    <div ref={containerRef} className={`relative flex-1 ${className}`}>
+    <div ref={containerRef} className={`relative flex-1 min-w-0 ${className}`}>
       {name && <input type="hidden" name={name} value={value} />}
 
       {/* Display selected value / trigger button */}
       <div
         onClick={handleOpen}
-        className={`mt-1 flex items-center justify-between w-full h-10 px-3 bg-white rounded-md border shadow-sm sm:text-sm ${
+        className={`mt-1.5 flex items-center justify-between w-full h-11 px-3 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] sm:text-sm ${
           disabled
             ? 'opacity-60 cursor-not-allowed border-gray-300'
             : isOpen
             ? 'border-blue-500 ring-2 ring-blue-500'
+            : hasError
+            ? 'border-red-400 cursor-pointer hover:border-red-400'
             : 'border-black cursor-pointer hover:border-blue-400'
         }`}
       >

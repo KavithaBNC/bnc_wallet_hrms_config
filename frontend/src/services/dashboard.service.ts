@@ -123,7 +123,7 @@ export interface AnniversaryPerson {
 export async function fetchProfile(employeeId: string): Promise<ProfileData> {
   try {
     const response = await api.get(`/employees/${employeeId}`);
-    const emp = response.data?.data || response.data;
+    const emp = response.data?.data?.employee || response.data?.data || response.data;
     return {
       id: emp.id,
       employeeCode: emp.employeeCode || 'N/A',

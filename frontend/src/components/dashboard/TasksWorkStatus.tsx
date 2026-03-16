@@ -46,7 +46,7 @@ const TasksWorkStatus = () => {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -65,7 +65,7 @@ const TasksWorkStatus = () => {
       </div>
 
       {/* Task list */}
-      <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1 scrollbar-thin">
+      <div className="space-y-2 flex-1 overflow-y-auto pr-1 scrollbar-thin">
         {tasks.map((task) => (
           <div key={task.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
             <button onClick={() => toggleTask(task.id)} className="flex-shrink-0 focus:outline-none">

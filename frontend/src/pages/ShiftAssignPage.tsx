@@ -186,7 +186,7 @@ export default function ShiftAssignPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Shift Assign"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
 

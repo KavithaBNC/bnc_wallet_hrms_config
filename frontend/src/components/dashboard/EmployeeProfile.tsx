@@ -21,7 +21,7 @@ const EmployeeProfile = () => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse">
+      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse h-full">
         <div className="h-24 bg-gray-200 rounded-xl mb-4" />
         <div className="h-4 bg-gray-200 rounded w-1/2 mb-2" />
         <div className="h-4 bg-gray-200 rounded w-1/3" />
@@ -43,56 +43,50 @@ const EmployeeProfile = () => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden transition-all duration-300 hover:shadow-xl">
-      {/* Header with gradient */}
-      <div className="relative bg-gradient-to-r from-blue-600 to-blue-400 px-6 pt-6 pb-12">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden transition-all duration-300 hover:shadow-xl h-full flex flex-col">
+      {/* Header with gradient + Avatar + Name */}
+      <div className="relative bg-gradient-to-r from-teal-600 to-emerald-500 px-6 pt-5 pb-5">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-2 right-6 w-20 h-20 rounded-full border-2 border-white/30" />
           <div className="absolute bottom-0 left-10 w-16 h-16 rounded-full border-2 border-white/20" />
         </div>
-        <div className="flex items-center justify-between relative z-10">
-          <div>
-            <p className="text-blue-100 text-xs font-medium">Employee Profile</p>
-          </div>
+        <div className="flex items-center justify-between relative z-10 mb-4">
+          <p className="text-teal-100 text-xs font-medium">Employee Profile</p>
           <span className="bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full backdrop-blur-sm">
             {profile?.employeeCode || 'N/A'}
           </span>
         </div>
-      </div>
-
-      {/* Avatar overlapping header */}
-      <div className="relative px-6 -mt-8">
-        <div className="flex items-end gap-4">
-          <div className="relative">
+        <div className="flex items-center gap-3 relative z-10">
+          <div className="relative flex-shrink-0">
             {profile?.profilePictureUrl ? (
               <img
                 src={profile.profilePictureUrl}
                 alt={`${profile.firstName} ${profile.lastName}`}
-                className="w-16 h-16 rounded-xl object-cover border-4 border-white shadow-md"
+                className="w-14 h-14 rounded-xl object-cover border-2 border-white/30 shadow-md"
               />
             ) : (
-              <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center border-4 border-white shadow-md">
+              <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center border-2 border-white/30">
                 <span className="text-white text-lg font-bold">{initials}</span>
               </div>
             )}
-            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white" />
+            <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white" />
           </div>
-          <div className="pb-1">
-            <h3 className="text-lg font-bold text-gray-900">
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-white truncate">
               {profile?.firstName} {profile?.lastName}
             </h3>
-            <p className="text-sm text-gray-500">{profile?.position || 'N/A'}</p>
+            <p className="text-xs text-teal-100 truncate">{profile?.position || 'N/A'}</p>
           </div>
         </div>
       </div>
 
       {/* Info grid */}
-      <div className="p-6 pt-4">
+      <div className="px-6 pb-5 pt-4 flex-1 flex flex-col justify-end">
         <div className="grid grid-cols-2 gap-3">
           {infoItems.map((item, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 p-2.5 rounded-lg bg-gray-50 hover:bg-blue-50 transition-colors duration-200"
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-gray-50 hover:bg-teal-50 transition-colors duration-200"
             >
               <div className="text-gray-400 flex-shrink-0">{item.icon}</div>
               <div className="min-w-0">

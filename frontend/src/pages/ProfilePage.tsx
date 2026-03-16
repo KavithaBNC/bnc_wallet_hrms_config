@@ -6,14 +6,10 @@ import AppHeader from '../components/layout/AppHeader';
 import configuratorDataService from '../services/configurator-data.service';
 import { authService } from '../services/auth.service';
 
-// ─── View modes ───
-type ViewMode = 'card' | 'details';
-
 const ProfilePage = () => {
   const navigate = useNavigate();
   const { user, loadUser, logout, updateProfile } = useAuthStore();
 
-  const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
 
@@ -182,201 +178,161 @@ const ProfilePage = () => {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-gradient-to-br from-gray-50 via-blue-50/30 to-indigo-50/30">
+    <div className="flex flex-col flex-1 min-h-0 bg-slate-50">
       <AppHeader title="My Profile" onLogout={handleLogout} />
 
-      <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 py-6">
-        {/* Page title */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-sm text-gray-500 mt-0.5">View and manage your personal information</p>
-        </div>
-
-        {viewMode === 'card' ? (
-          /* ═══════════════ PROFILE CARD (Summary View) ═══════════════ */
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100">
-              {/* Gradient header */}
-              <div className="relative bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 px-6 py-8">
-                <div className="absolute inset-0 overflow-hidden">
-                  <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/5 rounded-full" />
-                  <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-white/5 rounded-full" />
+      <main className="flex-1 min-h-0 overflow-auto w-full p-4 sm:p-6 lg:p-8 animate-fade-in-up">
+        <div className="max-w-7xl mx-auto space-y-8 pb-10">
+          
+          {/* ═══════════════ HEADER BANNER ═══════════════ */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden relative group">
+            
+            {/* Background Cover */}
+            <div className="h-44 sm:h-48 bg-gradient-to-r from-teal-600 to-emerald-500 relative overflow-hidden transition-all duration-500 group-hover:shadow-[inset_0_0_100px_rgba(0,0,0,0.1)]">
+              {/* Name & Badges placed perfectly inside the banner */}
+              <div className="absolute bottom-0 w-full px-6 sm:px-8 pb-5 flex flex-col sm:flex-row sm:items-end gap-5 z-10">
+                {/* Spacer padding to strictly align text past the avatar on Desktop (Avatar + Box Padding ~ 140px) */}
+                <div className="w-24 h-0 sm:w-[140px] shrink-0 hidden sm:block"></div>
+                
+                <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-3">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight drop-shadow-sm">{fullName}</h1>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase bg-white/20 text-white border border-white/20 backdrop-blur-md shadow-sm">
+                      {role}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-emerald-500 border border-emerald-400 text-white shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white shadow-sm" />
+                      {statusConfig.label}
+                    </span>
+                  </div>
                 </div>
-                <div className="relative flex items-center gap-5">
-                  {/* Avatar */}
-                  {profilePic ? (
-                    <img src={profilePic} alt={fullName} className="h-20 w-20 rounded-full border-4 border-white/30 object-cover shadow-lg" />
-                  ) : (
-                    <div className="h-20 w-20 rounded-full bg-white/20 border-4 border-white/30 flex items-center justify-center shadow-lg">
-                      <span className="text-2xl font-bold text-white">{initials}</span>
-                    </div>
-                  )}
-                  <div>
-                    <h2 className="text-2xl font-bold text-white">{fullName}</h2>
-                    <p className="text-blue-100 text-sm mt-0.5">{email}</p>
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${roleColor}`}>
-                        {role}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold inline-flex items-center gap-1 ${statusConfig.badge}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-                        {statusConfig.label}
-                      </span>
-                      {isVerified && (
-                        <span className="px-2.5 py-0.5 bg-emerald-500/30 text-emerald-100 rounded-full text-xs font-medium inline-flex items-center gap-1">
-                          {verifiedIcon} Verified
-                        </span>
-                      )}
-                    </div>
+              </div>
+            </div>
+
+            {/* Bottom White Section - Flex Flow avoids absolute overlapping issues */}
+            <div className="px-6 sm:px-8 pb-6 sm:pb-8 flex flex-col sm:flex-row gap-5 sm:gap-6">
+              
+              {/* Avatar correctly positioned using negative margin */}
+              <div className="-mt-12 sm:-mt-16 z-20 shrink-0 self-start">
+                <div className="p-1 sm:p-1.5 bg-white rounded-full inline-block shadow-[0_0_0_1px_rgba(0,0,0,0.05),0_4px_6px_-1px_rgba(0,0,0,0.1)]">
+                  <div className="relative">
+                    {profilePic ? (
+                      <img src={profilePic} alt={fullName} className="h-24 w-24 sm:h-[120px] sm:w-[120px] rounded-full border border-gray-100 object-cover bg-gray-50" />
+                    ) : (
+                      <div className="h-24 w-24 sm:h-[120px] sm:w-[120px] rounded-full bg-slate-50 text-teal-600 border border-gray-100 flex items-center justify-center">
+                        <span className="text-3xl sm:text-5xl font-bold">{initials}</span>
+                      </div>
+                    )}
+                    {isVerified && (
+                      <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-emerald-500 text-white rounded-full p-1.5 border-2 border-white shadow-sm" title="Email Verified">
+                        {verifiedIcon}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Info rows */}
-              <div className="p-6">
-                <div className="space-y-4">
-                  <InfoRow icon={mailIcon} iconBg="bg-blue-50 text-blue-600" label="Email" value={email} />
-                  <InfoRow icon={idCardIcon} iconBg="bg-purple-50 text-purple-600" label="Employee ID" value={empCode} mono />
-                  <InfoRow icon={userIcon} iconBg="bg-indigo-50 text-indigo-600" label="Role" value={role} />
-                  <InfoRow icon={buildingIcon} iconBg="bg-emerald-50 text-emerald-600" label="Organization" value={organization} />
+              {/* Flex container for the Text and Actions */}
+              <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1 sm:pt-4">
+                
+                {/* Position and Department Text */}
+                <div className="text-sm font-medium text-gray-500 flex items-center gap-2 flex-wrap">
+                  <span className="text-gray-800 font-extrabold">{position === 'N/A' || !position ? 'N/A' : position}</span>
+                  <span className="w-1 h-1 rounded-full bg-gray-300" />
+                  <span>{department === 'N/A' || !department ? 'N/A' : department}</span>
                 </div>
 
-                {/* Divider */}
-                <div className="border-t border-gray-100 my-5" />
-
-                {/* Action buttons */}
-                <div className="flex flex-wrap gap-3">
+                {/* Action Buttons perfectly aligned into the flow */}
+                <div className="flex items-center gap-3 w-full sm:w-auto">
                   <button
                     onClick={handleEditProfile}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 hover:shadow-md hover:shadow-blue-200 hover:-translate-y-0.5 transition-all duration-200"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors duration-200"
                   >
-                    {editIcon} Edit Profile
+                    {editIcon} <span>Edit Profile</span>
                   </button>
                   <button
                     onClick={handleChangePassword}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold shadow-sm transition-colors duration-200"
                   >
-                    {lockIcon} Change Password
-                  </button>
-                  <button
-                    onClick={() => setViewMode('details')}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-sm font-medium hover:bg-indigo-100 hover:shadow-md hover:shadow-indigo-200 hover:-translate-y-0.5 transition-all duration-200"
-                  >
-                    {eyeIcon} View Details
+                    {lockIcon} <span>Security</span>
                   </button>
                 </div>
+
               </div>
             </div>
           </div>
-        ) : (
-          /* ═══════════════ PROFILE DETAILS (Expanded View) ═══════════════ */
-          <div className="max-w-5xl mx-auto">
-            {/* Back button */}
-            <button
-              onClick={() => setViewMode('card')}
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
-            >
-              {arrowLeftIcon} Back to Profile
-            </button>
 
-            {/* Header card */}
-            <div className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 mb-6">
-              <div className="relative bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-500 px-6 py-8">
-                <div className="absolute inset-0 overflow-hidden">
-                  <div className="absolute -top-10 -right-10 w-40 h-40 bg-white/5 rounded-full" />
-                  <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-white/5 rounded-full" />
-                </div>
-                <div className="relative flex items-center justify-between flex-wrap gap-4">
-                  <div className="flex items-center gap-5">
-                    {profilePic ? (
-                      <img src={profilePic} alt={fullName} className="h-24 w-24 rounded-full border-4 border-white/30 object-cover shadow-lg" />
-                    ) : (
-                      <div className="h-24 w-24 rounded-full bg-white/20 border-4 border-white/30 flex items-center justify-center shadow-lg">
-                        <span className="text-3xl font-bold text-white">{initials}</span>
-                      </div>
-                    )}
-                    <div>
-                      <h2 className="text-3xl font-bold text-white">{fullName}</h2>
-                      <p className="text-blue-100 text-sm mt-0.5">{email}</p>
-                      <div className="flex items-center gap-2 mt-2 flex-wrap">
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${roleColor}`}>
-                          {role}
-                        </span>
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold inline-flex items-center gap-1 ${statusConfig.badge}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-                          {statusConfig.label}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Desktop action buttons */}
-                  <div className="hidden sm:flex items-center gap-3">
-                    <button
-                      onClick={handleEditProfile}
-                      className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-sm text-white rounded-xl text-sm font-medium hover:bg-white/30 transition-all"
-                    >
-                      {editIcon} Edit Profile
-                    </button>
-                    <button
-                      onClick={handleChangePassword}
-                      className="flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-sm text-white rounded-xl text-sm font-medium hover:bg-white/20 transition-all"
-                    >
-                      {lockIcon} Change Password
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 2-column detail grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Personal Information */}
-              <DetailCard title="Personal Information" icon={userIcon} iconColor="bg-blue-100 text-blue-600">
+          {/* ═══════════════ DETAILED INFO GRID ═══════════════ */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
+            
+            {/* Left Column - Personal Info (Span 4) */}
+            <div className="lg:col-span-5 xl:col-span-4 space-y-6 sm:space-y-8">
+              <DetailCard title="Personal Information" icon={userIcon} iconColor="bg-teal-100 text-teal-600">
                 {loadingEmployee ? <LoadingSkeleton /> : (
-                  <div className="space-y-4">
-                    <DetailField icon={mailIcon} iconBg="bg-blue-50 text-blue-600" label="Email Address" value={email} />
+                  <div className="space-y-6">
+                    <DetailField icon={mailIcon} iconBg="bg-teal-50 text-teal-600" label="Email Address" value={email} />
                     <DetailField icon={phoneIcon} iconBg="bg-green-50 text-green-600" label="Phone Number" value={phone} />
                     <DetailField icon={locationIcon} iconBg="bg-amber-50 text-amber-600" label="Location" value={location} />
-                    <DetailField icon={calendarIcon} iconBg="bg-purple-50 text-purple-600" label="Join Date" value={joinDate} />
-                    <DetailField icon={briefcaseIcon} iconBg="bg-indigo-50 text-indigo-600" label="Employment Type" value={empType} />
+                    <DetailField icon={calendarIcon} iconBg="bg-emerald-50 text-emerald-600" label="Join Date" value={joinDate} />
                   </div>
                 )}
               </DetailCard>
 
-              {/* Employment Details */}
-              <DetailCard title="Employment Details" icon={briefcaseIcon} iconColor="bg-indigo-100 text-indigo-600">
+              {/* Quick Navigation Card */}
+              <DetailCard title="Navigation" icon={dashboardIcon} iconColor="bg-teal-100 text-teal-600">
+                <Link
+                  to="/dashboard"
+                  className="group block"
+                >
+                  <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-transparent bg-gray-50 hover:bg-white hover:border-teal-100 hover:shadow-md transition-all duration-300">
+                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center text-teal-600 group-hover:scale-110 group-hover:bg-teal-600 group-hover:text-white transition-all duration-300">
+                      {dashboardIcon}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900 group-hover:text-teal-600 transition-colors">Go to Dashboard</h4>
+                      <p className="text-xs text-gray-500 mt-0.5">Return to your home workspace</p>
+                    </div>
+                  </div>
+                </Link>
+              </DetailCard>
+            </div>
+
+            {/* Right Column - Work & Account Info (Span 8) */}
+            <div className="lg:col-span-7 xl:col-span-8 space-y-6 sm:space-y-8">
+              <DetailCard title="Employment Details" icon={briefcaseIcon} iconColor="bg-emerald-100 text-emerald-600">
                 {loadingEmployee ? <LoadingSkeleton /> : (
-                  <div className="space-y-4">
-                    <DetailField icon={idCardIcon} iconBg="bg-purple-50 text-purple-600" label="Employee ID" value={empCode} mono />
-                    <DetailField icon={userIcon} iconBg="bg-indigo-50 text-indigo-600" label="Position" value={position} />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-8">
+                    <DetailField icon={idCardIcon} iconBg="bg-gray-100 text-gray-600" label="Employee ID" value={empCode} mono />
+                    <DetailField icon={briefcaseIcon} iconBg="bg-emerald-50 text-emerald-600" label="Employment Type" value={empType} />
+                    <DetailField icon={userIcon} iconBg="bg-teal-50 text-teal-600" label="Position" value={position} />
                     <DetailField icon={buildingIcon} iconBg="bg-emerald-50 text-emerald-600" label="Department" value={department} />
-                    <DetailField icon={buildingIcon} iconBg="bg-blue-50 text-blue-600" label="Organization" value={organization} />
+                    <DetailField icon={buildingIcon} iconBg="bg-cyan-50 text-cyan-600" label="Organization" value={organization} />
                     <DetailField icon={buildingIcon} iconBg="bg-teal-50 text-teal-600" label="Entity" value={entity} />
                   </div>
                 )}
               </DetailCard>
 
-              {/* Account Status */}
-              <DetailCard title="Account Status" icon={shieldIcon} iconColor="bg-emerald-100 text-emerald-600">
+              <DetailCard title="Account & Access Tracking" icon={shieldIcon} iconColor="bg-rose-100 text-rose-600">
                 {loadingEmployee ? <LoadingSkeleton /> : (
-                  <div className="space-y-4">
-                    <DetailField icon={clockIcon} iconBg="bg-gray-50 text-gray-600" label="Last Active" value={lastLogin} />
-                    <DetailField icon={userIcon} iconBg="bg-blue-50 text-blue-600" label="Reports To" value={manager} />
-                    <DetailField icon={clockIcon} iconBg="bg-amber-50 text-amber-600" label="Shift" value={shift} />
-                    {/* Permissions badges */}
-                    <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center flex-shrink-0 text-indigo-600">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-8">
+                    <DetailField icon={userIcon} iconBg="bg-teal-50 text-teal-600" label="Reports To" value={manager} />
+                    <DetailField icon={clockIcon} iconBg="bg-amber-50 text-amber-600" label="Shift Schedule" value={shift} />
+                    <DetailField icon={clockIcon} iconBg="bg-slate-100 text-slate-600" label="Last Login Activity" value={lastLogin} />
+                    
+                    {/* Role & Permissions Banner */}
+                    <div className="flex items-start gap-4 p-4 rounded-xl border border-rose-50 bg-rose-50/30">
+                      <div className="w-12 h-12 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
                         {shieldIcon}
                       </div>
                       <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Status</p>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusConfig.badgeSolid}`}>
-                            {statusConfig.label}
+                        <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">System Authorization</p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className={`px-3 py-1 rounded-md text-xs font-bold ${roleColor}`}>
+                            {role}
                           </span>
                           {isVerified && (
-                            <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-semibold">
-                              Email Verified
+                            <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-md text-xs font-bold flex items-center gap-1">
+                              {verifiedIcon} Verified
                             </span>
                           )}
                         </div>
@@ -385,49 +341,10 @@ const ProfilePage = () => {
                   </div>
                 )}
               </DetailCard>
-
-              {/* Quick Actions */}
-              <DetailCard title="Quick Actions" icon={settingsIcon} iconColor="bg-gray-100 text-gray-600">
-                <div className="space-y-3">
-                  <Link
-                    to="/dashboard"
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 hover:shadow-md hover:shadow-blue-100 hover:-translate-y-0.5 transition-all duration-200"
-                  >
-                    {dashboardIcon} Go to Dashboard
-                  </Link>
-                  <button
-                    onClick={handleEditProfile}
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-indigo-50 text-indigo-700 rounded-xl text-sm font-medium hover:bg-indigo-100 hover:shadow-md hover:shadow-indigo-100 hover:-translate-y-0.5 transition-all duration-200"
-                  >
-                    {editIcon} Edit Profile
-                  </button>
-                  <button
-                    onClick={handleChangePassword}
-                    className="flex items-center gap-3 w-full px-4 py-3 bg-gray-50 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-100 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
-                  >
-                    {lockIcon} Change Password
-                  </button>
-                </div>
-
-                {/* Mobile action buttons */}
-                <div className="sm:hidden mt-4 pt-4 border-t border-gray-100 space-y-3">
-                  <button
-                    onClick={handleEditProfile}
-                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
-                  >
-                    Edit Profile
-                  </button>
-                  <button
-                    onClick={handleChangePassword}
-                    className="w-full px-4 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors"
-                  >
-                    Change Password
-                  </button>
-                </div>
-              </DetailCard>
             </div>
+
           </div>
-        )}
+        </div>
       </main>
 
       {/* Success toast */}
@@ -440,13 +357,13 @@ const ProfilePage = () => {
       {/* ═══════════════ EDIT PROFILE MODAL ═══════════════ */}
       {showEditModal && (
         <ModalOverlay onClose={() => { setShowEditModal(false); setErrors({}); }}>
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-500 px-6 py-5 rounded-t-2xl">
+          <div className="bg-gradient-to-r from-teal-600 to-emerald-500 px-6 py-5 rounded-t-2xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white">{editIcon}</div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Edit Profile</h2>
-                  <p className="text-blue-100 text-xs">Update your personal information</p>
+                  <p className="text-teal-100 text-xs">Update your personal information</p>
                 </div>
               </div>
               <button onClick={() => { setShowEditModal(false); setErrors({}); }} className="text-white/60 hover:text-white transition-colors">
@@ -461,7 +378,7 @@ const ProfilePage = () => {
                   type="text"
                   value={editFormData.firstName}
                   onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -470,7 +387,7 @@ const ProfilePage = () => {
                   type="text"
                   value={editFormData.lastName}
                   onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -479,7 +396,7 @@ const ProfilePage = () => {
                   type="tel"
                   value={editFormData.phone}
                   onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
                 />
               </FormField>
               {errors.submit && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{errors.submit}</p>}
@@ -488,7 +405,7 @@ const ProfilePage = () => {
               <button type="button" onClick={() => { setShowEditModal(false); setErrors({}); }} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button type="submit" className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors">
+              <button type="submit" className="px-4 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition-colors">
                 Save Changes
               </button>
             </div>
@@ -499,13 +416,13 @@ const ProfilePage = () => {
       {/* ═══════════════ CHANGE PASSWORD MODAL ═══════════════ */}
       {showPasswordModal && (
         <ModalOverlay onClose={() => { setShowPasswordModal(false); setErrors({}); setPasswordFormData({ currentPassword: '', newPassword: '', confirmPassword: '' }); }}>
-          <div className="bg-gradient-to-r from-purple-600 to-purple-500 px-6 py-5 rounded-t-2xl">
+          <div className="bg-gradient-to-r from-teal-700 to-teal-600 px-6 py-5 rounded-t-2xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white">{lockIcon}</div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Change Password</h2>
-                  <p className="text-purple-100 text-xs">Update your account password</p>
+                  <p className="text-teal-100 text-xs">Update your account password</p>
                 </div>
               </div>
               <button onClick={() => { setShowPasswordModal(false); setErrors({}); }} className="text-white/60 hover:text-white transition-colors">
@@ -520,7 +437,7 @@ const ProfilePage = () => {
                   type="password"
                   value={passwordFormData.currentPassword}
                   onChange={(e) => setPasswordFormData({ ...passwordFormData, currentPassword: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -529,7 +446,7 @@ const ProfilePage = () => {
                   type="password"
                   value={passwordFormData.newPassword}
                   onChange={(e) => setPasswordFormData({ ...passwordFormData, newPassword: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -538,7 +455,7 @@ const ProfilePage = () => {
                   type="password"
                   value={passwordFormData.confirmPassword}
                   onChange={(e) => setPasswordFormData({ ...passwordFormData, confirmPassword: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/30 focus:border-purple-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -548,7 +465,7 @@ const ProfilePage = () => {
               <button type="button" onClick={() => { setShowPasswordModal(false); setErrors({}); }} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button type="submit" disabled={passwordSubmitting} className="px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+              <button type="submit" disabled={passwordSubmitting} className="px-4 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                 {passwordSubmitting ? 'Changing...' : 'Change Password'}
               </button>
             </div>
@@ -563,26 +480,18 @@ const ProfilePage = () => {
 // Sub-components
 // ═══════════════════════════════════════════
 
-function InfoRow({ icon, iconBg, label, value, mono }: { icon: JSX.Element; iconBg: string; label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center gap-4 p-3 rounded-xl hover:bg-gray-50 transition-colors">
-      <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>{icon}</div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
-        <p className={`text-sm font-medium text-gray-900 truncate ${mono ? 'font-mono' : ''}`}>{value}</p>
-      </div>
-    </div>
-  );
-}
 
 function DetailCard({ title, icon, iconColor, children }: { title: string; icon: JSX.Element; iconColor: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
-        <div className={`w-8 h-8 rounded-lg ${iconColor} flex items-center justify-center`}>{icon}</div>
-        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 transition-all duration-300 hover:shadow-md hover:border-blue-100/50 group overflow-hidden">
+      <div className="px-6 py-5 border-b border-gray-50 bg-gray-50/50 flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-xl ${iconColor} flex items-center justify-center group-hover:scale-110 transition-transform duration-300`}>{icon}</div>
+        <h3 className="text-lg font-bold text-gray-900 tracking-tight">{title}</h3>
       </div>
-      <div className="p-6">{children}</div>
+      <div className="p-6 relative">
+        <div className="absolute inset-0 bg-gradient-to-br from-transparent to-gray-50/30 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+        {children}
+      </div>
     </div>
   );
 }
@@ -660,11 +569,11 @@ function getStatusConfig(status: string): { label: string; badge: string; badgeS
 
 function getRoleColor(role: string): string {
   switch (role) {
-    case 'SUPER_ADMIN': return 'bg-indigo-500/30 text-indigo-100';
-    case 'ORG_ADMIN': return 'bg-blue-500/30 text-blue-100';
-    case 'HR_MANAGER': return 'bg-emerald-500/30 text-emerald-100';
-    case 'MANAGER': return 'bg-amber-500/30 text-amber-100';
-    default: return 'bg-white/20 text-white';
+    case 'SUPER_ADMIN': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    case 'ORG_ADMIN': return 'bg-blue-50 text-blue-700 border-blue-200';
+    case 'HR_MANAGER': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'MANAGER': return 'bg-amber-50 text-amber-700 border-amber-200';
+    default: return 'bg-gray-50 text-gray-700 border-gray-200';
   }
 }
 
@@ -733,31 +642,14 @@ const lockIcon = (
     <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
   </svg>
 );
-const eyeIcon = (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-);
 const closeIcon = (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
-const arrowLeftIcon = (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-  </svg>
-);
 const verifiedIcon = (
   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-  </svg>
-);
-const settingsIcon = (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 011.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.893.149c-.425.07-.765.383-.93.78-.165.398-.143.854.107 1.204l.527.738c.32.447.269 1.06-.12 1.45l-.774.773a1.125 1.125 0 01-1.449.12l-.738-.527c-.35-.25-.806-.272-1.204-.107-.397.165-.71.505-.78.929l-.15.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.447.32-1.06.269-1.45-.12l-.773-.774a1.125 1.125 0 01-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.854-.108-1.204l-.526-.738a1.125 1.125 0 01.12-1.45l.773-.773a1.125 1.125 0 011.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894z" />
-    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
 const dashboardIcon = (

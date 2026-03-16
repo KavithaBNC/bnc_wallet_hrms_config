@@ -124,7 +124,7 @@ export default function VariableInputEntryPage() {
         title="Variable Input"
         subtitle={
           organizationName
-            ? `Organization: ${organizationName} – ${paygroupName ?? ''} [${monthLabel} ${year ?? ''}]`
+            ? `${organizationName} – ${paygroupName ?? ''} [${monthLabel} ${year ?? ''}]`
             : `${paygroupName ?? ''} [${monthLabel} ${year ?? ''}]`
         }
         onLogout={handleLogout}

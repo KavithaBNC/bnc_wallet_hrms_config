@@ -68,15 +68,15 @@ const DashboardPage = () => {
     <div className="flex flex-col flex-1 min-h-0 bg-[#F8F9FA]">
       <AppHeader
         title="Dashboard"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         notificationCount={0}
         onLogout={handleLogout}
       />
 
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 py-6">
-        {/* Welcome section */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
+        {/* Welcome section with motivation quote in center */}
+        <div className="flex items-center justify-between mb-6 gap-4 animate-fadeInUp">
+          <div className="flex-shrink-0">
             <h1 className="text-2xl font-bold text-gray-900">
               {getGreeting()}, {firstName}!
             </h1>
@@ -84,54 +84,56 @@ const DashboardPage = () => {
               Here's what's happening today
             </p>
           </div>
-          <div className="text-right hidden sm:block">
+          <div className="flex-1 hidden md:block max-w-xl mx-auto">
+            <MotivationQuote />
+          </div>
+          <div className="text-right flex-shrink-0 hidden sm:block">
             <p className="text-sm font-medium text-gray-700">
               {currentTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
             </p>
             <p className="text-xs text-gray-400">{formatCurrentDate()}</p>
           </div>
         </div>
-
-        {/* Motivation Quote - Full width */}
-        <div className="mb-6">
+        {/* Motivation Quote - mobile only (below greeting) */}
+        <div className="mb-6 md:hidden animate-fadeInUp animate-delay-1">
           <MotivationQuote />
         </div>
 
         {/* Main dashboard grid - 3 columns on xl, 2 on md, 1 on mobile */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-6">
           {/* Row 1: Profile, Attendance, Leaves */}
-          <EmployeeProfile />
-          <AttendanceSummary />
-          <LeaveDetails />
+          <div className="animate-fadeInUp animate-delay-1"><EmployeeProfile /></div>
+          <div className="animate-fadeInUp animate-delay-2"><AttendanceSummary /></div>
+          <div className="animate-fadeInUp animate-delay-3"><LeaveDetails /></div>
 
           {/* Row 2: Payroll, Tasks, Notifications */}
-          <SalaryPayroll />
-          <TasksWorkStatus />
-          <NotificationsWidget />
+          <div className="animate-fadeInUp animate-delay-4"><SalaryPayroll /></div>
+          <div className="animate-fadeInUp animate-delay-5"><TasksWorkStatus /></div>
+          <div className="animate-fadeInUp animate-delay-6"><NotificationsWidget /></div>
 
           {/* Row 3: Performance, Holidays, Documents */}
-          <PerformanceWidget />
-          <HolidaysWidget />
-          <DocumentsWidget />
+          <div className="animate-fadeInUp animate-delay-7"><PerformanceWidget /></div>
+          <div className="animate-fadeInUp animate-delay-8"><HolidaysWidget /></div>
+          <div className="animate-fadeInUp animate-delay-9"><DocumentsWidget /></div>
         </div>
 
         {/* Additional widgets - 2-column layout for birthdays/anniversaries */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <BirthdayReminders />
-          <WorkAnniversaryReminders />
+          <div className="animate-fadeInUp animate-delay-10"><BirthdayReminders /></div>
+          <div className="animate-fadeInUp animate-delay-11"><WorkAnniversaryReminders /></div>
         </div>
 
         {/* Quick Access - Organization Management (SUPER_ADMIN only) */}
         {isSuperAdmin && (
-          <div className="mb-6">
+          <div className="mb-6 animate-fadeInUp animate-delay-12">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Organization Management</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Link
                 to="/organizations"
                 className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-gray-100"
               >
-                <div className="flex-shrink-0 bg-indigo-100 rounded-lg p-3">
-                  <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <div className="flex-shrink-0 bg-teal-100 rounded-lg p-3">
+                  <svg className="w-6 h-6 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
                   </svg>
                 </div>
@@ -146,11 +148,11 @@ const DashboardPage = () => {
 
         {/* Quick Access - shown based on module permissions */}
         {employeePerms.can_view && (
-          <div className="mb-6">
+          <div className="mb-6 animate-fadeInUp animate-delay-12">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Quick Access</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {employeePerms.can_view && <QuickLink to="/employees" icon={employeesIcon} color="bg-blue-100 text-blue-600" title="Employees" subtitle="Manage employee records" />}
-              {getModulePermissions('/departments').can_view && <QuickLink to="/departments" icon={departmentsIcon} color="bg-green-100 text-green-600" title="Departments" subtitle="Organize departments" />}
+              {employeePerms.can_view && <QuickLink to="/employees" icon={employeesIcon} color="bg-teal-100 text-teal-600" title="Employees" subtitle="Manage employee records" />}
+              {getModulePermissions('/departments').can_view && <QuickLink to="/departments" icon={departmentsIcon} color="bg-emerald-100 text-emerald-600" title="Departments" subtitle="Organize departments" />}
               {canViewLeaveApprovals && (
                 <QuickLink to="/leave/approvals" icon={leaveIcon} color="bg-amber-100 text-amber-600" title="Leave Approvals" subtitle="Review leave requests" />
               )}
@@ -238,7 +240,7 @@ function AssignedModulesGrid({
   if (assignedModules.length === 0) return null;
 
   return (
-    <div className="mb-6">
+    <div className="mb-6 animate-fadeInUp animate-delay-12">
       <h2 className="text-lg font-semibold text-gray-900 mb-3">Modules</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {assignedModules.map((module, index) => {

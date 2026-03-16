@@ -141,7 +141,7 @@ export default function EsopPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100 w-full h-full">
       <AppHeader
         title="ESOP"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
 

@@ -32,7 +32,7 @@ const HolidaysWidget = () => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse">
+      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse h-full">
         <div className="h-4 bg-gray-200 rounded w-1/3 mb-6" />
         <div className="h-20 bg-gray-200 rounded-xl mb-4" />
         <div className="space-y-3">
@@ -61,7 +61,7 @@ const HolidaysWidget = () => {
   const optionalCount = holidays.filter((h) => h.type === 'Optional').length;
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -92,7 +92,7 @@ const HolidaysWidget = () => {
       )}
 
       {/* Holiday list */}
-      <div className="space-y-2 mb-4">
+      <div className="space-y-2 mb-4 flex-1 overflow-y-auto">
         {displayHolidays.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-4">No upcoming holidays</p>
         ) : (

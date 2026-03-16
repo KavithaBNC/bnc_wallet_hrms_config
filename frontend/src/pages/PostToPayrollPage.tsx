@@ -176,7 +176,7 @@ export default function PostToPayrollPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Post to Payroll Setup"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
 

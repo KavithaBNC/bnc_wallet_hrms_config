@@ -668,7 +668,7 @@ export default function ValidationProcessRuleFormPage() {
       <AppHeader
         title={parentLabel}
         subtitle={
-          organizationName ? `Organization: ${organizationName}` : undefined
+          organizationName ? organizationName : undefined
         }
         onLogout={handleLogout}
       />

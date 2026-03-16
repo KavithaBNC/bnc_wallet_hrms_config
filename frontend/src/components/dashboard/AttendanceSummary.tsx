@@ -7,7 +7,7 @@ const STATUS_COLORS: Record<string, string> = {
   present: '#10B981',
   late: '#F59E0B',
   absent: '#EF4444',
-  'half-day': '#8B5CF6',
+  'half-day': '#14B8A6',
 };
 
 const AttendanceSummary = () => {
@@ -30,7 +30,7 @@ const AttendanceSummary = () => {
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse">
+      <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 animate-pulse h-full">
         <div className="h-4 bg-gray-200 rounded w-1/3 mb-6" />
         <div className="h-40 bg-gray-200 rounded mb-4" />
         <div className="grid grid-cols-4 gap-2">
@@ -61,7 +61,7 @@ const AttendanceSummary = () => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -74,7 +74,7 @@ const AttendanceSummary = () => {
       </div>
 
       {/* Chart */}
-      <div className="h-40 mb-5">
+      <div className="h-40 mb-5 flex-1 min-h-[10rem]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data.weeklyData} barCategoryGap="20%">
             <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />

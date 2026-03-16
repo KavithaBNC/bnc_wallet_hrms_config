@@ -136,7 +136,7 @@ const LoginPage = () => {
 
       <div className={`login-card ${step === 2 ? 'step-2' : ''}`}>
         {/* Welcome branding section */}
-        <div className="welcome-section hidden md:flex">
+        <div className="welcome-section flex">
           <div className="welcome-content">
             {step === 1 ? (
               <div className="animate-fadeInScale flex flex-col items-center">

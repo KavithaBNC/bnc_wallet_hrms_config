@@ -51,6 +51,30 @@ body {
   animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
+/* Staggered fade-in-up for dashboard sections */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeInUp {
+  opacity: 0;
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-delay-1 { animation-delay: 0.05s; }
+.animate-delay-2 { animation-delay: 0.1s; }
+.animate-delay-3 { animation-delay: 0.15s; }
+.animate-delay-4 { animation-delay: 0.2s; }
+.animate-delay-5 { animation-delay: 0.25s; }
+.animate-delay-6 { animation-delay: 0.3s; }
+.animate-delay-7 { animation-delay: 0.35s; }
+.animate-delay-8 { animation-delay: 0.4s; }
+.animate-delay-9 { animation-delay: 0.45s; }
+.animate-delay-10 { animation-delay: 0.5s; }
+.animate-delay-11 { animation-delay: 0.55s; }
+.animate-delay-12 { animation-delay: 0.6s; }
+
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
 }

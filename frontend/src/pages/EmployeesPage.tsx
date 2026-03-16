@@ -8,11 +8,9 @@ import employeeService from '../services/employee.service';
 import api from '../services/api';
 import * as XLSX from 'xlsx';
 import Modal from '../components/common/Modal';
-import EmployeeForm from '../components/employees/EmployeeForm';
-import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
 import { FaceCapture } from '../components/employees/FaceCapture';
 import AppHeader from '../components/layout/AppHeader';
-import { getEditableTabsFromPermissions, canEditEmployeeByPermission, resolveBaseRole, type EmployeeFormTabKey } from '../utils/rbac';
+import { getEditableTabsFromPermissions, canEditEmployeeByPermission, resolveBaseRole } from '../utils/rbac';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import { toDisplayEmail, toDisplayFullName, toDisplayName, toDisplayValue } from '../utils/display';
 import permissionService from '../services/permission.service';
@@ -193,14 +191,6 @@ export default function EmployeesPage() {
   const { departments, fetchDepartments } = useDepartmentStore();
   const [orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
   const [orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [showPaygroupModal, setShowPaygroupModal] = useState(false);
-  const [paygroupModalOrgId, setPaygroupModalOrgId] = useState<string | null>(null);
-  const [selectedPaygroupId, setSelectedPaygroupId] = useState<string | null>(null);
-  const [selectedPaygroupName, setSelectedPaygroupName] = useState<string | null>(null);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const [viewMode, setViewMode] = useState(false);
-  const [rejoinMode, setRejoinMode] = useState(false);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // View modal state for Configurator users (fallback when no HRMS record)
   const [viewingUser, setViewingUser] = useState<any | null>(null);
@@ -428,7 +418,7 @@ export default function EmployeesPage() {
     return () => { cancelled = true; };
   }, [statusFilter, effectiveOrganizationId, location.pathname]);
 
-  // Open employee edit form when navigated with editEmployeeId or rejoinEmployeeId (from Employee Rejoin list)
+  // Open employee edit/rejoin form when navigated with editEmployeeId or rejoinEmployeeId
   useEffect(() => {
     const state = location.state as { editEmployeeId?: string; rejoinEmployeeId?: string } | null;
     const editId = state?.editEmployeeId;
@@ -441,12 +431,16 @@ export default function EmployeesPage() {
       .getById(id)
       .then((full) => {
         if (!cancelled) {
-          setEditingEmployee(full);
-          setViewMode(false);
-          setRejoinMode(!!rejoinId);
-          setShowForm(true);
+          const targetPath = rejoinId ? `/employees/edit/${id}` : `/employees/edit/${id}`;
+          navigate(targetPath, {
+            replace: true,
+            state: {
+              employee: full,
+              mode: 'edit' as const,
+              rejoinMode: !!rejoinId,
+            },
+          });
         }
-        navigate('/employees', { replace: true, state: {} });
       })
       .catch(() => {
         if (!cancelled) alert(rejoinId ? 'Failed to load employee for rejoin' : 'Failed to load employee details');
@@ -504,26 +498,24 @@ export default function EmployeesPage() {
       setLoadingEmployee(true);
       const email = user.email;
       if (!email) {
-        // Fallback: show Configurator-only detail modal
         setViewingUser(user);
         return;
       }
-      // Look up the HRMS employee by email
       const hrmsEmployee = await employeeService.getByEmail(email);
       if (!hrmsEmployee) {
-        // No HRMS record — show basic Configurator info
         const details = await configuratorDataService.getConfiguratorUser(user.user_id);
         setViewingUser({ ...user, ...details });
         return;
       }
-      // Fetch full HRMS employee details and open EmployeeForm in view mode
       const full = await employeeService.getById(hrmsEmployee.id);
-      setEditingEmployee(full);
-      setViewMode(true);
-      setShowForm(true);
+      navigate(`/employees/view/${hrmsEmployee.id}`, {
+        state: {
+          employee: full,
+          mode: 'view' as const,
+        },
+      });
     } catch (err: any) {
       console.error('Failed to load user details', err);
-      // Fallback: show what we already have from the list
       setViewingUser(user);
     } finally {
       setLoadingEmployee(false);
@@ -554,10 +546,8 @@ export default function EmployeesPage() {
       }
       const configFields = buildConfigFields(user);
 
-      // Look up the HRMS employee by email
       const hrmsEmployee = await employeeService.getByEmail(email);
       if (!hrmsEmployee) {
-        // Fallback: open form with Configurator data so the user can still edit/create
         const _fallbackFullName = user.full_name || user.name || user.fullname || '';
         const fallback: any = {
           id: user.user_id || user.id || '',
@@ -568,21 +558,21 @@ export default function EmployeesPage() {
           employeeCode: user.code || user.employee_code || '',
           ...configFields,
         };
-        setEditingEmployee(fallback);
-        setViewMode(false);
-        setShowForm(true);
+        navigate(`/employees/edit/${fallback.id}`, {
+          state: {
+            employee: fallback,
+            mode: 'edit' as const,
+          },
+        });
         return;
       }
-      // Fetch full HRMS employee details
       const full = await employeeService.getById(hrmsEmployee.id);
-      // Enrich with Configurator IDs from user list data (may be missing in HRMS)
       const emp = full as any;
       if (!emp.configuratorUserId) emp.configuratorUserId = configFields.configuratorUserId;
       if (!emp.costCentreConfiguratorId && configFields.costCentreConfiguratorId) emp.costCentreConfiguratorId = configFields.costCentreConfiguratorId;
       if (!emp.departmentConfiguratorId && configFields.departmentConfiguratorId) emp.departmentConfiguratorId = configFields.departmentConfiguratorId;
       if (!emp.subDepartmentConfiguratorId && configFields.subDepartmentConfiguratorId) emp.subDepartmentConfiguratorId = configFields.subDepartmentConfiguratorId;
       if (!emp.configuratorRoleId && configFields.configuratorRoleId) emp.configuratorRoleId = configFields.configuratorRoleId;
-      // Fill in relation objects if HRMS didn't have them
       if (!emp.costCentre && configFields.costCentre) emp.costCentre = configFields.costCentre;
       if (!emp.department && configFields.department) emp.department = configFields.department;
       if (!emp.sub_department && !emp.subDepartment && configFields.sub_department) {
@@ -590,9 +580,12 @@ export default function EmployeesPage() {
         emp.subDepartment = configFields.sub_department.name;
       }
 
-      setEditingEmployee(full);
-      setViewMode(false);
-      setShowForm(true);
+      navigate(`/employees/edit/${hrmsEmployee.id}`, {
+        state: {
+          employee: full,
+          mode: 'edit' as const,
+        },
+      });
     } catch (err: any) {
       console.error('Failed to load employee for edit', err);
       const configFields = buildConfigFields(user);
@@ -606,9 +599,12 @@ export default function EmployeesPage() {
         employeeCode: user.code || user.employee_code || '',
         ...configFields,
       };
-      setEditingEmployee(fallback);
-      setViewMode(false);
-      setShowForm(true);
+      navigate(`/employees/edit/${fallback.id}`, {
+        state: {
+          employee: fallback,
+          mode: 'edit' as const,
+        },
+      });
     } finally {
       setLoadingEmployee(false);
     }
@@ -617,15 +613,9 @@ export default function EmployeesPage() {
 
 
   const handleCreate = async () => {
-    setEditingEmployee(null);
-    setSelectedPaygroupId(null);
-    setSelectedPaygroupName(null);
-
     let resolvedOrgId: string | undefined = effectiveOrganizationId;
 
     if (isSuperAdmin && !resolvedOrgId) {
-      // SUPER_ADMIN with "All organizations" selected — resolve org dynamically
-      // Try ref first (always-fresh), then state, then fetch fresh from API
       let orgs: Organization[] =
         superAdminOrganizationsRef.current.length > 0
           ? superAdminOrganizationsRef.current
@@ -645,7 +635,6 @@ export default function EmployeesPage() {
       }
 
       if (orgs.length > 0) {
-        // Prefer the user's own org; fall back to first org in the list
         const latestUser = useAuthStore.getState().user;
         const userOrgId =
           latestUser?.employee?.organizationId ||
@@ -657,7 +646,6 @@ export default function EmployeesPage() {
         setSuperAdminSelectedOrgId(resolvedOrgId);
       }
     } else if (!resolvedOrgId && !isSuperAdmin) {
-      // Non-super-admin: org hasn't loaded yet — refresh user data
       try {
         await loadUser();
         const refreshedUser = useAuthStore.getState().user;
@@ -675,17 +663,23 @@ export default function EmployeesPage() {
       return;
     }
 
-    setPaygroupModalOrgId(resolvedOrgId);
-    setShowPaygroupModal(true);
+    navigate('/employees/create', {
+      state: {
+        organizationId: resolvedOrgId,
+      },
+    });
   };
 
   const handleView = async (employee: Employee) => {
     setLoadingEmployee(true);
     try {
       const full = await employeeService.getById(employee.id);
-      setEditingEmployee(full);
-      setViewMode(true);
-      setShowForm(true);
+      navigate(`/employees/view/${employee.id}`, {
+        state: {
+          employee: full,
+          mode: 'view' as const,
+        },
+      });
     } catch (err) {
       console.error('Failed to load employee', err);
       alert('Failed to load employee details');
@@ -754,9 +748,12 @@ export default function EmployeesPage() {
     setLoadingEmployee(true);
     try {
       const full = await employeeService.getById(employee.id);
-      setEditingEmployee(full);
-      setViewMode(false);
-      setShowForm(true);
+      navigate(`/employees/edit/${employee.id}`, {
+        state: {
+          employee: full,
+          mode: 'edit' as const,
+        },
+      });
     } catch (err) {
       console.error('Failed to load employee', err);
       alert('Failed to load employee details');
@@ -765,38 +762,6 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleFormSuccess = () => {
-    setShowForm(false);
-    setEditingEmployee(null);
-    setRejoinMode(false);
-    const params: any = {
-      page: currentPage,
-      limit: pageSize,
-      employeeStatus: statusFilter,
-    };
-    if (searchTerm) params.search = searchTerm;
-    if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
-    if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-    if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
-    fetchEmployees(params);
-  };
-
-  const handleFormCancel = () => {
-    setShowForm(false);
-    setEditingEmployee(null);
-    setViewMode(false);
-    setRejoinMode(false);
-    setSelectedPaygroupId(null);
-    setSelectedPaygroupName(null);
-    setPaygroupModalOrgId(null);
-  };
-
-  const handlePaygroupSubmit = (paygroupId: string, paygroupName: string) => {
-    setSelectedPaygroupId(paygroupId);
-    setSelectedPaygroupName(paygroupName);
-    setShowPaygroupModal(false);
-    setShowForm(true);
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -1495,7 +1460,7 @@ export default function EmployeesPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Employee Directory"
-        subtitle={effectiveOrganizationName ? `Organization: ${effectiveOrganizationName}` : undefined}
+        subtitle={effectiveOrganizationName || undefined}
         onLogout={handleLogout}
       />
 
@@ -2473,45 +2438,6 @@ export default function EmployeesPage() {
       )}
 
         </div>
-      {/* Paygroup Selection Modal (Create flow only) */}
-      {showPaygroupModal && (
-        <PaygroupSelectionModal
-          isOpen={showPaygroupModal}
-          onClose={() => { setShowPaygroupModal(false); setPaygroupModalOrgId(null); }}
-          organizationId={paygroupModalOrgId ?? ''}
-          onSubmit={handlePaygroupSubmit}
-        />
-      )}
-
-      {/* Employee Form Modal - full width for large form */}
-      <Modal
-        isOpen={showForm}
-        onClose={handleFormCancel}
-        title={rejoinMode ? 'Employee Rejoin' : editingEmployee ? (viewMode ? 'View Employee' : 'Edit Employee') : 'Create Employee'}
-        size="full"
-      >
-        {(effectiveOrganizationId || editingEmployee?.organizationId || showForm) && (
-          <EmployeeForm
-            key={editingEmployee?.id ?? 'create'}
-            employee={editingEmployee}
-            organizationId={effectiveOrganizationId ?? editingEmployee?.organizationId ?? ''}
-            initialPaygroupId={selectedPaygroupId ?? undefined}
-            initialPaygroupName={selectedPaygroupName ?? undefined}
-            onSuccess={handleFormSuccess}
-            onCancel={handleFormCancel}
-            mode={editingEmployee && viewMode ? 'view' : 'edit'}
-            rejoinMode={rejoinMode}
-            editableTabs={
-              rejoinMode ? undefined : editingEmployee && !viewMode
-                ? canUpdateByRole
-                  ? undefined
-                  : (editableTabsFromPermissions ?? ((baseRole === 'EMPLOYEE' || baseRole === 'MANAGER') && user?.employee?.id === editingEmployee.id ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[]) : undefined))
-                : undefined
-            }
-          />
-        )}
-      </Modal>
-
       {/* Employee Import Modal */}
       <Modal
         isOpen={showImportModal}

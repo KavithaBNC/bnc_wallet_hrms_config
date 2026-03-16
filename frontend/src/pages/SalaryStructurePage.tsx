@@ -168,7 +168,7 @@ const SalaryStructurePage = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
         <AppHeader
           title="Salary Structure Management"
-          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+          subtitle={organizationName ? organizationName : undefined}
           onLogout={handleLogout}
         />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
@@ -184,7 +184,7 @@ const SalaryStructurePage = () => {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Salary Structure Management"
-        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
+        subtitle={organizationName ? organizationName : undefined}
         onLogout={handleLogout}
       />
       {/* Main Content */}

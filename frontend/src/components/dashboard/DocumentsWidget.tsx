@@ -30,7 +30,7 @@ const DocumentsWidget = () => {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl">
+    <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-6 transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -63,7 +63,7 @@ const DocumentsWidget = () => {
       </div>
 
       {/* Document list */}
-      <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+      <div className="space-y-2 flex-1 overflow-y-auto pr-1">
         {filtered.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-4">No documents found</p>
         ) : (
