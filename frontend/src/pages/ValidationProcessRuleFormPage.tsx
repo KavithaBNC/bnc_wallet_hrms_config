@@ -73,7 +73,7 @@ const Toggle = ({
       onClick={() => onChange(!value)}
       className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium border transition ${
         value
-          ? 'bg-green-100 text-green-800 border-green-300'
+          ? 'bg-blue-100 text-blue-800 border-blue-300'
           : 'bg-red-100 text-red-800 border-red-300'
       }`}
     >
@@ -84,7 +84,7 @@ const Toggle = ({
       >
         <span
           className={`h-3 w-3 rounded-full ${
-            value ? 'bg-green-500' : 'bg-red-500'
+            value ? 'bg-blue-500' : 'bg-red-500'
           }`}
         />
       </span>
@@ -117,7 +117,7 @@ const PillToggle = ({
         type="button"
         onClick={() => onChange(nextOpt.id)}
         className={`inline-flex items-center justify-center rounded-full px-3 py-1.5 text-xs font-medium w-fit transition ${
-          current.isGreen ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'
+          current.isGreen ? 'bg-blue-100 text-blue-800 border border-blue-300' : 'bg-red-100 text-red-800 border border-red-300'
         }`}
       >
         {current.label}
@@ -1237,7 +1237,7 @@ export default function ValidationProcessRuleFormPage() {
                                         <button
                                           type="button"
                                           onClick={() => updateActionBlock(action.id, 'days', 'Auto')}
-                                          className="text-xs font-medium rounded-full px-2 py-1 bg-green-100 text-green-800 border border-green-300 hover:bg-green-200"
+                                          className="text-xs font-medium rounded-full px-2 py-1 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200"
                                         >
                                           Auto
                                         </button>

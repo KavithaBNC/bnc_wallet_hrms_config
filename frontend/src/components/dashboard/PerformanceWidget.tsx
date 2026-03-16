@@ -31,7 +31,7 @@ const PerformanceWidget = () => {
         </div>
 
         {/* KPI Score */}
-        <div className="bg-gradient-to-br from-teal-50 to-emerald-50 rounded-xl p-3">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-50 rounded-xl p-3">
           <div className="flex items-center gap-1 mb-1">
             <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
@@ -43,12 +43,12 @@ const PerformanceWidget = () => {
         </div>
 
         {/* Next Review */}
-        <div className="bg-gradient-to-br from-cyan-50 to-teal-50 rounded-xl p-3">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-50 rounded-xl p-3">
           <div className="flex items-center gap-1 mb-1">
-            <svg className="w-4 h-4 text-teal-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="text-[10px] text-teal-600 font-medium">Review</span>
+            <span className="text-[10px] text-blue-600 font-medium">Review</span>
           </div>
           <p className="text-sm font-bold text-gray-900">{formatReviewDate(data.nextReviewDate)}</p>
           <p className="text-[10px] text-gray-400">next review</p>
@@ -88,7 +88,7 @@ const PerformanceWidget = () => {
               <span className="text-xs text-gray-600 w-28 flex-shrink-0 truncate">{kpi.name}</span>
               <div className="flex-1 bg-gray-100 rounded-full h-2">
                 <div
-                  className={`h-2 rounded-full transition-all duration-500 ${kpi.score >= kpi.target ? 'bg-green-500' : 'bg-amber-500'}`}
+                  className={`h-2 rounded-full transition-all duration-500 ${kpi.score >= kpi.target ? 'bg-blue-500' : 'bg-amber-500'}`}
                   style={{ width: `${kpi.score}%` }}
                 />
               </div>

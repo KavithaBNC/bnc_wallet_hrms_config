@@ -116,7 +116,7 @@ const FaceAttendancePage = () => {
         </p>
         <div className="space-y-4">
           <div className={`relative inline-block rounded-xl overflow-hidden border-2 shadow-md bg-gray-100 min-w-[640px] min-h-[480px] ${
-            punchSuccess ? 'border-green-500 ring-2 ring-green-200' : 'border-gray-300'
+            punchSuccess ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-300'
           }`}>
             {cameraError ? (
               <div className="w-[640px] h-[480px] flex flex-col items-center justify-center gap-4 p-6 bg-amber-50 text-amber-800 text-center">
@@ -179,13 +179,13 @@ const FaceAttendancePage = () => {
               </>
             )}
             {punchSuccess && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-green-500/20 rounded-xl">
-                <div className="w-20 h-20 rounded-full bg-green-500 flex items-center justify-center text-white shadow-lg">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-blue-500/20 rounded-xl">
+                <div className="w-20 h-20 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg">
                   <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <p className="mt-3 text-lg font-semibold text-green-800">Punched successfully</p>
+                <p className="mt-3 text-lg font-semibold text-blue-800">Punched successfully</p>
               </div>
             )}
           </div>
@@ -196,7 +196,7 @@ const FaceAttendancePage = () => {
                 checked={autoMode}
                 onChange={(e) => setAutoMode(e.target.checked)}
                 disabled={punchSuccess}
-                className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <span className="text-sm font-medium text-gray-700">Auto-detect face</span>
             </label>
@@ -224,15 +224,15 @@ const FaceAttendancePage = () => {
           {message && !punchSuccess && (
             <div
               className={`p-4 rounded-lg ${
-                message.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
+                message.type === 'success' ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'bg-red-50 text-red-800 border border-red-200'
               }`}
             >
               {message.text}
             </div>
           )}
           {message && punchSuccess && (
-            <div className="p-4 rounded-lg bg-green-50 text-green-800 border border-green-200 flex items-center gap-3">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white">
+            <div className="p-4 rounded-lg bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-3">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>

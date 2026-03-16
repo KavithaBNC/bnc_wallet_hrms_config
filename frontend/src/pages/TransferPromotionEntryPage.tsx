@@ -417,7 +417,7 @@ export default function TransferPromotionEntryPage() {
                       <div className="flex gap-3 sm:gap-4">
                         <dt className="text-gray-500 font-medium shrink-0 w-28 sm:w-32">Promotion</dt>
                         <dd>
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded ${viewDetail.promotionEnabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded ${viewDetail.promotionEnabled ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
                             {viewDetail.promotionEnabled ? 'YES' : 'NO'}
                           </span>
                         </dd>

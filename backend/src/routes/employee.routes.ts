@@ -1,5 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { employeeController } from '../controllers/employee.controller';
+import { employeeBulkImportController } from '../controllers/employee-bulk-import.controller';
 import { authenticate, authorize, authorizeEmployeeUpdate } from '../middlewares/auth';
 import { employeeListAccess, enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
@@ -12,10 +14,51 @@ import {
 
 const router = Router();
 
+// Multer for Excel file upload (memory storage, 50MB limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv', // .csv
+    ];
+    if (allowed.includes(file.mimetype) || /\.(xlsx|xls|csv)$/i.test(file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  },
+});
+
 // All routes require authentication
 router.use(authenticate);
 // Enforce organization access for non-SUPER_ADMIN users (except for routes that use employeeListAccess)
 // Note: employeeListAccess already handles organization filtering, but we need this for POST/PUT/DELETE routes
+
+/**
+ * @route   POST /api/v1/employees/bulk-import
+ * @desc    Bulk import employees from Excel file
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/bulk-import',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  upload.single('file'),
+  employeeBulkImportController.bulkImport.bind(employeeBulkImportController)
+);
+
+/**
+ * @route   GET /api/v1/employees/import-template
+ * @desc    Download employee import template from Configurator
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.get(
+  '/import-template',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  employeeBulkImportController.downloadTemplate.bind(employeeBulkImportController)
+);
 
 /**
  * @route   GET /api/v1/employees/credentials

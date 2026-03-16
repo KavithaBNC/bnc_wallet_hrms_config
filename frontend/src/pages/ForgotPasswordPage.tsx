@@ -43,9 +43,9 @@ const ForgotPasswordPage = () => {
         <div className="w-full max-w-md">
           <div className="bg-white shadow-2xl rounded-2xl px-8 py-10 text-center">
             <div className="mb-6">
-              <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+              <div className="mx-auto w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
                 <svg
-                  className="w-8 h-8 text-green-600"
+                  className="w-8 h-8 text-blue-600"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

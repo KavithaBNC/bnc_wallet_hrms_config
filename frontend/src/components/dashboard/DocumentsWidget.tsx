@@ -3,13 +3,13 @@ import { getMockDocuments, type DocumentItem } from '../../services/dashboard.se
 
 const TYPE_ICON_COLORS: Record<string, string> = {
   letter: 'bg-blue-100 text-blue-600',
-  payslip: 'bg-green-100 text-green-600',
+  payslip: 'bg-blue-100 text-blue-600',
   id: 'bg-purple-100 text-purple-600',
   tax: 'bg-amber-100 text-amber-600',
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  verified: 'bg-green-100 text-green-700',
+  verified: 'bg-blue-100 text-blue-700',
   available: 'bg-blue-100 text-blue-700',
   pending: 'bg-amber-100 text-amber-700',
 };
@@ -57,7 +57,7 @@ const DocumentsWidget = () => {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">
         <StatBox label="Total" value={stats.total} color="text-blue-600" bg="bg-blue-50" />
-        <StatBox label="Payslips" value={stats.payslips} color="text-green-600" bg="bg-green-50" />
+        <StatBox label="Payslips" value={stats.payslips} color="text-blue-600" bg="bg-blue-50" />
         <StatBox label="Verified" value={stats.verified} color="text-purple-600" bg="bg-purple-50" />
         <StatBox label="Available" value={stats.available} color="text-amber-600" bg="bg-amber-50" />
       </div>

@@ -378,7 +378,7 @@ export default function EmployeeMasterApprovalPage() {
                         type="button"
                         onClick={handleApprove}
                         disabled={approving}
-                        className="inline-flex items-center gap-2 px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+                        className="inline-flex items-center gap-2 px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                       >
                         <span>✓</span> {approving ? 'Approving...' : 'Approve'}
                       </button>

@@ -168,28 +168,28 @@ export default function VariableInputEntryPage() {
                     <tr className="bg-blue-600 text-white">
                       <th className="px-3 py-2 text-left font-semibold">Associate Code</th>
                       <th className="px-3 py-2 text-left font-semibold">Associate Name</th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         Compensation Salary
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         Loss of Pay
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         Vehicle Allowance
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         NFH
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         WeekOff
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         OT Hours
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         Other Earnings
                       </th>
-                      <th className="px-3 py-2 text-right font-semibold bg-teal-100/40 text-black">
+                      <th className="px-3 py-2 text-right font-semibold bg-blue-100/40 text-black">
                         Incentive
                       </th>
                       <th className="px-3 py-2 text-right font-semibold bg-rose-100/40 text-black">
@@ -215,10 +215,10 @@ export default function VariableInputEntryPage() {
                         <td className="px-3 py-2 text-sm text-gray-900 whitespace-nowrap">
                           {row.associateName}
                         </td>
-                        <td className="px-3 py-1 text-right text-sm bg-teal-50">
+                        <td className="px-3 py-1 text-right text-sm bg-blue-50">
                           {row.compensationSalary.toFixed(2)}
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-20 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -226,7 +226,7 @@ export default function VariableInputEntryPage() {
                             onChange={(e) => handleChangeCell(row.id, 'lossOfPay', e.target.value)}
                           />
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-20 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -234,7 +234,7 @@ export default function VariableInputEntryPage() {
                             onChange={(e) => handleChangeCell(row.id, 'vehicleAllowance', e.target.value)}
                           />
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-16 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -242,7 +242,7 @@ export default function VariableInputEntryPage() {
                             onChange={(e) => handleChangeCell(row.id, 'nfh', e.target.value)}
                           />
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-16 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -250,7 +250,7 @@ export default function VariableInputEntryPage() {
                             onChange={(e) => handleChangeCell(row.id, 'weekOff', e.target.value)}
                           />
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-20 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -258,7 +258,7 @@ export default function VariableInputEntryPage() {
                             onChange={(e) => handleChangeCell(row.id, 'otHours', e.target.value)}
                           />
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-24 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -266,7 +266,7 @@ export default function VariableInputEntryPage() {
                             onChange={(e) => handleChangeCell(row.id, 'otherEarnings', e.target.value)}
                           />
                         </td>
-                        <td className="px-3 py-1 text-right bg-teal-50">
+                        <td className="px-3 py-1 text-right bg-blue-50">
                           <input
                             type="number"
                             className="w-24 text-right border-gray-300 rounded-md text-xs px-2 py-1 focus:border-indigo-500 focus:ring-indigo-500"
@@ -334,7 +334,7 @@ export default function VariableInputEntryPage() {
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="inline-flex items-center justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>

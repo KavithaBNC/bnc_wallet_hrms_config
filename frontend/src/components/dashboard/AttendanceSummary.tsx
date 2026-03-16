@@ -47,7 +47,7 @@ const AttendanceSummary = () => {
   };
 
   const statusBadgeColor = {
-    Present: 'bg-green-100 text-green-700',
+    Present: 'bg-blue-100 text-blue-700',
     Late: 'bg-amber-100 text-amber-700',
     Absent: 'bg-red-100 text-red-700',
     'Not Marked': 'bg-gray-100 text-gray-600',
@@ -55,7 +55,7 @@ const AttendanceSummary = () => {
 
   const statItems = [
     { label: 'Working Days', value: data.workingDays, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Present', value: data.present, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Present', value: data.present, color: 'text-blue-600', bg: 'bg-blue-50' },
     { label: 'Absent', value: data.absent, color: 'text-red-600', bg: 'bg-red-50' },
     { label: 'Late', value: data.late, color: 'text-amber-600', bg: 'bg-amber-50' },
   ];

@@ -684,7 +684,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                   const titleParts = [displayLeaveTypeName, permissionTiming || dayType, statusText].filter(Boolean);
                   const tone =
                     status === 'APPROVED'
-                      ? 'bg-emerald-500 text-white'
+                      ? 'bg-blue-500 text-white'
                       : status === 'REJECTED' || status === 'CANCELLED'
                         ? 'bg-red-500 text-white'
                         : 'bg-lime-500 text-white';
@@ -790,7 +790,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                             (((record.status || 'PRESENT') === 'LEAVE' && workedMinutes > 0)
                               ? 'PRESENT'
                               : (record.status || 'PRESENT')) === 'PRESENT'
-                              ? 'text-green-700'
+                              ? 'text-blue-700'
                               : ((((record.status || 'PRESENT') === 'LEAVE' && workedMinutes > 0)
                                 ? 'PRESENT'
                                 : (record.status || 'PRESENT')) === 'ABSENT')
@@ -914,7 +914,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                           return showIndicators ? (
                           <div className="flex flex-wrap gap-1 mt-0.5">
                             {showFullDayPermissionBadge && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">
                                 Present: Full Day
                               </span>
                             )}
@@ -961,7 +961,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                               </span>
                             )}
                             {showEarlyComing && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-cyan-100 text-cyan-800" title="Time arrived before shift start">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title="Time arrived before shift start">
                                 Early Coming {formatWorkHoursAsHHMM(earlyComingMins / 60)}
                               </span>
                             )}
@@ -984,14 +984,14 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                           }
                           if (record.validationAction) {
                             return (
-                              <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">
+                              <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">
                                 Validation Completed
                               </div>
                             );
                           }
                           if (Number(record.workHours ?? 0) >= 9) {
                             return (
-                              <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">
+                              <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">
                                 Validation Completed
                               </div>
                             );
@@ -1003,7 +1003,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                   })
                 ) : (
                   isWeekOffDay && !isFutureDay ? (
-                    <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">
+                    <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">
                       Validation Completed
                     </div>
                   ) : (
@@ -1017,7 +1017,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
 
                 {/* Week-off past/current days always show Validation Completed (even if records exist) */}
                 {isWeekOffDay && !isFutureDay && dayRecords.length > 0 && (
-                  <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">
+                  <div className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800">
                     Validation Completed
                   </div>
                 )}
@@ -1026,7 +1026,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                 {(compOffByDate.get(dateStr) || []).map((co) => (
                   <div
                     key={co.id}
-                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800 border border-green-300"
+                    className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300"
                     title={`Comp Off approved on ${co.reviewedAt ? new Date(co.reviewedAt).toLocaleString() : dateStr}`}
                   >
                     <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -1046,7 +1046,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
           <span className="text-gray-600">Today</span>
         </div>
         <div className="flex items-center space-x-2">
-          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+          <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
           <span className="text-gray-600">Present</span>
         </div>
         <div className="flex items-center space-x-2">
@@ -1058,7 +1058,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
           <span className="text-gray-600">Leave</span>
         </div>
         <div className="flex items-center space-x-2">
-          <div className="w-3 h-3 bg-green-600 rounded-full"></div>
+          <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
           <span className="text-gray-600">Comp Off Credited</span>
         </div>
       </div>
@@ -1784,11 +1784,11 @@ const AttendancePage = () => {
       {/* Main Content */}
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {showLeaveAppliedBanner && (
-          <div className="mb-4 flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <div className="mb-4 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
             <span>
               Leave request submitted. It is shown as Pending in calendar now; once manager approves, status updates to Approved automatically.
             </span>
-            <button type="button" onClick={() => setShowLeaveAppliedBanner(false)} className="ml-2 shrink-0 rounded p-1 hover:bg-green-100" aria-label="Dismiss">
+            <button type="button" onClick={() => setShowLeaveAppliedBanner(false)} className="ml-2 shrink-0 rounded p-1 hover:bg-blue-100" aria-label="Dismiss">
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
@@ -1930,7 +1930,7 @@ const AttendancePage = () => {
               </button>
             </div>
             {manualPunchMessage && (
-              <p className={`mt-3 text-sm ${manualPunchMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+              <p className={`mt-3 text-sm ${manualPunchMessage.type === 'success' ? 'text-blue-700' : 'text-red-700'}`}>
                 {manualPunchMessage.text}
               </p>
             )}
@@ -2219,7 +2219,7 @@ const AttendancePage = () => {
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                             ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'PRESENT'
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-blue-100 text-blue-800'
                               : ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'ABSENT'
                               ? 'bg-red-100 text-red-800'
                               : ((record.status === 'LEAVE' && record.checkIn && record.checkOut) ? 'PRESENT' : record.status) === 'LEAVE'
@@ -2287,7 +2287,7 @@ const AttendancePage = () => {
                             )}
                             {showOt && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title="Overtime">OT {formatWorkHoursAsHHMM(otMinutes / 60)}</span>}
                             {showExcessStay && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800" title="Time stayed after OT start threshold">Excess Stay {formatWorkHoursAsHHMM(excessStayMins / 60)}</span>}
-                            {showEarlyComing && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-cyan-100 text-cyan-800" title="Time arrived before shift start">Early Coming {formatWorkHoursAsHHMM(earlyComingMins / 60)}</span>}
+                            {showEarlyComing && <span className="px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-800" title="Time arrived before shift start">Early Coming {formatWorkHoursAsHHMM(earlyComingMins / 60)}</span>}
                           </div>
                           ) : '-';
                         })()}
@@ -2313,7 +2313,7 @@ const AttendancePage = () => {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Convert to Comp Off</h3>
               <div className="space-y-4">
                 {compOffMessage && (
-                  <div className={`rounded-lg px-3 py-2 text-sm ${compOffMessage.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                  <div className={`rounded-lg px-3 py-2 text-sm ${compOffMessage.type === 'success' ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
                     {compOffMessage.text}
                   </div>
                 )}

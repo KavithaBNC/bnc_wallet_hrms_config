@@ -3,7 +3,7 @@ import { getMockNotifications, type NotificationItem } from '../../services/dash
 
 const TYPE_COLORS: Record<string, { bg: string; icon: string }> = {
   announcement: { bg: 'bg-blue-100', icon: 'text-blue-600' },
-  hr: { bg: 'bg-green-100', icon: 'text-green-600' },
+  hr: { bg: 'bg-blue-100', icon: 'text-blue-600' },
   policy: { bg: 'bg-purple-100', icon: 'text-purple-600' },
   event: { bg: 'bg-amber-100', icon: 'text-amber-600' },
   system: { bg: 'bg-gray-100', icon: 'text-gray-600' },

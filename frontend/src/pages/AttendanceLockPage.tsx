@@ -234,9 +234,9 @@ export default function AttendanceLockPage() {
                     <p className="text-gray-500 text-sm">Loading lock status…</p>
                   ) : lock ? (
                     <div className="space-y-4">
-                      <div className="rounded-lg bg-green-50 border border-green-200 p-4">
-                        <p className="font-medium text-green-800">This month is locked</p>
-                        <p className="text-sm text-green-700 mt-1">
+                      <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
+                        <p className="font-medium text-blue-800">This month is locked</p>
+                        <p className="text-sm text-blue-700 mt-1">
                           Locked at {formatDateTime(lock.lockedAt)}
                           {lock.remarks && (
                             <span className="block mt-2">Remarks: {lock.remarks}</span>

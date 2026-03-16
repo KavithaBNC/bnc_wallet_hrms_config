@@ -216,7 +216,7 @@ export default function PostToPayrollPage() {
                   </div>
                 )}
                 {successMsg && (
-                  <div className="mx-6 mt-4 rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm">
+                  <div className="mx-6 mt-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 text-sm">
                     {successMsg}
                   </div>
                 )}

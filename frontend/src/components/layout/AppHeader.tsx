@@ -48,7 +48,7 @@ export default function AppHeader({
             {/* Profile Picture */}
             <Link
               to="/profile"
-              className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-teal-500 to-emerald-600 text-white font-semibold hover:ring-2 hover:ring-teal-300 transition-all cursor-pointer shadow-md"
+              className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white font-semibold hover:ring-2 hover:ring-blue-300 transition-all cursor-pointer shadow-md"
               title="View Profile"
             >
               {getInitials()}
@@ -58,7 +58,7 @@ export default function AppHeader({
           {/* Logout Button */}
           <button
             onClick={onLogout}
-            className="px-4 py-2 bg-teal-600 text-white font-semibold rounded-lg hover:bg-teal-700 transition shadow-sm"
+            className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm"
           >
             Logout
           </button>

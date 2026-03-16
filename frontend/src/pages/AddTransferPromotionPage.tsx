@@ -344,7 +344,7 @@ export default function AddTransferPromotionPage() {
                     NO
                   </button>
                   {incrementEnabled && (
-                    <span className="text-green-600">
+                    <span className="text-blue-600">
                       <svg className="w-5 h-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
@@ -450,7 +450,7 @@ export default function AddTransferPromotionPage() {
                                   type="number"
                                   value={row.incrementValue || ''}
                                   onChange={(e) => setIncrementValue(index, Number(e.target.value) || 0)}
-                                  className="w-full max-w-[120px] ml-auto border-b-2 border-green-500 rounded px-2 py-1 text-right text-gray-900 bg-white"
+                                  className="w-full max-w-[120px] ml-auto border-b-2 border-blue-500 rounded px-2 py-1 text-right text-gray-900 bg-white"
                                 />
                               </td>
                             </tr>

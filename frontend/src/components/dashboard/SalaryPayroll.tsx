@@ -50,12 +50,12 @@ const SalaryPayroll = () => {
       </div>
 
       {/* Salary display */}
-      <div className="bg-gradient-to-r from-teal-50 to-emerald-50 rounded-xl p-5 mb-5 relative overflow-hidden border border-teal-100">
-        <div className="absolute top-0 right-0 w-24 h-24 bg-teal-100/30 rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-16 h-16 bg-teal-100/20 rounded-full translate-y-1/2 -translate-x-1/2" />
-        <p className="text-teal-600 text-xs font-medium mb-1">Current Salary</p>
+      <div className="bg-gradient-to-r from-blue-50 to-blue-50 rounded-xl p-5 mb-5 relative overflow-hidden border border-blue-100">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-blue-100/30 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="absolute bottom-0 left-0 w-16 h-16 bg-blue-100/20 rounded-full translate-y-1/2 -translate-x-1/2" />
+        <p className="text-blue-600 text-xs font-medium mb-1">Current Salary</p>
         <p className="text-3xl font-bold text-gray-900 mb-2">{formatCurrency(data.currentSalary)}</p>
-        <div className="flex items-center gap-4 text-teal-600 text-xs">
+        <div className="flex items-center gap-4 text-blue-600 text-xs">
           <span>Bonus: {formatCurrency(data.bonus)}</span>
           <span>Incentives: {formatCurrency(data.incentives)}</span>
         </div>
@@ -80,8 +80,8 @@ const SalaryPayroll = () => {
           {data.recentPayslips.map((slip) => (
             <div key={slip.id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-teal-50 rounded-lg flex items-center justify-center">
-                  <svg className="w-4 h-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                   </svg>
                 </div>
@@ -92,7 +92,7 @@ const SalaryPayroll = () => {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-gray-700">{formatCurrency(slip.amount)}</span>
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-teal-500 hover:text-teal-700">
+                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500 hover:text-blue-700">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>

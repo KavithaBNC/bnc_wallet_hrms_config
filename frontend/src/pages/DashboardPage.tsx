@@ -132,8 +132,8 @@ const DashboardPage = () => {
                 to="/organizations"
                 className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 p-4 flex items-center border border-gray-100"
               >
-                <div className="flex-shrink-0 bg-teal-100 rounded-lg p-3">
-                  <svg className="w-6 h-6 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <div className="flex-shrink-0 bg-blue-100 rounded-lg p-3">
+                  <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
                   </svg>
                 </div>
@@ -151,8 +151,8 @@ const DashboardPage = () => {
           <div className="mb-6 animate-fadeInUp animate-delay-12">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Quick Access</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {employeePerms.can_view && <QuickLink to="/employees" icon={employeesIcon} color="bg-teal-100 text-teal-600" title="Employees" subtitle="Manage employee records" />}
-              {getModulePermissions('/departments').can_view && <QuickLink to="/departments" icon={departmentsIcon} color="bg-emerald-100 text-emerald-600" title="Departments" subtitle="Organize departments" />}
+              {employeePerms.can_view && <QuickLink to="/employees" icon={employeesIcon} color="bg-blue-100 text-blue-600" title="Employees" subtitle="Manage employee records" />}
+              {getModulePermissions('/departments').can_view && <QuickLink to="/departments" icon={departmentsIcon} color="bg-blue-100 text-blue-600" title="Departments" subtitle="Organize departments" />}
               {canViewLeaveApprovals && (
                 <QuickLink to="/leave/approvals" icon={leaveIcon} color="bg-amber-100 text-amber-600" title="Leave Approvals" subtitle="Review leave requests" />
               )}

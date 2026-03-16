@@ -2174,7 +2174,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   }}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                     formData.sameAsPermanent
-                      ? 'bg-green-500 border-green-600 text-white'
+                      ? 'bg-blue-500 border-blue-600 text-white'
                       : 'bg-red-500 border-red-600 text-white'
                   }`}
                 >
@@ -2321,7 +2321,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, physicallyChallenged: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.physicallyChallenged
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2423,7 +2423,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, pfApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.pfApplicable
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2487,7 +2487,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, esiApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.esiApplicable
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2515,7 +2515,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, gratuityApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.gratuityApplicable
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2703,7 +2703,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, taxApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.taxApplicable
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2731,7 +2731,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, expatriate: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.expatriate
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2759,7 +2759,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     onClick={() => setFormData(prev => ({ ...prev, pfTransferred: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.pfTransferred
-                        ? 'bg-green-500 border-green-600 text-white'
+                        ? 'bg-blue-500 border-blue-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2907,7 +2907,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                       </span>
                     )}
                     <span className="text-gray-600">
-                      Now updated fixed gross: <span className="font-semibold text-green-700">₹ {(salaryFixedGross + salaryVehicleAllowances).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      Now updated fixed gross: <span className="font-semibold text-blue-700">₹ {(salaryFixedGross + salaryVehicleAllowances).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </span>
                   </div>
                 </div>
@@ -2938,7 +2938,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                         }
                         if (isLast && isCurrent) {
                           return (
-                            <li key={idx} className={isCurrent ? 'text-green-700 font-medium' : 'text-gray-900'}>
+                            <li key={idx} className={isCurrent ? 'text-blue-700 font-medium' : 'text-gray-900'}>
                               <span className="tabular-nums">{dateStr}</span>
                               <span className="mx-1">-</span>
                               <span className="tabular-nums">{row.grossSalary.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
@@ -4602,7 +4602,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   onClick={() => setAssetFormData({ ...assetFormData, released: true })}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                     assetFormData.released
-                      ? 'bg-green-500 border-green-600 text-white'
+                      ? 'bg-blue-500 border-blue-600 text-white'
                       : 'bg-white border-black text-gray-700'
                   }`}
                 >
@@ -5143,7 +5143,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -5243,7 +5243,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -5349,7 +5349,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

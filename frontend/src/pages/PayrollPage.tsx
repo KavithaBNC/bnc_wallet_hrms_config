@@ -258,7 +258,7 @@ const PayrollPage = () => {
       case 'FINALIZED':
         return 'bg-purple-100 text-purple-800';
       case 'PAID':
-        return 'bg-green-100 text-green-800';
+        return 'bg-blue-100 text-blue-800';
       case 'CANCELLED':
         return 'bg-red-100 text-red-800';
       default:
@@ -421,7 +421,7 @@ const PayrollPage = () => {
                                 </button>
                                 <button
                                   onClick={() => handleMarkAsPaid(cycle.id)}
-                                  className="text-green-600 hover:text-green-900"
+                                  className="text-blue-600 hover:text-blue-900"
                                 >
                                   ✅ Mark Paid
                                 </button>
@@ -444,7 +444,7 @@ const PayrollPage = () => {
                                 </button>
                                 <button
                                   onClick={() => handleMarkAsPaid(cycle.id)}
-                                  className="text-green-600 hover:text-green-900"
+                                  className="text-blue-600 hover:text-blue-900"
                                 >
                                   ✅ Mark Paid
                                 </button>

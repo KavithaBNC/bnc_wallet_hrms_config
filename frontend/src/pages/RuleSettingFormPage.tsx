@@ -30,7 +30,7 @@ function ToggleSwitch({ value, onChange }: { value: boolean; onChange: (v: boole
         aria-checked={value}
         onClick={() => onChange(!value)}
         className={`relative inline-flex h-8 w-14 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          value ? 'bg-green-600' : 'bg-red-500'
+          value ? 'bg-blue-600' : 'bg-red-500'
         }`}
       >
         <span
@@ -39,7 +39,7 @@ function ToggleSwitch({ value, onChange }: { value: boolean; onChange: (v: boole
           }`}
         />
       </button>
-      <span className={`text-sm font-medium ${value ? 'text-green-700' : 'text-red-700'}`}>
+      <span className={`text-sm font-medium ${value ? 'text-blue-700' : 'text-red-700'}`}>
         {value ? 'YES' : 'NO'}
       </span>
     </div>
@@ -793,7 +793,7 @@ export default function RuleSettingFormPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50"
                 >
                   {saving ? 'Saving...' : 'Save'}
                 </button>

@@ -259,7 +259,7 @@ export default function AttendanceComponentFormPage() {
           type="button"
           onClick={() => onChange(!value)}
           className={`relative inline-flex h-7 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-            value ? 'bg-green-500' : 'bg-red-500'
+            value ? 'bg-blue-500' : 'bg-red-500'
           }`}
           role="switch"
           aria-checked={value}
@@ -270,7 +270,7 @@ export default function AttendanceComponentFormPage() {
             }`}
           />
         </button>
-        <span className={`text-sm font-semibold w-10 text-center ${value ? 'text-green-600' : 'text-red-600'}`}>
+        <span className={`text-sm font-semibold w-10 text-center ${value ? 'text-blue-600' : 'text-red-600'}`}>
           {value ? 'YES' : 'NO'}
         </span>
       </div>
@@ -551,7 +551,7 @@ export default function AttendanceComponentFormPage() {
                             className="flex-shrink-0"
                           >
                             <svg
-                              className={`w-5 h-5 ${rule.enabled ? 'text-green-600' : 'text-gray-400'}`}
+                              className={`w-5 h-5 ${rule.enabled ? 'text-blue-600' : 'text-gray-400'}`}
                               fill="none"
                               viewBox="0 0 24 24"
                               stroke="currentColor"
@@ -565,7 +565,7 @@ export default function AttendanceComponentFormPage() {
                             </svg>
                           </button>
                           <span className="text-sm font-medium text-gray-700 flex-1">{rule.name}</span>
-                          <span className={`text-xs font-medium px-2 py-1 rounded ${rule.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                          <span className={`text-xs font-medium px-2 py-1 rounded ${rule.enabled ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
                             {rule.enabled ? 'Enabled' : 'Disabled'}
                           </span>
                         </div>
@@ -597,7 +597,7 @@ export default function AttendanceComponentFormPage() {
                     <button
                       type="submit"
                       disabled={saving}
-                      className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-green-700 transition disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition disabled:opacity-50"
                     >
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />

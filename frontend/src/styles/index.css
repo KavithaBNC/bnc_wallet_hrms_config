@@ -79,6 +79,55 @@ body {
   animation: slide-in 0.3s ease-out;
 }
 
+/* ═══════════ Animated Blue Gradient Effects ═══════════ */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmerWave {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes floatBubble {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-8px) scale(1.05); }
+}
+
+.animate-gradient-bg {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb, #3b82f6, #60a5fa, #3b82f6, #2563eb, #1d4ed8);
+  background-size: 300% 300%;
+  animation: gradientShift 6s ease infinite;
+}
+
+.animate-gradient-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  animation: shimmerWave 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.animate-float {
+  animation: floatBubble 4s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: floatBubble 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
 /* Print styles - hide sidebar, header, and UI elements */
 @media print {
   /* Hide sidebar */

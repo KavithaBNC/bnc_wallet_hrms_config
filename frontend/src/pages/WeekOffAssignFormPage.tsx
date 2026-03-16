@@ -635,7 +635,7 @@ export default function WeekOffAssignFormPage() {
                                   onClick={() => toggleWeekOffDay(weekIndex, dayIndex)}
                                   className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
                                     isOff
-                                      ? 'bg-green-500 text-white hover:bg-green-600'
+                                      ? 'bg-blue-500 text-white hover:bg-blue-600'
                                       : 'bg-red-500 text-white hover:bg-red-600'
                                   }`}
                                 >
@@ -666,7 +666,7 @@ export default function WeekOffAssignFormPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />

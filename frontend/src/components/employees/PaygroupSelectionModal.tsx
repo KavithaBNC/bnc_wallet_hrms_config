@@ -289,7 +289,7 @@ const PaygroupSelectionModal: React.FC<PaygroupSelectionModalProps> = ({
                           e.preventDefault();
                           handleCreateNew();
                         }}
-                        className={`px-3 py-2 text-sm cursor-pointer bg-green-50 hover:bg-green-100 text-black font-medium ${
+                        className={`px-3 py-2 text-sm cursor-pointer bg-blue-50 hover:bg-blue-100 text-black font-medium ${
                           filtered.length > 0 ? 'border-t border-gray-200' : ''
                         }`}
                       >
@@ -360,7 +360,7 @@ const PaygroupSelectionModal: React.FC<PaygroupSelectionModalProps> = ({
           <button
             type="submit"
             disabled={creating || !selectedId}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {creating ? (
               <>

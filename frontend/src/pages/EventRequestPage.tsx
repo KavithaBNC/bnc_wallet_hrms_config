@@ -117,7 +117,7 @@ export default function EventRequestPage() {
   const statusTone = (status: string) => {
     switch (status) {
       case 'APPROVED':
-        return 'bg-emerald-100 text-emerald-800';
+        return 'bg-blue-100 text-blue-800';
       case 'REJECTED':
         return 'bg-red-100 text-red-800';
       case 'CANCELLED':

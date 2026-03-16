@@ -4,12 +4,12 @@ import { fetchHolidays, type HolidayItem } from '../../services/dashboard.servic
 
 const HOLIDAY_COLORS = [
   'bg-blue-100 text-blue-600',
-  'bg-green-100 text-green-600',
+  'bg-blue-100 text-blue-600',
   'bg-purple-100 text-purple-600',
   'bg-amber-100 text-amber-600',
   'bg-red-100 text-red-600',
   'bg-pink-100 text-pink-600',
-  'bg-teal-100 text-teal-600',
+  'bg-blue-100 text-blue-600',
 ];
 
 const HolidaysWidget = () => {
@@ -75,8 +75,9 @@ const HolidaysWidget = () => {
 
       {/* Next holiday countdown */}
       {nextHoliday && (
-        <div className="bg-gradient-to-r from-blue-600 to-blue-400 rounded-xl p-4 mb-5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+        <div className="animate-gradient-bg rounded-xl p-4 mb-5 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 animate-float" />
+          <div className="absolute bottom-2 left-4 w-12 h-12 bg-white/5 rounded-full animate-float-slow" />
           <p className="text-blue-100 text-xs font-medium">Next Holiday</p>
           <p className="text-white font-bold text-lg mt-1">{nextHoliday.name}</p>
           <div className="flex items-center justify-between mt-2">
@@ -132,7 +133,7 @@ const HolidaysWidget = () => {
           <p className="text-[10px] text-gray-500">Total</p>
         </div>
         <div className="text-center">
-          <p className="text-lg font-bold text-green-600">{publicCount}</p>
+          <p className="text-lg font-bold text-blue-600">{publicCount}</p>
           <p className="text-[10px] text-gray-500">Public</p>
         </div>
         <div className="text-center">

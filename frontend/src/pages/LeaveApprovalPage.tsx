@@ -247,7 +247,7 @@ export default function LeaveApprovalPage() {
   const getStatusBadge = (status: string) => {
     const cls =
       status === 'APPROVED'
-        ? 'bg-green-100 text-green-800'
+        ? 'bg-blue-100 text-blue-800'
         : status === 'REJECTED'
           ? 'bg-red-100 text-red-800'
           : status === 'PENDING'
@@ -298,7 +298,7 @@ export default function LeaveApprovalPage() {
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50 print:py-0">
         <div className="w-full max-w-[1800px] mx-auto">
           {successMessage && (
-            <div className="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 text-green-800 text-sm">
+            <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm">
               {successMessage}
             </div>
           )}
@@ -574,7 +574,7 @@ export default function LeaveApprovalPage() {
                                 type="button"
                                 onClick={() => handleApprove(req.id)}
                                 disabled={!!approvingId}
-                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 hover:bg-green-200 disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 disabled:opacity-50"
                               >
                                 {approvingId === req.id ? '...' : 'Approve'}
                               </button>
@@ -612,7 +612,7 @@ export default function LeaveApprovalPage() {
                               type="button"
                               onClick={() => handleApprove(req.id)}
                               disabled={!!approvingId}
-                              className="inline-flex px-3 py-1.5 rounded text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 mr-1"
+                              className="inline-flex px-3 py-1.5 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 mr-1"
                             >
                               {approvingId === req.id ? '...' : 'Approve'}
                             </button>

@@ -45,13 +45,15 @@ const EmployeeProfile = () => {
   return (
     <div className="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden transition-all duration-300 hover:shadow-xl h-full flex flex-col">
       {/* Header with gradient + Avatar + Name */}
-      <div className="relative bg-gradient-to-r from-teal-600 to-emerald-500 px-6 pt-5 pb-5">
+      <div className="relative animate-gradient-bg px-6 pt-5 pb-5">
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-2 right-6 w-20 h-20 rounded-full border-2 border-white/30" />
-          <div className="absolute bottom-0 left-10 w-16 h-16 rounded-full border-2 border-white/20" />
+          <div className="absolute top-2 right-6 w-20 h-20 rounded-full border-2 border-white/30 animate-float" />
+          <div className="absolute bottom-0 left-10 w-16 h-16 rounded-full border-2 border-white/20 animate-float-slow" />
         </div>
+        <div className="absolute top-3 right-20 w-14 h-14 rounded-full bg-white/5 animate-pulse-glow" />
+        <div className="absolute bottom-2 right-8 w-10 h-10 rounded-full bg-white/5 animate-float" style={{ animationDelay: '2s' }} />
         <div className="flex items-center justify-between relative z-10 mb-4">
-          <p className="text-teal-100 text-xs font-medium">Employee Profile</p>
+          <p className="text-blue-100 text-xs font-medium">Employee Profile</p>
           <span className="bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full backdrop-blur-sm">
             {profile?.employeeCode || 'N/A'}
           </span>
@@ -69,13 +71,13 @@ const EmployeeProfile = () => {
                 <span className="text-white text-lg font-bold">{initials}</span>
               </div>
             )}
-            <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white" />
+            <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-blue-400 rounded-full border-2 border-white" />
           </div>
           <div className="min-w-0">
             <h3 className="text-base font-bold text-white truncate">
               {profile?.firstName} {profile?.lastName}
             </h3>
-            <p className="text-xs text-teal-100 truncate">{profile?.position || 'N/A'}</p>
+            <p className="text-xs text-blue-100 truncate">{profile?.position || 'N/A'}</p>
           </div>
         </div>
       </div>
@@ -86,7 +88,7 @@ const EmployeeProfile = () => {
           {infoItems.map((item, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-gray-50 hover:bg-teal-50 transition-colors duration-200"
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-gray-50 hover:bg-blue-50 transition-colors duration-200"
             >
               <div className="text-gray-400 flex-shrink-0">{item.icon}</div>
               <div className="min-w-0">

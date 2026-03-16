@@ -12,7 +12,7 @@ function toHHMM(minutes: number): string {
 }
 
 function statusClass(status: string): string {
-  if (status === 'APPROVED') return 'bg-green-100 text-green-800';
+  if (status === 'APPROVED') return 'bg-blue-100 text-blue-800';
   if (status === 'REJECTED') return 'bg-red-100 text-red-800';
   return 'bg-yellow-100 text-yellow-800';
 }
@@ -173,7 +173,7 @@ export default function ExcessTimeRequestPage() {
       />
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
-        {message && <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{message}</div>}
+        {message && <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{message}</div>}
 
         {/* ── Tab Selector (only for HR/Manager) ── */}
         {isHRScope && (

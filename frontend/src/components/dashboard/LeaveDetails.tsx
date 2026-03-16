@@ -5,13 +5,13 @@ import { fetchLeaveData, type LeaveBalance, type LeaveRequest } from '../../serv
 const LEAVE_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
   'Sick Leave': { bg: 'bg-red-50', text: 'text-red-600', bar: 'bg-red-500' },
   'Casual Leave': { bg: 'bg-blue-50', text: 'text-blue-600', bar: 'bg-blue-500' },
-  'Earned Leave': { bg: 'bg-green-50', text: 'text-green-600', bar: 'bg-green-500' },
+  'Earned Leave': { bg: 'bg-blue-50', text: 'text-blue-600', bar: 'bg-blue-500' },
 };
 
 const DEFAULT_COLOR = { bg: 'bg-purple-50', text: 'text-purple-600', bar: 'bg-purple-500' };
 
 const STATUS_BADGE: Record<string, string> = {
-  APPROVED: 'bg-green-100 text-green-700',
+  APPROVED: 'bg-blue-100 text-blue-700',
   REJECTED: 'bg-red-100 text-red-700',
   PENDING: 'bg-amber-100 text-amber-700',
 };
@@ -101,7 +101,7 @@ const LeaveDetails = () => {
             requests.map((req) => (
               <div key={req.id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-gray-50 transition-colors">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-1 h-8 rounded-full ${STATUS_BADGE[req.status]?.includes('green') ? 'bg-green-500' : STATUS_BADGE[req.status]?.includes('red') ? 'bg-red-500' : 'bg-amber-500'}`} />
+                  <div className={`w-1 h-8 rounded-full ${STATUS_BADGE[req.status]?.includes('green') ? 'bg-blue-500' : STATUS_BADGE[req.status]?.includes('red') ? 'bg-red-500' : 'bg-amber-500'}`} />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{req.type}</p>
                     <p className="text-[10px] text-gray-400">

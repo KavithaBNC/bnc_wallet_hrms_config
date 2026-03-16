@@ -114,7 +114,7 @@ export default function UserRolesPage() {
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#4CAF50] flex items-center justify-center">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#2196F3] flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -200,7 +200,7 @@ export default function UserRolesPage() {
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                               role.is_active !== false
-                                ? 'bg-green-100 text-green-800'
+                                ? 'bg-blue-100 text-blue-800'
                                 : 'bg-red-100 text-red-800'
                             }`}>
                               {role.is_active !== false ? 'Active' : 'Inactive'}

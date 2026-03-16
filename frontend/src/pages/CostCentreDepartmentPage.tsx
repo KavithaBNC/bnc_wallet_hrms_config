@@ -49,7 +49,7 @@ const Toast = ({ message, type, onClose }: { message: string; type: 'success' | 
 
   return (
     <div className={`fixed top-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium animate-slide-in ${
-      type === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+      type === 'success' ? 'bg-blue-500' : 'bg-red-500'
     }`}>
       {type === 'success' ? <CheckIcon /> : <CloseIcon />}
       {message}
@@ -306,7 +306,7 @@ const CostCentreDepartmentPage = () => {
               <button
                 onClick={() => selectedCostCentre && openModal('department')}
                 disabled={!selectedCostCentre}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <PlusIcon /> Add New
               </button>
@@ -316,7 +316,7 @@ const CostCentreDepartmentPage = () => {
                 value={selectedDepartment}
                 onChange={e => setSelectedDepartment(e.target.value)}
                 disabled={!selectedCostCentre || loadingDept}
-                className={`w-full appearance-none bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 pr-10 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-colors ${
+                className={`w-full appearance-none bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 pr-10 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors ${
                   !selectedCostCentre ? 'opacity-50 cursor-not-allowed' : 'disabled:opacity-50'
                 }`}
               >
@@ -393,8 +393,8 @@ const CostCentreDepartmentPage = () => {
                 {costCentres.find(c => String(c.id) === selectedCostCentre)?.name || selectedCostCentre}
               </span>
               {selectedDepartment && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                   {departments.find(d => String(d.id) === selectedDepartment)?.name || selectedDepartment}
                 </span>
               )}
@@ -417,7 +417,7 @@ const CostCentreDepartmentPage = () => {
             {/* Modal Header */}
             <div className={`px-6 py-4 ${
               modal.type === 'costCentre' ? 'bg-gradient-to-r from-indigo-500 to-indigo-600' :
-              modal.type === 'department' ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' :
+              modal.type === 'department' ? 'bg-gradient-to-r from-blue-500 to-blue-600' :
               'bg-gradient-to-r from-purple-500 to-purple-600'
             }`}>
               <div className="flex items-center justify-between">
@@ -484,7 +484,7 @@ const CostCentreDepartmentPage = () => {
                 disabled={modal.loading || !modal.name.trim()}
                 className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors ${
                   modal.type === 'costCentre' ? 'bg-indigo-600 hover:bg-indigo-700' :
-                  modal.type === 'department' ? 'bg-emerald-600 hover:bg-emerald-700' :
+                  modal.type === 'department' ? 'bg-blue-600 hover:bg-blue-700' :
                   'bg-purple-600 hover:bg-purple-700'
                 }`}
               >

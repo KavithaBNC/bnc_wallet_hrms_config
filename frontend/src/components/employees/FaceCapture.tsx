@@ -97,7 +97,7 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({
       <p className="text-sm font-medium text-gray-700">Face (optional, for face attendance punch)</p>
       <p className="text-xs text-gray-500">You can save the employee without face; face can be added later when the face service is running.</p>
       {faceServiceAvailable === true && (
-        <p className="text-xs text-green-700">Face service: ready. You can capture a face.</p>
+        <p className="text-xs text-blue-700">Face service: ready. You can capture a face.</p>
       )}
       {faceServiceAvailable === false && (
         <p className="text-xs text-amber-700">
@@ -168,12 +168,12 @@ export const FaceCapture: React.FC<FaceCaptureProps> = ({
       </div>
       {existingEncoding && existingEncoding.length === 128 ? (
         <div className="space-y-2">
-          <p className="text-sm text-green-700">Face already registered. Use Re-capture to replace.</p>
+          <p className="text-sm text-blue-700">Face already registered. Use Re-capture to replace.</p>
           <button
             type="button"
             onClick={capture}
             disabled={disabled || capturing}
-            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm"
           >
             {capturing ? 'Capturing...' : 'Re-capture'}
           </button>

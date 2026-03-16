@@ -248,7 +248,7 @@ export default function ShiftMasterPage() {
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#4CAF50] flex items-center justify-center">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#2196F3] flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -384,7 +384,7 @@ export default function ShiftMasterPage() {
                         {visibleColumns.has('active') && (
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span
-                              className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${shift.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}
+                              className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${shift.isActive ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}
                             >
                               {shift.isActive ? 'Yes' : 'No'}
                             </span>

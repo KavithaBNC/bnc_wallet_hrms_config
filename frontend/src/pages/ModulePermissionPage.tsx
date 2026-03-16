@@ -310,7 +310,7 @@ export default function ModulePermissionPage() {
             </div>
           )}
           {successMsg && (
-            <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">
+            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm">
               {successMsg}
             </div>
           )}

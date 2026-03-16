@@ -188,7 +188,12 @@ const ProfilePage = () => {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden relative group">
             
             {/* Background Cover */}
-            <div className="h-44 sm:h-48 bg-gradient-to-r from-teal-600 to-emerald-500 relative overflow-hidden transition-all duration-500 group-hover:shadow-[inset_0_0_100px_rgba(0,0,0,0.1)]">
+            <div className="h-44 sm:h-48 animate-gradient-bg relative overflow-hidden transition-all duration-500 group-hover:shadow-[inset_0_0_100px_rgba(0,0,0,0.1)]">
+              {/* Animated floating decorations */}
+              <div className="absolute top-4 right-10 w-24 h-24 rounded-full bg-white/10 animate-float" />
+              <div className="absolute top-8 right-32 w-16 h-16 rounded-full bg-white/5 animate-float-slow" />
+              <div className="absolute bottom-6 left-16 w-20 h-20 rounded-full bg-white/5 animate-float-slow" style={{ animationDelay: '1s' }} />
+              <div className="absolute top-2 left-1/3 w-12 h-12 rounded-full bg-white/10 animate-pulse-glow" />
               {/* Name & Badges placed perfectly inside the banner */}
               <div className="absolute bottom-0 w-full px-6 sm:px-8 pb-5 flex flex-col sm:flex-row sm:items-end gap-5 z-10">
                 {/* Spacer padding to strictly align text past the avatar on Desktop (Avatar + Box Padding ~ 140px) */}
@@ -200,7 +205,7 @@ const ProfilePage = () => {
                     <span className="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase bg-white/20 text-white border border-white/20 backdrop-blur-md shadow-sm">
                       {role}
                     </span>
-                    <span className="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-emerald-500 border border-emerald-400 text-white shadow-sm">
+                    <span className="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 bg-blue-500 border border-blue-400 text-white shadow-sm">
                       <span className="w-1.5 h-1.5 rounded-full bg-white shadow-sm" />
                       {statusConfig.label}
                     </span>
@@ -219,12 +224,12 @@ const ProfilePage = () => {
                     {profilePic ? (
                       <img src={profilePic} alt={fullName} className="h-24 w-24 sm:h-[120px] sm:w-[120px] rounded-full border border-gray-100 object-cover bg-gray-50" />
                     ) : (
-                      <div className="h-24 w-24 sm:h-[120px] sm:w-[120px] rounded-full bg-slate-50 text-teal-600 border border-gray-100 flex items-center justify-center">
+                      <div className="h-24 w-24 sm:h-[120px] sm:w-[120px] rounded-full bg-slate-50 text-blue-600 border border-gray-100 flex items-center justify-center">
                         <span className="text-3xl sm:text-5xl font-bold">{initials}</span>
                       </div>
                     )}
                     {isVerified && (
-                      <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-emerald-500 text-white rounded-full p-1.5 border-2 border-white shadow-sm" title="Email Verified">
+                      <div className="absolute bottom-1 right-1 sm:bottom-2 sm:right-2 bg-blue-500 text-white rounded-full p-1.5 border-2 border-white shadow-sm" title="Email Verified">
                         {verifiedIcon}
                       </div>
                     )}
@@ -246,7 +251,7 @@ const ProfilePage = () => {
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                   <button
                     onClick={handleEditProfile}
-                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors duration-200"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors duration-200"
                   >
                     {editIcon} <span>Edit Profile</span>
                   </button>
@@ -267,29 +272,29 @@ const ProfilePage = () => {
             
             {/* Left Column - Personal Info (Span 4) */}
             <div className="lg:col-span-5 xl:col-span-4 space-y-6 sm:space-y-8">
-              <DetailCard title="Personal Information" icon={userIcon} iconColor="bg-teal-100 text-teal-600">
+              <DetailCard title="Personal Information" icon={userIcon} iconColor="bg-blue-100 text-blue-600">
                 {loadingEmployee ? <LoadingSkeleton /> : (
                   <div className="space-y-6">
-                    <DetailField icon={mailIcon} iconBg="bg-teal-50 text-teal-600" label="Email Address" value={email} />
-                    <DetailField icon={phoneIcon} iconBg="bg-green-50 text-green-600" label="Phone Number" value={phone} />
+                    <DetailField icon={mailIcon} iconBg="bg-blue-50 text-blue-600" label="Email Address" value={email} />
+                    <DetailField icon={phoneIcon} iconBg="bg-blue-50 text-blue-600" label="Phone Number" value={phone} />
                     <DetailField icon={locationIcon} iconBg="bg-amber-50 text-amber-600" label="Location" value={location} />
-                    <DetailField icon={calendarIcon} iconBg="bg-emerald-50 text-emerald-600" label="Join Date" value={joinDate} />
+                    <DetailField icon={calendarIcon} iconBg="bg-blue-50 text-blue-600" label="Join Date" value={joinDate} />
                   </div>
                 )}
               </DetailCard>
 
               {/* Quick Navigation Card */}
-              <DetailCard title="Navigation" icon={dashboardIcon} iconColor="bg-teal-100 text-teal-600">
+              <DetailCard title="Navigation" icon={dashboardIcon} iconColor="bg-blue-100 text-blue-600">
                 <Link
                   to="/dashboard"
                   className="group block"
                 >
-                  <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-transparent bg-gray-50 hover:bg-white hover:border-teal-100 hover:shadow-md transition-all duration-300">
-                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center text-teal-600 group-hover:scale-110 group-hover:bg-teal-600 group-hover:text-white transition-all duration-300">
+                  <div className="flex items-center gap-4 p-4 rounded-xl border-2 border-transparent bg-gray-50 hover:bg-white hover:border-blue-100 hover:shadow-md transition-all duration-300">
+                    <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center text-blue-600 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
                       {dashboardIcon}
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-gray-900 group-hover:text-teal-600 transition-colors">Go to Dashboard</h4>
+                      <h4 className="text-sm font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Go to Dashboard</h4>
                       <p className="text-xs text-gray-500 mt-0.5">Return to your home workspace</p>
                     </div>
                   </div>
@@ -299,15 +304,15 @@ const ProfilePage = () => {
 
             {/* Right Column - Work & Account Info (Span 8) */}
             <div className="lg:col-span-7 xl:col-span-8 space-y-6 sm:space-y-8">
-              <DetailCard title="Employment Details" icon={briefcaseIcon} iconColor="bg-emerald-100 text-emerald-600">
+              <DetailCard title="Employment Details" icon={briefcaseIcon} iconColor="bg-blue-100 text-blue-600">
                 {loadingEmployee ? <LoadingSkeleton /> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-8">
                     <DetailField icon={idCardIcon} iconBg="bg-gray-100 text-gray-600" label="Employee ID" value={empCode} mono />
-                    <DetailField icon={briefcaseIcon} iconBg="bg-emerald-50 text-emerald-600" label="Employment Type" value={empType} />
-                    <DetailField icon={userIcon} iconBg="bg-teal-50 text-teal-600" label="Position" value={position} />
-                    <DetailField icon={buildingIcon} iconBg="bg-emerald-50 text-emerald-600" label="Department" value={department} />
-                    <DetailField icon={buildingIcon} iconBg="bg-cyan-50 text-cyan-600" label="Organization" value={organization} />
-                    <DetailField icon={buildingIcon} iconBg="bg-teal-50 text-teal-600" label="Entity" value={entity} />
+                    <DetailField icon={briefcaseIcon} iconBg="bg-blue-50 text-blue-600" label="Employment Type" value={empType} />
+                    <DetailField icon={userIcon} iconBg="bg-blue-50 text-blue-600" label="Position" value={position} />
+                    <DetailField icon={buildingIcon} iconBg="bg-blue-50 text-blue-600" label="Department" value={department} />
+                    <DetailField icon={buildingIcon} iconBg="bg-blue-50 text-blue-600" label="Organization" value={organization} />
+                    <DetailField icon={buildingIcon} iconBg="bg-blue-50 text-blue-600" label="Entity" value={entity} />
                   </div>
                 )}
               </DetailCard>
@@ -315,7 +320,7 @@ const ProfilePage = () => {
               <DetailCard title="Account & Access Tracking" icon={shieldIcon} iconColor="bg-rose-100 text-rose-600">
                 {loadingEmployee ? <LoadingSkeleton /> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-8">
-                    <DetailField icon={userIcon} iconBg="bg-teal-50 text-teal-600" label="Reports To" value={manager} />
+                    <DetailField icon={userIcon} iconBg="bg-blue-50 text-blue-600" label="Reports To" value={manager} />
                     <DetailField icon={clockIcon} iconBg="bg-amber-50 text-amber-600" label="Shift Schedule" value={shift} />
                     <DetailField icon={clockIcon} iconBg="bg-slate-100 text-slate-600" label="Last Login Activity" value={lastLogin} />
                     
@@ -331,7 +336,7 @@ const ProfilePage = () => {
                             {role}
                           </span>
                           {isVerified && (
-                            <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-md text-xs font-bold flex items-center gap-1">
+                            <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-bold flex items-center gap-1">
                               {verifiedIcon} Verified
                             </span>
                           )}
@@ -349,7 +354,7 @@ const ProfilePage = () => {
 
       {/* Success toast */}
       {successMessage && (
-        <div className="fixed top-4 right-4 bg-emerald-500 text-white px-5 py-3 rounded-xl shadow-lg shadow-emerald-200 z-50 flex items-center gap-2 text-sm font-medium animate-slide-in">
+        <div className="fixed top-4 right-4 bg-blue-500 text-white px-5 py-3 rounded-xl shadow-lg shadow-blue-200 z-50 flex items-center gap-2 text-sm font-medium animate-slide-in">
           {verifiedIcon} {successMessage}
         </div>
       )}
@@ -357,13 +362,14 @@ const ProfilePage = () => {
       {/* ═══════════════ EDIT PROFILE MODAL ═══════════════ */}
       {showEditModal && (
         <ModalOverlay onClose={() => { setShowEditModal(false); setErrors({}); }}>
-          <div className="bg-gradient-to-r from-teal-600 to-emerald-500 px-6 py-5 rounded-t-2xl">
-            <div className="flex items-center justify-between">
+          <div className="animate-gradient-bg relative overflow-hidden px-6 py-5 rounded-t-2xl">
+            <div className="absolute top-2 right-8 w-16 h-16 rounded-full bg-white/5 animate-float" />
+            <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white">{editIcon}</div>
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white animate-pulse-glow">{editIcon}</div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Edit Profile</h2>
-                  <p className="text-teal-100 text-xs">Update your personal information</p>
+                  <p className="text-blue-100 text-xs">Update your personal information</p>
                 </div>
               </div>
               <button onClick={() => { setShowEditModal(false); setErrors({}); }} className="text-white/60 hover:text-white transition-colors">
@@ -378,7 +384,7 @@ const ProfilePage = () => {
                   type="text"
                   value={editFormData.firstName}
                   onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -387,7 +393,7 @@ const ProfilePage = () => {
                   type="text"
                   value={editFormData.lastName}
                   onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -396,7 +402,7 @@ const ProfilePage = () => {
                   type="tel"
                   value={editFormData.phone}
                   onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
                 />
               </FormField>
               {errors.submit && <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{errors.submit}</p>}
@@ -405,7 +411,7 @@ const ProfilePage = () => {
               <button type="button" onClick={() => { setShowEditModal(false); setErrors({}); }} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button type="submit" className="px-4 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition-colors">
+              <button type="submit" className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors">
                 Save Changes
               </button>
             </div>
@@ -416,13 +422,14 @@ const ProfilePage = () => {
       {/* ═══════════════ CHANGE PASSWORD MODAL ═══════════════ */}
       {showPasswordModal && (
         <ModalOverlay onClose={() => { setShowPasswordModal(false); setErrors({}); setPasswordFormData({ currentPassword: '', newPassword: '', confirmPassword: '' }); }}>
-          <div className="bg-gradient-to-r from-teal-700 to-teal-600 px-6 py-5 rounded-t-2xl">
-            <div className="flex items-center justify-between">
+          <div className="animate-gradient-bg relative overflow-hidden px-6 py-5 rounded-t-2xl">
+            <div className="absolute top-2 right-8 w-16 h-16 rounded-full bg-white/5 animate-float" />
+            <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white">{lockIcon}</div>
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-white animate-pulse-glow">{lockIcon}</div>
                 <div>
                   <h2 className="text-lg font-bold text-white">Change Password</h2>
-                  <p className="text-teal-100 text-xs">Update your account password</p>
+                  <p className="text-blue-100 text-xs">Update your account password</p>
                 </div>
               </div>
               <button onClick={() => { setShowPasswordModal(false); setErrors({}); }} className="text-white/60 hover:text-white transition-colors">
@@ -437,7 +444,7 @@ const ProfilePage = () => {
                   type="password"
                   value={passwordFormData.currentPassword}
                   onChange={(e) => setPasswordFormData({ ...passwordFormData, currentPassword: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -446,7 +453,7 @@ const ProfilePage = () => {
                   type="password"
                   value={passwordFormData.newPassword}
                   onChange={(e) => setPasswordFormData({ ...passwordFormData, newPassword: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -455,7 +462,7 @@ const ProfilePage = () => {
                   type="password"
                   value={passwordFormData.confirmPassword}
                   onChange={(e) => setPasswordFormData({ ...passwordFormData, confirmPassword: e.target.value })}
-                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 outline-none transition-all"
+                  className="w-full h-10 px-4 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none transition-all"
                   required
                 />
               </FormField>
@@ -465,7 +472,7 @@ const ProfilePage = () => {
               <button type="button" onClick={() => { setShowPasswordModal(false); setErrors({}); }} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 transition-colors">
                 Cancel
               </button>
-              <button type="submit" disabled={passwordSubmitting} className="px-4 py-2.5 bg-teal-600 text-white rounded-xl text-sm font-medium hover:bg-teal-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+              <button type="submit" disabled={passwordSubmitting} className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
                 {passwordSubmitting ? 'Changing...' : 'Change Password'}
               </button>
             </div>
@@ -559,7 +566,7 @@ function formatDate(dateStr: string): string {
 
 function getStatusConfig(status: string): { label: string; badge: string; badgeSolid: string; dot: string } {
   switch (status) {
-    case 'ACTIVE': return { label: 'Active', badge: 'bg-emerald-500/20 text-emerald-100', badgeSolid: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400' };
+    case 'ACTIVE': return { label: 'Active', badge: 'bg-blue-500/20 text-blue-100', badgeSolid: 'bg-blue-100 text-blue-700', dot: 'bg-blue-400' };
     case 'ON_LEAVE': return { label: 'On Leave', badge: 'bg-amber-500/20 text-amber-100', badgeSolid: 'bg-amber-100 text-amber-700', dot: 'bg-amber-400' };
     case 'SUSPENDED': return { label: 'Suspended', badge: 'bg-red-500/20 text-red-100', badgeSolid: 'bg-red-100 text-red-700', dot: 'bg-red-400' };
     case 'TERMINATED': case 'RESIGNED': return { label: status === 'TERMINATED' ? 'Terminated' : 'Resigned', badge: 'bg-gray-500/20 text-gray-200', badgeSolid: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' };
@@ -571,7 +578,7 @@ function getRoleColor(role: string): string {
   switch (role) {
     case 'SUPER_ADMIN': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     case 'ORG_ADMIN': return 'bg-blue-50 text-blue-700 border-blue-200';
-    case 'HR_MANAGER': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'HR_MANAGER': return 'bg-blue-50 text-blue-700 border-blue-200';
     case 'MANAGER': return 'bg-amber-50 text-amber-700 border-amber-200';
     default: return 'bg-gray-50 text-gray-700 border-gray-200';
   }

@@ -12,7 +12,7 @@ function toHHMM(minutes: number): string {
 }
 
 function statusBadge(status: string): string {
-  if (status === 'APPROVED') return 'bg-green-100 text-green-800';
+  if (status === 'APPROVED') return 'bg-blue-100 text-blue-800';
   if (status === 'REJECTED') return 'bg-red-100 text-red-800';
   return 'bg-orange-100 text-orange-800';
 }
@@ -281,7 +281,7 @@ export default function ExcessTimeApprovalPage() {
                         <button className="text-blue-600 hover:underline mr-2" onClick={() => openDetails(r.id)}>View</button>
                         {r.status === 'PENDING' && (
                           <>
-                            <button className="text-green-600 hover:underline mr-2" onClick={() => handleApprove(r.id)}>Approve</button>
+                            <button className="text-blue-600 hover:underline mr-2" onClick={() => handleApprove(r.id)}>Approve</button>
                             <button className="text-red-600 hover:underline" onClick={() => openDetails(r.id)}>Reject</button>
                           </>
                         )}
@@ -348,7 +348,7 @@ export default function ExcessTimeApprovalPage() {
                         <button disabled={actionLoading} className="px-3 py-2 bg-red-600 text-white rounded text-sm disabled:opacity-50" onClick={() => handleReject(details.request.id)}>
                           Reject
                         </button>
-                        <button disabled={actionLoading} className="px-3 py-2 bg-green-600 text-white rounded text-sm disabled:opacity-50" onClick={() => handleApprove(details.request.id)}>
+                        <button disabled={actionLoading} className="px-3 py-2 bg-blue-600 text-white rounded text-sm disabled:opacity-50" onClick={() => handleApprove(details.request.id)}>
                           Approve
                         </button>
                       </>

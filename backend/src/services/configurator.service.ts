@@ -753,6 +753,101 @@ export class ConfiguratorService {
       throw err;
     }
   }
+
+  /**
+   * Upload Excel file for bulk user creation in Configurator DB.
+   * POST /api/v1/users/upload-excel  (multipart/form-data)
+   */
+  async uploadExcel(
+    accessToken: string,
+    fileBuffer: Buffer,
+    fileName: string,
+    companyId: number,
+    projectId: number,
+    roleId: number,
+  ): Promise<{
+    total: number;
+    created: number;
+    updated: number;
+    failed: number;
+    results: Array<{
+      row: number;
+      email: string;
+      status: string;
+      message: string;
+      user?: {
+        user_id: number;
+        full_name: string;
+        email: string;
+        code: string;
+        phone: string;
+        is_active: boolean;
+        password: string;
+        encrypted_password: string;
+        role_id: number;
+        manager_id: number;
+        department?: { id: number; name: string; code: string };
+        cost_centre?: { id: number; name: string; code: string };
+        sub_department?: { id: number; name: string; code: string };
+        project_role?: { id: number; name: string; code: string };
+        project_role_active?: boolean;
+      };
+    }>;
+  }> {
+    const FormData = (await import('form-data')).default;
+    const form = new FormData();
+    form.append('file', fileBuffer, { filename: fileName, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    form.append('company_id', String(companyId));
+    form.append('project_id', String(projectId));
+    form.append('role_id', String(roleId));
+
+    try {
+      const res = await withFallback((base) =>
+        axios.post(`${base}/api/v1/users/upload-excel`, form, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            ...form.getHeaders(),
+          },
+          timeout: 300000, // 5 min for bulk
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+        })
+      );
+      return res.data;
+    } catch (err: any) {
+      const axiosErr = err as AxiosError<{ detail?: string }>;
+      if (axiosErr.response) {
+        const msg = typeof axiosErr.response?.data?.detail === 'string'
+          ? axiosErr.response.data.detail
+          : JSON.stringify(axiosErr.response?.data ?? 'Excel upload failed');
+        throw new AppError(msg, axiosErr.response.status);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Download the employee import template from Configurator.
+   * GET /api/v1/users/download/employee_import_template
+   */
+  async downloadEmployeeImportTemplate(accessToken: string): Promise<Buffer> {
+    try {
+      const res = await withFallback((base) =>
+        axios.get(`${base}/api/v1/users/download/employee_import_template`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          responseType: 'arraybuffer',
+          timeout: 30000,
+        })
+      );
+      return Buffer.from(res.data);
+    } catch (err: any) {
+      const axiosErr = err as AxiosError<any>;
+      if (axiosErr.response) {
+        throw new AppError('Failed to download import template from Configurator', axiosErr.response.status);
+      }
+      throw err;
+    }
+  }
 }
 
 export const configuratorService = new ConfiguratorService();

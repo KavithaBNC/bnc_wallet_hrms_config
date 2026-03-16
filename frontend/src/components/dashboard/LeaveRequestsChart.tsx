@@ -10,7 +10,7 @@ const LeaveRequestsChart = ({ organizationId }: LeaveRequestsChartProps) => {
   const [data, setData] = useState<Array<{ name: string; value: number }>>([]);
   const [loading, setLoading] = useState(true);
 
-  const colors = ['#10b981', '#14b8a6', '#06b6d4', '#3b82f6'];
+  const colors = ['#2563EB', '#3B82F6', '#60A5FA', '#3b82f6'];
 
   useEffect(() => {
     const fetchData = async () => {

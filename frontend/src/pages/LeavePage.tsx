@@ -368,7 +368,7 @@ const LeavePage = () => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'APPROVED':
-        return 'bg-green-100 text-green-800';
+        return 'bg-blue-100 text-blue-800';
       case 'REJECTED':
         return 'bg-red-100 text-red-800';
       case 'PENDING':
@@ -477,7 +477,7 @@ const LeavePage = () => {
                 <button
                   type="submit"
                   disabled={submittingLeaveType}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submittingLeaveType ? 'Creating...' : 'Create Leave Type'}
                 </button>
@@ -739,7 +739,7 @@ const LeavePage = () => {
                               <button
                                 onClick={() => handleApproveLeave(request.id)}
                                 disabled={approvingRequest === request.id || rejectingRequest === request.id}
-                                className="text-green-600 hover:text-green-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="text-blue-600 hover:text-blue-900 disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Approve"
                               >
                                 {approvingRequest === request.id ? 'Approving...' : '✅ Approve'}

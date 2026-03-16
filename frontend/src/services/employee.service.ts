@@ -290,6 +290,61 @@ const employeeService = {
       temporaryPassword: response.data.data.temporaryPassword,
     };
   },
+
+  /**
+   * Bulk import employees from Excel file.
+   * POST /api/v1/employees/bulk-import (multipart/form-data)
+   */
+  async bulkImport(
+    file: File,
+    organizationId: string,
+    options?: { createSalaryRecords?: boolean; skipConfiguratorSync?: boolean },
+  ): Promise<BulkImportResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('organizationId', organizationId);
+    if (options?.createSalaryRecords) formData.append('createSalaryRecords', 'true');
+    if (options?.skipConfiguratorSync) formData.append('skipConfiguratorSync', 'true');
+
+    const response = await api.post('/employees/bulk-import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000, // 5 minutes for bulk operation
+    });
+    return response.data.data;
+  },
+
+  /**
+   * Download employee import template from Configurator.
+   * GET /api/v1/employees/import-template
+   */
+  async downloadImportTemplate(): Promise<Blob> {
+    const response = await api.get('/employees/import-template', {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
+
+export interface BulkImportResult {
+  total: number;
+  success: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  managersSet: number;
+  failures: Array<{
+    row: number;
+    email?: string;
+    associateCode?: string;
+    status: string;
+    message: string;
+  }>;
+  configuratorResults?: {
+    total: number;
+    created: number;
+    updated: number;
+    failed: number;
+  };
+}
 
 export default employeeService;

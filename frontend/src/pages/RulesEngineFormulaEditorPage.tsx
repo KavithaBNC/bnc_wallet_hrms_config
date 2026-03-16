@@ -295,7 +295,7 @@ export default function RulesEngineFormulaEditorPage() {
                       aria-checked={rounding}
                       onClick={() => setRounding(!rounding)}
                       className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        rounding ? 'bg-green-500' : 'bg-gray-200'
+                        rounding ? 'bg-blue-500' : 'bg-gray-200'
                       }`}
                     >
                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${rounding ? 'translate-x-5' : 'translate-x-0.5'}`} />
@@ -364,7 +364,7 @@ export default function RulesEngineFormulaEditorPage() {
                     type="button"
                     onClick={handleSave}
                     disabled={saving}
-                    className="h-10 px-4 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2"
+                    className="h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-2"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

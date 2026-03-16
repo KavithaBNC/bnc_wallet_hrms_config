@@ -369,7 +369,7 @@ const EmployeeSalariesPage = () => {
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                             salary.isActive
-                              ? 'bg-green-100 text-green-800'
+                              ? 'bg-blue-100 text-blue-800'
                               : 'bg-gray-100 text-gray-800'
                           }`}
                         >
@@ -615,9 +615,9 @@ const EmployeeSalariesPage = () => {
                       ₹{Number(showViewModal.basicSalary).toLocaleString('en-IN')}
                     </p>
                   </div>
-                  <div className="p-3 bg-green-50 rounded">
+                  <div className="p-3 bg-blue-50 rounded">
                     <p className="text-xs text-gray-600">Gross Salary</p>
-                    <p className="text-lg font-bold text-green-900">
+                    <p className="text-lg font-bold text-blue-900">
                       ₹{Number(showViewModal.grossSalary).toLocaleString('en-IN')}
                     </p>
                   </div>
@@ -668,7 +668,7 @@ const EmployeeSalariesPage = () => {
                     <span
                       className={`px-2 py-1 rounded text-xs font-semibold ${
                         showViewModal.isActive
-                          ? 'bg-green-100 text-green-800'
+                          ? 'bg-blue-100 text-blue-800'
                           : 'bg-gray-100 text-gray-800'
                       }`}
                     >

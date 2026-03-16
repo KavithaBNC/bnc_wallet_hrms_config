@@ -4,12 +4,12 @@ import { getMockTasks, type TaskItem } from '../../services/dashboard.service';
 const PRIORITY_BADGE: Record<string, string> = {
   high: 'bg-red-100 text-red-700',
   medium: 'bg-amber-100 text-amber-700',
-  low: 'bg-green-100 text-green-700',
+  low: 'bg-blue-100 text-blue-700',
 };
 
 const STATUS_ICON: Record<string, JSX.Element> = {
   completed: (
-    <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
@@ -59,7 +59,7 @@ const TasksWorkStatus = () => {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 mb-5">
         <StatBox label="Total" value={counts.total} color="text-blue-600" bg="bg-blue-50" />
-        <StatBox label="Done" value={counts.completed} color="text-green-600" bg="bg-green-50" />
+        <StatBox label="Done" value={counts.completed} color="text-blue-600" bg="bg-blue-50" />
         <StatBox label="Active" value={counts.inProgress} color="text-amber-600" bg="bg-amber-50" />
         <StatBox label="Pending" value={counts.pending} color="text-gray-600" bg="bg-gray-50" />
       </div>
