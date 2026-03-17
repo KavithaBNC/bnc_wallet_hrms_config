@@ -129,7 +129,7 @@ export default function DepartmentsPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Departments"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -303,7 +303,7 @@ export default function DepartmentsPage() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                             dept.isActive
-                              ? 'bg-blue-100 text-blue-800'
+                              ? 'bg-green-100 text-green-800'
                               : 'bg-red-100 text-red-800'
                           }`}>
                             {dept.isActive ? 'Active' : 'Inactive'}

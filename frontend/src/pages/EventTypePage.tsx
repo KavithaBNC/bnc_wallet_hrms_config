@@ -23,7 +23,7 @@ export default function EventTypePage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Event Configuration"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 

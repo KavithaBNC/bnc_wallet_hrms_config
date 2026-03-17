@@ -69,7 +69,7 @@ function getDayCellBgClass(dayStats: ValidationDaySummary): string {
   if (hasOnHold) return 'bg-orange-50';
   if (hasAnomaly && hasCompleted) return 'bg-amber-50';
   if (hasAnomaly) return 'bg-red-50';
-  if (hasCompleted) return 'bg-blue-50';
+  if (hasCompleted) return 'bg-green-50';
   return 'bg-white';
 }
 
@@ -499,7 +499,7 @@ export default function ValidationProcessPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="HR Activities"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -888,7 +888,7 @@ export default function ValidationProcessPage() {
                                     {isFutureDate ? null : (
                                       <>
                                         {dayStats.completed > 0 && (
-                                          <div className="text-xs font-medium text-blue-700 mb-1">Validation Completed: {dayStats.completed}</div>
+                                          <div className="text-xs font-medium text-green-700 mb-1">Validation Completed: {dayStats.completed}</div>
                                         )}
                                         {dayStats.approvalPending > 0 && (
                                           <div className="text-xs text-red-700">Approval Pending: {dayStats.approvalPending}</div>
@@ -1130,7 +1130,7 @@ export default function ValidationProcessPage() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-3 text-right">
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
                                       {entry.balancesRestored}
                                     </span>
                                   </td>
@@ -1241,7 +1241,7 @@ export default function ValidationProcessPage() {
                                     </td>
                                     <td className="px-4 py-3">
                                       <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                        emp.deductionType === 'Permission' ? 'bg-blue-100 text-blue-800' :
+                                        emp.deductionType === 'Permission' ? 'bg-green-100 text-green-800' :
                                         emp.deductionType === 'Leave' ? 'bg-yellow-100 text-yellow-800' :
                                         emp.deductionType === 'LOP' ? 'bg-red-100 text-red-800' :
                                         'bg-gray-100 text-gray-800'
@@ -1362,14 +1362,14 @@ export default function ValidationProcessPage() {
       {showRevertResult && revertResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowRevertResult(false)}>
           <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${revertResult.errors.length > 0 ? 'bg-amber-50' : 'bg-blue-50'}`}>
-              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${revertResult.errors.length > 0 ? 'bg-amber-100' : 'bg-blue-100'}`}>
+            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${revertResult.errors.length > 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
+              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${revertResult.errors.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
                 {revertResult.errors.length > 0 ? (
                   <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                   </svg>
                 ) : (
-                  <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 )}
@@ -1389,9 +1389,9 @@ export default function ValidationProcessPage() {
                   <p className="text-2xl font-bold text-red-800">{revertResult.leaveRequestsDeleted}</p>
                   <p className="text-xs text-red-600 mt-0.5">Leaves Removed</p>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-800">{revertResult.balancesRestored}</p>
-                  <p className="text-xs text-blue-600 mt-0.5">Balances Restored</p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-green-800">{revertResult.balancesRestored}</p>
+                  <p className="text-xs text-green-600 mt-0.5">Balances Restored</p>
                 </div>
               </div>
               {revertResult.errors.length > 0 && (
@@ -1495,9 +1495,9 @@ export default function ValidationProcessPage() {
       {showClearResult && clearResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowClearResult(false)}>
           <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-blue-50 rounded-t-xl">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200 bg-green-50 rounded-t-xl">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>

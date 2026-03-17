@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { validate } from '../middlewares/validate';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
 import {
   registerSchema,
   configuratorLoginSchema,
@@ -10,7 +10,6 @@ import {
   verifyEmailSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  changePasswordSchema,
   updateProfileSchema,
 } from '../utils/validation';
 
@@ -139,41 +138,6 @@ router.get('/me', authenticate, authController.getCurrentUser.bind(authControlle
  * @access  Private
  */
 router.get('/modules', authenticate, authController.getMyModules.bind(authController));
-
-/**
- * @route   POST /api/v1/auth/admin/reset-password/:employeeId
- * @desc    Admin reset password for employee
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
- */
-router.post(
-  '/admin/reset-password/:employeeId',
-  authenticate,
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
-  authController.adminResetPassword.bind(authController)
-);
-
-/**
- * @route   POST /api/v1/auth/change-password
- * @desc    Change user password
- * @access  Private
- */
-router.post(
-  '/change-password',
-  authenticate,
-  validate(changePasswordSchema),
-  authController.changePassword.bind(authController)
-);
-
-/**
- * @route   POST /api/v1/auth/sync-password-hash
- * @desc    Update password_hash in HRMS DB after Configurator password reset
- * @access  Private
- */
-router.post(
-  '/sync-password-hash',
-  authenticate,
-  authController.syncPasswordHash.bind(authController)
-);
 
 /**
  * @route   PUT /api/v1/auth/profile

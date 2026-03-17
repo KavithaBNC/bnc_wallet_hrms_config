@@ -87,7 +87,7 @@ function ToggleSwitch({ value, onChange }: { value: boolean; onChange: (v: boole
         aria-checked={value}
         onClick={handleClick}
         className={`relative inline-flex h-8 w-14 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-          value ? 'bg-blue-600' : 'bg-red-500'
+          value ? 'bg-green-600' : 'bg-red-500'
         }`}
       >
         <span
@@ -96,7 +96,7 @@ function ToggleSwitch({ value, onChange }: { value: boolean; onChange: (v: boole
           }`}
         />
       </button>
-      <span className={`text-sm font-medium ${value ? 'text-blue-700' : 'text-red-700'}`}>
+      <span className={`text-sm font-medium ${value ? 'text-green-700' : 'text-red-700'}`}>
         {value ? 'YES' : 'NO'}
       </span>
     </div>
@@ -528,7 +528,7 @@ export default function AutoCreditSettingFormPage() {
   if (loading) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
-        <AppHeader title="Event Configuration" subtitle={organizationName ? organizationName : undefined} onLogout={handleLogout} />
+        <AppHeader title="Event Configuration" subtitle={organizationName ? `Organization: ${organizationName}` : undefined} onLogout={handleLogout} />
         <main className="flex-1 flex items-center justify-center">
           <p className="text-gray-500">Loading...</p>
         </main>
@@ -540,7 +540,7 @@ export default function AutoCreditSettingFormPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Event Configuration"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -799,7 +799,7 @@ export default function AutoCreditSettingFormPage() {
                 <FormRow label="Effective To">
                   <div>
                     <input type="date" value={effectiveTo} onChange={(e) => setEffectiveTo(e.target.value)} placeholder="Effective To" className={inputClass} />
-                    <p className="mt-1.5 text-sm text-blue-600">Note: If you choose this field credit will not work after effective to field for the Associate</p>
+                    <p className="mt-1.5 text-sm text-green-600">Note: If you choose this field credit will not work after effective to field for the Associate</p>
                   </div>
                 </FormRow>
               </div>
@@ -811,7 +811,7 @@ export default function AutoCreditSettingFormPage() {
                   </svg>
                   Cancel
                 </button>
-                <button type="submit" disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-transparent bg-blue-600 text-white text-sm font-medium shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                <button type="submit" disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-transparent bg-green-600 text-white text-sm font-medium shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed">
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
                   </svg>

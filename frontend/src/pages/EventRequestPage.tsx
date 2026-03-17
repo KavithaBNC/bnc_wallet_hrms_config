@@ -117,7 +117,7 @@ export default function EventRequestPage() {
   const statusTone = (status: string) => {
     switch (status) {
       case 'APPROVED':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-emerald-100 text-emerald-800';
       case 'REJECTED':
         return 'bg-red-100 text-red-800';
       case 'CANCELLED':
@@ -136,7 +136,7 @@ export default function EventRequestPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Event Request"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">

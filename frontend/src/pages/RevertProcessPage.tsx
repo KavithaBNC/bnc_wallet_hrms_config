@@ -147,7 +147,7 @@ export default function RevertProcessPage() {
     <div className="min-h-screen bg-gray-50">
       <AppHeader
         title="Revert / Validation On Hold"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -231,7 +231,7 @@ export default function RevertProcessPage() {
                         {row.isOnHold ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">On Hold</span>
                         ) : row.isCompleted ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">Completed</span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Completed</span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">Pending</span>
                         )}
@@ -338,12 +338,12 @@ export default function RevertProcessPage() {
       {revertResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setRevertResult(null)}>
           <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${revertResult.errors.length > 0 ? 'bg-amber-50' : 'bg-blue-50'}`}>
-              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${revertResult.errors.length > 0 ? 'bg-amber-100' : 'bg-blue-100'}`}>
+            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${revertResult.errors.length > 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
+              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${revertResult.errors.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
                 {revertResult.errors.length > 0 ? (
                   <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 ) : (
-                  <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 )}
               </div>
               <div>
@@ -361,9 +361,9 @@ export default function RevertProcessPage() {
                   <p className="text-2xl font-bold text-red-800">{revertResult.leaveRequestsDeleted}</p>
                   <p className="text-xs text-red-600 mt-0.5">Leaves Removed</p>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-800">{revertResult.balancesRestored}</p>
-                  <p className="text-xs text-blue-600 mt-0.5">Balances Restored</p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-green-800">{revertResult.balancesRestored}</p>
+                  <p className="text-xs text-green-600 mt-0.5">Balances Restored</p>
                 </div>
               </div>
               {revertResult.errors.length > 0 && (
@@ -446,12 +446,12 @@ export default function RevertProcessPage() {
       {holdResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setHoldResult(null)}>
           <div className="bg-white rounded-xl shadow-2xl border border-gray-200 w-full max-w-md flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${holdResult.errors.length > 0 ? 'bg-amber-50' : 'bg-blue-50'}`}>
-              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${holdResult.errors.length > 0 ? 'bg-amber-100' : 'bg-blue-100'}`}>
+            <div className={`flex items-center gap-3 px-6 py-4 border-b border-gray-200 rounded-t-xl ${holdResult.errors.length > 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
+              <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${holdResult.errors.length > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
                 {holdResult.errors.length > 0 ? (
                   <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 ) : (
-                  <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 )}
               </div>
               <div>

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import shiftService, { Shift } from '../services/shift.service';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
@@ -128,16 +127,11 @@ export default function ShiftMasterPage() {
   const activeCount = shifts.filter((s) => s.isActive).length;
   const inactiveCount = shifts.length - activeCount;
 
-  const modulePerms = getModulePermissions('/time-attendance/shift-master');
-  const canAdd = modulePerms.can_add;
-  const canEdit = modulePerms.can_edit;
-  const canDelete = modulePerms.can_delete;
-
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Shift Master"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -154,7 +148,6 @@ export default function ShiftMasterPage() {
               <span className="mx-1 text-gray-400">/</span>
               <span className="text-gray-500">Shift Master</span>
             </nav>
-            {canAdd && (
             <button
               type="button"
               onClick={handleAdd}
@@ -162,7 +155,6 @@ export default function ShiftMasterPage() {
             >
               + Add Shift
             </button>
-            )}
           </div>
 
           {/* Filters - match Employee list (label above, grid) */}
@@ -248,7 +240,7 @@ export default function ShiftMasterPage() {
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#2196F3] flex items-center justify-center">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#4CAF50] flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
@@ -384,7 +376,7 @@ export default function ShiftMasterPage() {
                         {visibleColumns.has('active') && (
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span
-                              className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${shift.isActive ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}
+                              className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${shift.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}
                             >
                               {shift.isActive ? 'Yes' : 'No'}
                             </span>
@@ -406,7 +398,6 @@ export default function ShiftMasterPage() {
                         {visibleColumns.has('action') && (
                           <td className="px-4 py-3 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {canEdit && (
                               <button
                                 type="button"
                                 onClick={() => navigate(`/time-attendance/shift-master/edit/${shift.id}`)}
@@ -417,8 +408,7 @@ export default function ShiftMasterPage() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                 </svg>
                               </button>
-                              )}
-                              {canDelete && (deleteConfirmId === shift.id ? (
+                              {deleteConfirmId === shift.id ? (
                                 <span className="flex items-center gap-1 text-xs">
                                   <button type="button" onClick={() => handleDelete(shift.id)} className="text-red-600 font-medium hover:underline">
                                     Confirm
@@ -438,7 +428,7 @@ export default function ShiftMasterPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                   </svg>
                                 </button>
-                              ))}
+                              )}
                             </div>
                           </td>
                         )}

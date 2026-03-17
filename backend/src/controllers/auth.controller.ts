@@ -1,10 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 import { authService } from '../services/auth.service';
 import { configuratorService, type ConfiguratorRoleModuleWithPage } from '../services/configurator.service';
 import { AppError } from '../middlewares/errorHandler';
 import { generateTokenPair, JwtPayload } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
 import { config } from '../config/config';
+import { blacklistToken } from '../utils/token-blacklist';
 
 /**
  * Valid HRMS UserRole enum values (must match prisma schema enum exactly).
@@ -708,6 +710,17 @@ export class AuthController {
         throw new AppError('Not authenticated', 401);
       }
 
+      // Blacklist the current access token so it cannot be reused after logout
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.decode(token) as { exp?: number } | null;
+        if (decoded?.exp) {
+          const remainingMs = decoded.exp * 1000 - Date.now();
+          blacklistToken(token, remainingMs);
+        }
+      }
+
       const result = await authService.logout(req.user.userId);
 
       return res.status(200).json({
@@ -801,84 +814,6 @@ export class AuthController {
     }
   }
 
-
-  /**
-   * Admin reset password for employee
-   * POST /api/v1/auth/admin/reset-password/:employeeId
-   */
-  async adminResetPassword(req: Request, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        throw new AppError('Not authenticated', 401);
-      }
-
-      const { employeeId } = req.params;
-      const { newPassword } = req.body;
-
-      if (!newPassword || newPassword.length < 8) {
-        return res.status(400).json({
-          status: 'fail',
-          message: 'Password must be at least 8 characters',
-        });
-      }
-
-      const result = await authService.adminResetPassword(
-        req.user.userId,
-        employeeId,
-        newPassword
-      );
-
-      return res.status(200).json({
-        status: 'success',
-        message: result.message,
-        data: { email: result.email },
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
-
-  /**
-   * Change password
-   * POST /api/v1/auth/change-password
-   */
-  async changePassword(req: Request, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        throw new AppError('Not authenticated', 401);
-      }
-
-      const result = await authService.changePassword(req.user.userId, req.body);
-
-      return res.status(200).json({
-        status: 'success',
-        message: result.message,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
-
-  /**
-   * Sync password_hash in HRMS DB after Configurator password reset.
-   * POST /api/v1/auth/sync-password-hash
-   * Body: { encryptedPassword: string }  — the encrypted_password from Configurator reset response
-   */
-  async syncPasswordHash(req: Request, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        throw new AppError('Not authenticated', 401);
-      }
-      const { encryptedPassword } = req.body;
-      if (!encryptedPassword || typeof encryptedPassword !== 'string') {
-        return res.status(400).json({ status: 'fail', message: 'encryptedPassword is required' });
-      }
-      await authService.syncPasswordHash(req.user.userId, encryptedPassword);
-      return res.status(200).json({ status: 'success', message: 'Password updated successfully' });
-    } catch (error) {
-      return next(error);
-    }
-  }
 
   /**
    * Update profile

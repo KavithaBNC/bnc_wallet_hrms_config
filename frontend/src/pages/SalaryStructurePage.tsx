@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import {
   salaryStructureService,
@@ -29,12 +28,9 @@ const SalaryStructurePage = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  // Module permissions from /api/v1/user-role-modules/project API response
-  const structurePerms = getModulePermissions('/salary-structures');
-  const canManage = structurePerms.can_view;
-  const canAdd = structurePerms.can_add;
-  const canEdit = structurePerms.can_edit;
-  const canDelete = structurePerms.can_delete;
+  const isHRManager = user?.role === 'HR_MANAGER';
+  const isOrgAdmin = user?.role === 'ORG_ADMIN';
+  const canManage = isHRManager || isOrgAdmin;
   const organizationId = user?.employee?.organizationId;
 
   useEffect(() => {
@@ -168,7 +164,7 @@ const SalaryStructurePage = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
         <AppHeader
           title="Salary Structure Management"
-          subtitle={organizationName ? organizationName : undefined}
+          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
           onLogout={handleLogout}
         />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
@@ -184,7 +180,7 @@ const SalaryStructurePage = () => {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Salary Structure Management"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
       {/* Main Content */}
@@ -194,14 +190,12 @@ const SalaryStructurePage = () => {
           <div>
             <h2 className="text-xl font-semibold text-gray-900">Define salary components and structures for your organization</h2>
           </div>
-          {canAdd && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-            >
-              + Create Salary Structure
-            </button>
-          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            + Create Salary Structure
+          </button>
         </div>
 
       {error && (
@@ -252,7 +246,7 @@ const SalaryStructurePage = () => {
                               key={idx}
                               className={`px-2 py-1 rounded text-xs ${
                                 comp.type === 'EARNING'
-                                  ? 'bg-blue-100 text-blue-800'
+                                  ? 'bg-green-100 text-green-800'
                                   : 'bg-red-100 text-red-800'
                               }`}
                             >
@@ -265,7 +259,7 @@ const SalaryStructurePage = () => {
                         <span
                           className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                             structure.isActive
-                              ? 'bg-blue-100 text-blue-800'
+                              ? 'bg-green-100 text-green-800'
                               : 'bg-gray-100 text-gray-800'
                           }`}
                         >
@@ -273,35 +267,31 @@ const SalaryStructurePage = () => {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        {canEdit && (
-                          <button
-                            onClick={() => {
-                              // TODO: Implement edit/view functionality
-                              alert('Edit functionality coming soon!');
-                            }}
-                            className="text-blue-600 hover:text-blue-900 mr-3"
-                          >
-                            View
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button
-                            onClick={async () => {
-                              if (confirm('Are you sure you want to delete this salary structure?')) {
-                                try {
-                                  await salaryStructureService.delete(structure.id);
-                                  alert('Salary structure deleted successfully!');
-                                  fetchSalaryStructures();
-                                } catch (err: any) {
-                                  alert(err.response?.data?.message || 'Failed to delete salary structure');
-                                }
+                        <button
+                          onClick={() => {
+                            // TODO: Implement edit/view functionality
+                            alert('Edit functionality coming soon!');
+                          }}
+                          className="text-blue-600 hover:text-blue-900 mr-3"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (confirm('Are you sure you want to delete this salary structure?')) {
+                              try {
+                                await salaryStructureService.delete(structure.id);
+                                alert('Salary structure deleted successfully!');
+                                fetchSalaryStructures();
+                              } catch (err: any) {
+                                alert(err.response?.data?.message || 'Failed to delete salary structure');
                               }
-                            }}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Delete
-                          </button>
-                        )}
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          Delete
+                        </button>
                       </td>
                     </tr>
                   ))}

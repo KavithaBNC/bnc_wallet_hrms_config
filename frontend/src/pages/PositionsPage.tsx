@@ -290,9 +290,9 @@ export default function PositionsPage() {
       'C_LEVEL': 'bg-purple-100 text-purple-800',
       'VP': 'bg-indigo-100 text-indigo-800',
       'DIRECTOR': 'bg-blue-100 text-blue-800',
-      'MANAGER': 'bg-blue-100 text-blue-800',
-      'LEAD': 'bg-blue-100 text-blue-800',
-      'SENIOR': 'bg-blue-100 text-blue-800',
+      'MANAGER': 'bg-cyan-100 text-cyan-800',
+      'LEAD': 'bg-teal-100 text-teal-800',
+      'SENIOR': 'bg-green-100 text-green-800',
       'JUNIOR': 'bg-yellow-100 text-yellow-800',
       'ENTRY': 'bg-orange-100 text-orange-800',
     };
@@ -301,7 +301,7 @@ export default function PositionsPage() {
 
   const getTypeBadgeColor = (type: string) => {
     const colors: Record<string, string> = {
-      'FULL_TIME': 'bg-blue-100 text-blue-800',
+      'FULL_TIME': 'bg-green-100 text-green-800',
       'PART_TIME': 'bg-blue-100 text-blue-800',
       'CONTRACT': 'bg-yellow-100 text-yellow-800',
       'INTERN': 'bg-purple-100 text-purple-800',
@@ -353,7 +353,7 @@ export default function PositionsPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Job Positions"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -629,7 +629,7 @@ export default function PositionsPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-left">
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           position.isActive
-                            ? 'bg-blue-100 text-blue-800'
+                            ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
                         }`}>
                           {position.isActive ? 'Active' : 'Inactive'}

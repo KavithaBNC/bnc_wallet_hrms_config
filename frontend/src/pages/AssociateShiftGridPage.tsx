@@ -449,7 +449,7 @@ export default function AssociateShiftGridPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Time attendance"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -512,7 +512,7 @@ export default function AssociateShiftGridPage() {
                 <div className="flex items-center gap-4 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-500">W - Week Off</span>
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">W</span>
+                    <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">W</span>
                   </div>
                   <div className="flex flex-col">
                     <label className="text-sm font-medium text-gray-500 mb-1.5">Department</label>
@@ -579,7 +579,7 @@ export default function AssociateShiftGridPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="h-9 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+                    className="h-9 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition"
                   >
                     {saving ? 'Saving...' : 'Save'}
                   </button>
@@ -661,7 +661,7 @@ export default function AssociateShiftGridPage() {
                                     }
                                   }}
                                   className={`w-full px-2 py-1.5 pr-6 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                                    isWeekOff ? 'bg-blue-100 text-blue-800 font-medium' : 'bg-white text-gray-900'
+                                    isWeekOff ? 'bg-green-100 text-green-800 font-medium' : 'bg-white text-gray-900'
                                   }`}
                                 >
                                   {/* Week Off option - always first */}

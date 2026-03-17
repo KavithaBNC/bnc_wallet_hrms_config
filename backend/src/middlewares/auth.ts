@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { verifyToken, JwtPayload } from '../utils/jwt';
+import { JwtPayload, verifyToken } from '../utils/jwt';
 import { AppError } from './errorHandler';
-import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { config } from '../config/config';
+import { UserRole } from '@prisma/client';
 
 const isDatabaseConnectivityError = (error: unknown): boolean => {
   const prismaErr = error as { code?: string; message?: string };

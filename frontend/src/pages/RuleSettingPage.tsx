@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import ruleSettingService, { RuleSetting } from '../services/ruleSetting.service';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 
 const EVENT_TYPES = [
   'Paternity Leave',
@@ -143,16 +142,11 @@ export default function RuleSettingPage() {
   const startEntry = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
   const endEntry = Math.min(pagination.page * pagination.limit, pagination.total);
 
-  const modulePerms = getModulePermissions('/event-configuration/rule-setting');
-  const canAdd = modulePerms.can_add;
-  const canEdit = modulePerms.can_edit;
-  const canDelete = modulePerms.can_delete;
-
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Event Configuration"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -170,7 +164,6 @@ export default function RuleSettingPage() {
               <span className="text-gray-500">Rules Setting</span>
             </nav>
             <div className="flex items-center gap-2 flex-wrap">
-              {canAdd && (
               <button
                 type="button"
                 onClick={handleAdd}
@@ -181,7 +174,6 @@ export default function RuleSettingPage() {
                 </svg>
                 Add
               </button>
-              )}
               <button
                 type="button"
                 onClick={handleValidate}
@@ -205,7 +197,7 @@ export default function RuleSettingPage() {
               <button
                 type="button"
                 onClick={handleSave}
-                className="h-9 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition flex items-center gap-1.5"
+                className="h-9 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition flex items-center gap-1.5"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -298,7 +290,7 @@ export default function RuleSettingPage() {
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#2196F3] flex items-center justify-center">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#4CAF50] flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                 </svg>
@@ -402,7 +394,6 @@ export default function RuleSettingPage() {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex items-center justify-end gap-1">
-                            {canEdit && (
                             <button
                               type="button"
                               onClick={() => handleEdit(item)}
@@ -413,8 +404,6 @@ export default function RuleSettingPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                               </svg>
                             </button>
-                            )}
-                            {canDelete && (
                             <button
                               type="button"
                               onClick={() => handleDelete(item)}
@@ -425,7 +414,6 @@ export default function RuleSettingPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             </button>
-                            )}
                           </div>
                         </td>
                       </tr>

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"\\\\.ts\\\\|\\\\.js\" /d/Wallet_HRMS/bnc_wallet_hrms/backend/src/services/*.ts)",
+      "Bash(npm run build)"
+    ]
+  }
+}

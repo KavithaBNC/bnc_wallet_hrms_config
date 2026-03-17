@@ -160,6 +160,19 @@ export class PayrollController {
       next(error);
     }
   }
+
+  /**
+   * Pre-run checks before processing a payroll cycle
+   */
+  async preRunCheck(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = await payrollService.preRunCheck(id);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const payrollController = new PayrollController();

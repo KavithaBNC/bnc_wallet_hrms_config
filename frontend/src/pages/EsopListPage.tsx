@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
-import { esopService, EsopRecord } from '../services/esop.service';
+import { esopSimpleService, EsopRecord } from '../services/esop.service';
 
 function fullName(emp: EsopRecord['employee']) {
   if (!emp) return '—';
@@ -30,7 +30,7 @@ export default function EsopListPage() {
   useEffect(() => {
     if (!organizationId) return;
     setLoading(true);
-    esopService
+    esopSimpleService
       .getAll({
         organizationId,
         page: pagination.page,

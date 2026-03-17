@@ -121,7 +121,7 @@ export default function AddPaygroupTransferPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Pay Group Transfer"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -159,7 +159,7 @@ export default function AddPaygroupTransferPage() {
             </div>
           )}
           {saveSuccess && (
-            <div className="rounded-lg bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 text-sm">
+            <div className="rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm">
               Pay group transferred successfully.
             </div>
           )}

@@ -6,7 +6,6 @@ import shiftAssignmentRuleService, {
   ShiftAssignmentRule,
 } from '../services/shiftAssignmentRule.service';
 import employeeService, { Employee } from '../services/employee.service';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
@@ -208,16 +207,11 @@ export default function WeekOfAssignPage() {
   const startEntry = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
   const endEntry = Math.min(pagination.page * pagination.limit, pagination.total);
 
-  const modulePerms = getModulePermissions('/attendance-policy/week-of-assign');
-  const canAdd = modulePerms.can_add;
-  const canEdit = modulePerms.can_edit;
-  const canDelete = modulePerms.can_delete;
-
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Attendance Policy"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -270,7 +264,6 @@ export default function WeekOfAssignPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {canAdd && (
                 <button
                   type="button"
                   onClick={handleAdd}
@@ -281,7 +274,6 @@ export default function WeekOfAssignPage() {
                   </svg>
                   Add
                 </button>
-                )}
                 <button
                   type="button"
                   onClick={handleValidate}
@@ -305,7 +297,7 @@ export default function WeekOfAssignPage() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="h-9 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition flex items-center gap-1.5"
+                  className="h-9 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition flex items-center gap-1.5"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -447,7 +439,6 @@ export default function WeekOfAssignPage() {
                       {visibleColumns.has('action') && (
                         <td className="px-4 py-3 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {canEdit && (
                             <button
                               type="button"
                               onClick={() => handleEdit(rule)}
@@ -458,8 +449,6 @@ export default function WeekOfAssignPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                               </svg>
                             </button>
-                            )}
-                            {canDelete && (
                             <button
                               type="button"
                               onClick={() => handleDelete(rule)}
@@ -470,7 +459,6 @@ export default function WeekOfAssignPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                               </svg>
                             </button>
-                            )}
                           </div>
                         </td>
                       )}

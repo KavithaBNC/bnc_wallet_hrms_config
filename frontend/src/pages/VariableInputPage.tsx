@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
 import paygroupService, { type Paygroup } from '../services/paygroup.service';
+import postToPayrollService from '../services/postToPayroll.service';
 
 const MONTH_OPTIONS = [
   { value: '01', label: 'January' },
@@ -25,6 +26,24 @@ const YEAR_OPTIONS = [
   { value: '2027', label: '2027' },
 ];
 
+type VariableRow = {
+  employeeId: string;
+  associateCode: string;
+  associateName: string;
+  compensationSalary: number;
+  lossOfPay: number;
+  vehicleAllowance: number;
+  nfh: number;
+  weekOff: number;
+  otHours: number;
+  otherEarnings: number;
+  incentive: number;
+  normalTax: number;
+  salaryAdvance: number;
+  otherDeductions: number;
+  ptax: number;
+};
+
 export default function VariableInputPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
@@ -37,7 +56,10 @@ export default function VariableInputPage() {
   const [year, setYear] = useState<string>(YEAR_OPTIONS[1]?.value ?? '2026');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [showAll, setShowAll] = useState<boolean>(true);
+  const [rows, setRows] = useState<VariableRow[]>([]);
+  const [loadingRows, setLoadingRows] = useState(false);
 
   const handleNew = () => {
     if (!selectedPaygroup || !month || !year) {
@@ -56,7 +78,6 @@ export default function VariableInputPage() {
   };
 
   useEffect(() => {
-    // Load paygroups for filter (same as Rules Engine style)
     const loadPaygroups = async () => {
       if (!organizationId) return;
       try {
@@ -66,11 +87,33 @@ export default function VariableInputPage() {
           setSelectedPaygroup(list[0].id);
         }
       } catch {
-        // ignore for now; filter will just show empty list
+        // ignore; filter shows empty list
       }
     };
     loadPaygroups();
   }, [organizationId, selectedPaygroup]);
+
+  // Load variable input rows whenever the filters change
+  useEffect(() => {
+    const loadRows = async () => {
+      if (!organizationId || !selectedPaygroup || !month || !year) return;
+      setLoadingRows(true);
+      try {
+        const data = await postToPayrollService.getVariableInputEntry(
+          organizationId,
+          selectedPaygroup,
+          parseInt(year, 10),
+          parseInt(month, 10)
+        );
+        setRows(data);
+      } catch {
+        setRows([]);
+      } finally {
+        setLoadingRows(false);
+      }
+    };
+    loadRows();
+  }, [organizationId, selectedPaygroup, month, year]);
 
   const handleLogout = async () => {
     await logout();
@@ -78,20 +121,40 @@ export default function VariableInputPage() {
   };
 
   const handleSave = async () => {
+    if (!organizationId || !selectedPaygroup || !month || !year) return;
     setSaving(true);
     setError(null);
+    setSaveSuccess(null);
     try {
-      // TODO: integrate with backend API (e.g. variable-input service)
-      // For now just simulate save delay.
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      // eslint-disable-next-line no-alert
-      alert('Variable input filters saved (mock). Wire to backend API when ready.');
+      await postToPayrollService.saveVariableInputEntry(
+        organizationId,
+        selectedPaygroup,
+        parseInt(year, 10),
+        parseInt(month, 10),
+        rows.map((r) => ({
+          employeeId: r.employeeId,
+          compensationSalary: r.compensationSalary,
+          lossOfPay: r.lossOfPay,
+          vehicleAllowance: r.vehicleAllowance,
+          nfh: r.nfh,
+          weekOff: r.weekOff,
+          otHours: r.otHours,
+          otherEarnings: r.otherEarnings,
+          incentive: r.incentive,
+          normalTax: r.normalTax,
+          salaryAdvance: r.salaryAdvance,
+          otherDeductions: r.otherDeductions,
+          ptax: r.ptax,
+        }))
+      );
+      setSaveSuccess('Variable input saved successfully.');
+      setTimeout(() => setSaveSuccess(null), 3000);
     } catch (err: unknown) {
       const msg =
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
           : 'Failed to save variable input';
-      setError(String(msg));
+      setError(String(msg ?? 'Failed to save variable input'));
     } finally {
       setSaving(false);
     }
@@ -109,7 +172,7 @@ export default function VariableInputPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Variable Input"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -214,41 +277,69 @@ export default function VariableInputPage() {
               </div>
             )}
 
-            {/* Component grid – visible only when Show All = YES (reference UI) */}
+            {saveSuccess && (
+              <div className="px-6 py-3 bg-green-50 border-t border-green-200 text-sm text-green-800">
+                {saveSuccess}
+              </div>
+            )}
+
+            {/* Variable input data table – visible only when Show All = YES */}
             {showAll && (
               <div className="px-6 pt-4 pb-6">
-                <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-                  <table className="min-w-full text-xs">
-                    <thead>
-                      <tr className="bg-blue-600 text-white">
-                        <th className="px-4 py-2 text-left font-semibold">Component Name</th>
-                        <th className="px-4 py-2 text-left font-semibold">Long Name</th>
-                        <th className="px-4 py-2 text-left font-semibold">Short Name</th>
-                        <th className="px-4 py-2 text-left font-semibold">Order</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-t border-gray-200">
-                        <td className="px-4 py-2 text-sm text-gray-900 font-medium">Earnings</td>
-                        <td className="px-4 py-2 text-sm text-gray-900">Earnings</td>
-                        <td className="px-4 py-2 text-sm text-gray-900"></td>
-                        <td className="px-4 py-2 text-sm text-gray-900"></td>
-                      </tr>
-                      <tr className="border-t border-gray-200">
-                        <td className="px-4 py-2 text-sm text-gray-900 font-medium">Deductions</td>
-                        <td className="px-4 py-2 text-sm text-gray-900">Deductions</td>
-                        <td className="px-4 py-2 text-sm text-gray-900"></td>
-                        <td className="px-4 py-2 text-sm text-gray-900"></td>
-                      </tr>
-                      <tr className="border-t border-gray-200">
-                        <td className="px-4 py-2 text-sm text-gray-900 font-medium">Reimbursement</td>
-                        <td className="px-4 py-2 text-sm text-gray-900">Reimbursement</td>
-                        <td className="px-4 py-2 text-sm text-gray-900"></td>
-                        <td className="px-4 py-2 text-sm text-gray-900"></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                {loadingRows ? (
+                  <p className="text-sm text-gray-500 py-4">Loading entries...</p>
+                ) : rows.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-4">
+                    No variable input entries found for the selected paygroup / month / year.
+                    Click <strong>New</strong> to add entries.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="bg-blue-600 text-white">
+                          <th className="px-3 py-2 text-left font-semibold">Code</th>
+                          <th className="px-3 py-2 text-left font-semibold">Name</th>
+                          <th className="px-3 py-2 text-right font-semibold">Comp. Salary</th>
+                          <th className="px-3 py-2 text-right font-semibold">LOP</th>
+                          <th className="px-3 py-2 text-right font-semibold">Vehicle Allow.</th>
+                          <th className="px-3 py-2 text-right font-semibold">NFH</th>
+                          <th className="px-3 py-2 text-right font-semibold">Week Off</th>
+                          <th className="px-3 py-2 text-right font-semibold">OT Hrs</th>
+                          <th className="px-3 py-2 text-right font-semibold">Other Earn.</th>
+                          <th className="px-3 py-2 text-right font-semibold">Incentive</th>
+                          <th className="px-3 py-2 text-right font-semibold">Normal Tax</th>
+                          <th className="px-3 py-2 text-right font-semibold">Sal. Advance</th>
+                          <th className="px-3 py-2 text-right font-semibold">Other Ded.</th>
+                          <th className="px-3 py-2 text-right font-semibold">PTax</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row, idx) => (
+                          <tr
+                            key={row.employeeId}
+                            className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                          >
+                            <td className="px-3 py-2 text-gray-700">{row.associateCode}</td>
+                            <td className="px-3 py-2 text-gray-900 font-medium">{row.associateName}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.compensationSalary.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.lossOfPay}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.vehicleAllowance.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.nfh}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.weekOff}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.otHours}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.otherEarnings.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.incentive.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.normalTax.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.salaryAdvance.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.otherDeductions.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{row.ptax.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
@@ -289,8 +380,8 @@ export default function VariableInputPage() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={saving}
-                  className="inline-flex items-center justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
+                  disabled={saving || rows.length === 0}
+                  className="inline-flex items-center justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-60"
                 >
                   {saving ? 'Updating...' : 'Update'}
                 </button>
@@ -302,4 +393,3 @@ export default function VariableInputPage() {
     </div>
   );
 }
-

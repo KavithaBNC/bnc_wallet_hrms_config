@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 import {
   payrollCycleService,
   payslipService,
@@ -34,10 +33,12 @@ const PayrollPage = () => {
   const [payslipDetail, setPayslipDetail] = useState<any>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // Module permissions from /api/v1/user-role-modules/project API response
-  const payrollPerms = getModulePermissions('/payroll');
-  const canManagePayroll = payrollPerms.can_add || payrollPerms.can_edit;
-  const canViewPayroll = payrollPerms.can_view;
+  // Check permissions
+  const isHRManager = user?.role === 'HR_MANAGER';
+  const isOrgAdmin = user?.role === 'ORG_ADMIN';
+  const isManager = user?.role === 'MANAGER';
+  const canManagePayroll = isHRManager || isOrgAdmin;
+  const canViewPayroll = canManagePayroll || isManager;
 
   const organizationId = user?.employee?.organizationId;
 
@@ -258,7 +259,7 @@ const PayrollPage = () => {
       case 'FINALIZED':
         return 'bg-purple-100 text-purple-800';
       case 'PAID':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-green-100 text-green-800';
       case 'CANCELLED':
         return 'bg-red-100 text-red-800';
       default:
@@ -285,7 +286,7 @@ const PayrollPage = () => {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Payroll Management"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -421,7 +422,7 @@ const PayrollPage = () => {
                                 </button>
                                 <button
                                   onClick={() => handleMarkAsPaid(cycle.id)}
-                                  className="text-blue-600 hover:text-blue-900"
+                                  className="text-green-600 hover:text-green-900"
                                 >
                                   ✅ Mark Paid
                                 </button>
@@ -444,7 +445,7 @@ const PayrollPage = () => {
                                 </button>
                                 <button
                                   onClick={() => handleMarkAsPaid(cycle.id)}
-                                  className="text-blue-600 hover:text-blue-900"
+                                  className="text-green-600 hover:text-green-900"
                                 >
                                   ✅ Mark Paid
                                 </button>

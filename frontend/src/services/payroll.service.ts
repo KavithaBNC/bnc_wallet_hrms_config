@@ -37,19 +37,45 @@ export interface SalaryStructure {
   updatedAt: string;
 }
 
-export interface EmployeeSalary {
+export interface SalaryTemplate {
   id: string;
-  employeeId: string;
-  salaryStructureId?: string;
-  effectiveDate: string;
+  organizationId: string;
+  salaryStructureId: string;
+  name: string;
+  grade?: string;
+  level?: string;
+  ctc: number;
   basicSalary: number;
   grossSalary: number;
   netSalary: number;
   components: Record<string, any>;
   currency: string;
   paymentFrequency: 'MONTHLY' | 'BI_WEEKLY' | 'WEEKLY';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  salaryStructure?: { id: string; name: string };
+}
+
+export interface EmployeeSalary {
+  id: string;
+  employeeId: string;
+  salaryStructureId?: string;
+  salaryTemplateId?: string;
+  effectiveDate: string;
+  endDate?: string;
+  basicSalary: number;
+  grossSalary: number;
+  netSalary: number;
+  ctc?: number;
+  ctcBreakdown?: Record<string, any>;
+  components: Record<string, any>;
+  revisionReason?: string;
+  currency: string;
+  paymentFrequency: 'MONTHLY' | 'BI_WEEKLY' | 'WEEKLY';
   bankAccountId?: string;
   isActive: boolean;
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -178,6 +204,64 @@ export const salaryStructureService = {
 };
 
 // ============================================================================
+// Salary Template Service
+// ============================================================================
+
+export const salaryTemplateService = {
+  async create(data: {
+    organizationId: string;
+    salaryStructureId: string;
+    name: string;
+    grade?: string;
+    level?: string;
+    ctc: number;
+    basicSalary: number;
+    grossSalary: number;
+    netSalary: number;
+    components?: Record<string, any>;
+    currency?: string;
+    paymentFrequency?: 'MONTHLY' | 'BI_WEEKLY' | 'WEEKLY';
+    isActive?: boolean;
+  }): Promise<SalaryTemplate> {
+    const response = await api.post('/payroll/salary-templates', data);
+    return response.data.data;
+  },
+
+  async getAll(params?: {
+    organizationId?: string;
+    isActive?: string;
+    page?: string;
+    limit?: string;
+  }): Promise<{ data: SalaryTemplate[]; pagination: any }> {
+    const response = await api.get('/payroll/salary-templates', { params });
+    return response.data;
+  },
+
+  async getById(id: string): Promise<SalaryTemplate> {
+    const response = await api.get(`/payroll/salary-templates/${id}`);
+    return response.data.data;
+  },
+
+  async getByGradeAndLevel(params: {
+    organizationId: string;
+    grade?: string;
+    level?: string;
+  }): Promise<SalaryTemplate[]> {
+    const response = await api.get('/payroll/salary-templates/grade-level', { params });
+    return response.data.data || [];
+  },
+
+  async update(id: string, data: Partial<SalaryTemplate>): Promise<SalaryTemplate> {
+    const response = await api.put(`/payroll/salary-templates/${id}`, data);
+    return response.data.data;
+  },
+
+  async delete(id: string): Promise<void> {
+    await api.delete(`/payroll/salary-templates/${id}`);
+  },
+};
+
+// ============================================================================
 // Employee Salary Service
 // ============================================================================
 
@@ -196,6 +280,27 @@ export const employeeSalaryService = {
     isActive?: boolean;
   }): Promise<EmployeeSalary> {
     const response = await api.post('/payroll/employee-salaries', data);
+    return response.data.data;
+  },
+
+  async createSalaryEnhanced(data: {
+    employeeId: string;
+    salaryStructureId?: string;
+    salaryTemplateId?: string;
+    effectiveDate: string;
+    basicSalary: number;
+    grossSalary: number;
+    netSalary: number;
+    ctc?: number;
+    ctcBreakdown?: Record<string, any>;
+    components?: Record<string, any>;
+    revisionReason?: string;
+    currency?: string;
+    paymentFrequency: 'MONTHLY' | 'BI_WEEKLY' | 'WEEKLY';
+    bankAccountId?: string;
+    isActive?: boolean;
+  }): Promise<EmployeeSalary> {
+    const response = await api.post('/payroll/employee-salaries/enhanced', data);
     return response.data.data;
   },
 
@@ -218,6 +323,11 @@ export const employeeSalaryService = {
   async getCurrentSalary(employeeId: string): Promise<EmployeeSalary> {
     const response = await api.get(`/payroll/employee-salaries/employee/${employeeId}/current`);
     return response.data.data;
+  },
+
+  async getSalaryHistory(employeeId: string): Promise<EmployeeSalary[]> {
+    const response = await api.get(`/payroll/employee-salaries/employee/${employeeId}/history`);
+    return response.data.data || [];
   },
 
   async updateSalary(id: string, data: Partial<EmployeeSalary>): Promise<EmployeeSalary> {
@@ -319,6 +429,14 @@ export const payrollCycleService = {
   async rollbackPayrollCycle(id: string): Promise<PayrollCycle> {
     const response = await api.post(`/payroll/payroll-cycles/${id}/rollback`);
     return response.data.data;
+  },
+
+  async preRunCheck(id: string): Promise<{
+    checks: Array<{ label: string; status: 'pass' | 'warn' | 'fail'; detail: string }>;
+    employeeCount: number;
+  }> {
+    const response = await api.get(`/payroll/payroll-cycles/${id}/pre-run-check`);
+    return response.data;
   },
 };
 

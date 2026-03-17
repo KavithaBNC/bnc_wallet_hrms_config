@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import validationProcessRuleService from '../services/validationProcessRule.service';
 
@@ -183,16 +182,11 @@ export default function ValidationProcessRulePage() {
   const startEntry = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
   const endEntry = Math.min(pagination.page * pagination.limit, pagination.total);
 
-  const modulePerms = getModulePermissions('/others-configuration/validation-process-rule');
-  const canAdd = modulePerms.can_add;
-  const canEdit = modulePerms.can_edit;
-  const canDelete = modulePerms.can_delete;
-
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Others Configuration"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -263,7 +257,6 @@ export default function ValidationProcessRulePage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                {canAdd && (
                 <button
                   type="button"
                   onClick={handleAdd}
@@ -274,7 +267,6 @@ export default function ValidationProcessRulePage() {
                   </svg>
                   Add
                 </button>
-                )}
                 <button
                   type="button"
                   onClick={handlePrint}
@@ -288,7 +280,7 @@ export default function ValidationProcessRulePage() {
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="h-9 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition flex items-center gap-1.5"
+                  className="h-9 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 transition flex items-center gap-1.5"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -427,7 +419,6 @@ export default function ValidationProcessRulePage() {
                         {visibleColumns.has('action') && (
                           <td className="px-4 py-3 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {canEdit && (
                               <button
                                 type="button"
                                 onClick={() => handleEdit(rule)}
@@ -443,8 +434,6 @@ export default function ValidationProcessRulePage() {
                                   />
                                 </svg>
                               </button>
-                              )}
-                              {canDelete && (
                               <button
                                 type="button"
                                 onClick={() => handleDelete(rule)}
@@ -460,7 +449,6 @@ export default function ValidationProcessRulePage() {
                                   />
                                 </svg>
                               </button>
-                              )}
                             </div>
                           </td>
                         )}

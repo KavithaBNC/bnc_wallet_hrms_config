@@ -8,20 +8,26 @@ import employeeService from '../services/employee.service';
 import api from '../services/api';
 import * as XLSX from 'xlsx';
 import Modal from '../components/common/Modal';
+import EmployeeForm from '../components/employees/EmployeeForm';
+import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
 import { FaceCapture } from '../components/employees/FaceCapture';
 import AppHeader from '../components/layout/AppHeader';
-import { getEditableTabsFromPermissions, canEditEmployeeByPermission, resolveBaseRole } from '../utils/rbac';
+import { getEditableTabsFromPermissions, canEditEmployeeByPermission, resolveBaseRole, type EmployeeFormTabKey } from '../utils/rbac';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import { toDisplayEmail, toDisplayFullName, toDisplayName, toDisplayValue } from '../utils/display';
 import permissionService from '../services/permission.service';
 import organizationService, { type Organization } from '../services/organization.service';
+import positionService from '../services/position.service';
+import departmentService from '../services/department.service';
 import paygroupService from '../services/paygroup.service';
+import costCentreService from '../services/costCentre.service';
 import entityService from '../services/entity.service';
 import { useDepartmentStore } from '../store/departmentStore';
+import { employeeSalaryService } from '../services/payroll.service';
 import configuratorDataService, { ConfigCostCentre, ConfigDepartment, ConfigSubDepartment } from '../services/configurator-data.service';
 
 function getAvatarColor(name: string): string {
-  const colors = ['bg-blue-500', 'bg-blue-500', 'bg-orange-500', 'bg-purple-500', 'bg-blue-500', 'bg-indigo-500'];
+  const colors = ['bg-green-500', 'bg-blue-500', 'bg-orange-500', 'bg-purple-500', 'bg-teal-500', 'bg-indigo-500'];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return colors[Math.abs(hash) % colors.length];
@@ -34,6 +40,132 @@ type EmployeeImportFailure = {
   associateCode?: string;
 };
 
+function normalizeHeader(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function toDateOnly(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // Excel serial date (days since 1899-12-30 in most files)
+    const utcMillis = Math.round((value - 25569) * 86400 * 1000);
+    const asDate = new Date(utcMillis);
+    if (!Number.isNaN(asDate.getTime())) {
+      return asDate.toISOString().slice(0, 10);
+    }
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+    if (isoDate.test(trimmed)) return trimmed;
+    const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/;
+    const match = trimmed.match(dmy);
+    if (match) {
+      const dd = match[1].padStart(2, '0');
+      const mm = match[2].padStart(2, '0');
+      const yyyy = match[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    const mdyMatch = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (mdyMatch) {
+      const a = parseInt(mdyMatch[1], 10);
+      const b = parseInt(mdyMatch[2], 10);
+      const y = mdyMatch[3];
+      let dd: string; let mm: string;
+      if (a > 12) { dd = mdyMatch[1].padStart(2, '0'); mm = mdyMatch[2].padStart(2, '0'); }
+      else if (b > 12) { mm = mdyMatch[1].padStart(2, '0'); dd = mdyMatch[2].padStart(2, '0'); }
+      else { dd = mdyMatch[1].padStart(2, '0'); mm = mdyMatch[2].padStart(2, '0'); }
+      const parsed = new Date(`${y}-${mm}-${dd}`);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    }
+    let parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const monthMatch = trimmed.match(/^(\d{1,2})[-./\s]?([a-z]{3,})[-./\s]?(\d{2,4})$/i);
+    if (monthMatch) {
+      const d = monthMatch[1].padStart(2, '0');
+      const mIdx = monthNames.findIndex((m) => monthMatch[2].toLowerCase().startsWith(m));
+      if (mIdx >= 0) {
+        const m = String(mIdx + 1).padStart(2, '0');
+        const y = monthMatch[3].length === 2 ? '20' + monthMatch[3] : monthMatch[3];
+        return `${y}-${m}-${d}`;
+      }
+    }
+  }
+  return null;
+}
+
+function getCellValue(row: Record<string, unknown>, keys: string[]): unknown {
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  for (const key of keys.map((k) => normalizeHeader(k))) {
+    const found = normalizedEntries.find(([k]) => k === key);
+    if (found && found[1] !== '' && found[1] != null) return found[1];
+  }
+  return '';
+}
+
+/** Get email with fallback: try explicit keys, then any column with email/mail in header and valid email value */
+function getEmailWithFallback(row: Record<string, unknown>): string {
+  const official = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'Official E-Mail Id', 'officialEmail', 'Permanent E-Mail Id', 'permanentEmail', 'email', 'Email', 'E-Mail'])).trim();
+  if (official && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(official)) return official;
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const emailLike = normalizedEntries.find(([norm, val]) => {
+    if (!val || typeof val !== 'string') return false;
+    const str = String(val).trim();
+    return (norm.includes('email') || norm.includes('mail')) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str);
+  });
+  return emailLike ? String(emailLike[1]).trim() : '';
+}
+
+/** Get Associate/Employee name with fallback: try explicit keys, then fuzzy match on column headers */
+function getAssociateNameWithFallback(row: Record<string, unknown>): string {
+  const explicit = getCellValue(row, [
+    'Associate Name', 'associateName', 'associate_name', 'Name', 'Employee Name', 'Full Name', 'Emp Name',
+    'EMP NAME', 'EMP.NAME', 'Associate', 'Employee', 'Staff Name', 'Candidate Name', 'NAME',
+  ]);
+  if (explicit !== '' && explicit != null) return String(explicit).trim();
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const nameLike = normalizedEntries.find(([norm, val]) => {
+    if (val === '' || val == null) return false;
+    const str = String(val).trim();
+    if (str.length < 2) return false;
+    return norm.includes('associatename') || norm === 'associate' || norm === 'employeename' || norm === 'empname' || norm === 'fullname' || norm === 'name';
+  });
+  return nameLike ? String(nameLike[1]).trim() : '';
+}
+
+/** Get Reporting Manager with fallback: try explicit keys, then any column with manager/report in header */
+function getReportingManagerWithFallback(row: Record<string, unknown>): string {
+  const explicit = getCellValue(row, ['Reporting Manager', 'reportingManager', 'reporting_manager', 'Manager', 'Report To', 'Reporting To', 'REPORTING MANAGER', 'Manager Name', 'Manager Code']);
+  if (explicit !== '' && explicit != null) return String(explicit).trim();
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const managerLike = normalizedEntries.find(([norm, val]) => {
+    if (!val || (typeof val === 'string' && !val.trim())) return false;
+    return norm.includes('manager') || norm.includes('report');
+  });
+  return managerLike ? String(managerLike[1]).trim() : '';
+}
+
+/** Get ESI Number with fallback: try explicit keys, then any column matching esi+number/no pattern */
+function getEsiNumber(row: Record<string, unknown>): string {
+  const explicit = getCellValue(row, [
+    'esiNumber', 'esi_number', 'ESIC', 'ESIC No', 'ESI Number', 'ESIC NO', 'ESIC Number', 'ESI NO', 'ESI No',
+    'ESI No.', 'ESI NUMBER', 'ESI NUM', 'EMPLOYEE STATE INSURANCE NO', 'ESI',
+  ]);
+  if (explicit !== '' && explicit != null) return String(explicit).trim();
+  const normalizedEntries = Object.entries(row).map(([k, v]) => [normalizeHeader(k), v] as const);
+  const esiNumLike = normalizedEntries.find(([norm]) =>
+    norm.includes('esi') && (norm.includes('number') || norm.includes('no') || norm === 'esic') &&
+    !norm.includes('location') && !norm.includes('dispensary')
+  );
+  if (esiNumLike && esiNumLike[1] !== '' && esiNumLike[1] != null) return String(esiNumLike[1]).trim();
+  return '';
+}
+
 export default function EmployeesPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,22 +177,27 @@ export default function EmployeesPage() {
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
   const [costCentreFilter, setCostCentreFilter] = useState<string>('ALL');
   const [subDepartmentFilter, setSubDepartmentFilter] = useState<string>('ALL');
-  const [entityFilter, setEntityFilter] = useState<string>('ALL');
-  const [paygroupFilter, setPaygroupFilter] = useState<string>('ALL');
-  const [positionFilter, setPositionFilter] = useState<string>('ALL');
   // Configurator dropdown data
   const [configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
   const [configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
   const [configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
-  const [configUserRoles, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
+  const [, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'employeeCode' | 'firstName'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const { positions, fetchPositions } = usePositionStore();
-  const { departments, fetchDepartments } = useDepartmentStore();
-  const [orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
-  const [orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const { fetchPositions } = usePositionStore();
+  const { fetchDepartments } = useDepartmentStore();
+  const [, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [showPaygroupModal, setShowPaygroupModal] = useState(false);
+  const [paygroupModalOrgId, setPaygroupModalOrgId] = useState<string | null>(null);
+  const [selectedPaygroupId, setSelectedPaygroupId] = useState<string | null>(null);
+  const [selectedPaygroupName, setSelectedPaygroupName] = useState<string | null>(null);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [viewMode, setViewMode] = useState(false);
+  const [rejoinMode, setRejoinMode] = useState(false);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // View modal state for Configurator users (fallback when no HRMS record)
   const [viewingUser, setViewingUser] = useState<any | null>(null);
@@ -84,7 +221,7 @@ export default function EmployeesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importingEmployees, setImportingEmployees] = useState(false);
-  const [importResult, setImportResult] = useState<{ total: number; success: number; updated: number; skipped: number; failed?: number; failures: EmployeeImportFailure[]; managersSet?: number; configuratorResults?: { total: number; created: number; updated: number; failed: number } } | null>(null);
+  const [importResult, setImportResult] = useState<{ total: number; success: number; updated: number; skipped: number; failures: EmployeeImportFailure[]; managersSet?: number } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
@@ -168,26 +305,6 @@ export default function EmployeesPage() {
 
   /** Editable tabs from Permissions tab: undefined = all tabs, else only those tabs user can edit */
   const editableTabsFromPermissions = getEditableTabsFromPermissions(userPermissions);
-
-  /**
-   * Edit button visibility:
-   * - SUPER_ADMIN, ORG_ADMIN, HR_MANAGER: can edit all employees.
-   * - MANAGER: can edit only their own profile; team members are view-only (no Edit).
-   * - EMPLOYEE: can edit own row only when they have tab-level update permissions.
-   */
-  const canEditRow = (emp: Employee) => {
-    const role = user?.role != null ? String(user.role).toUpperCase() : '';
-    const myEmployeeId = user?.employee?.id != null ? String(user.employee.id) : '';
-    const rowEmployeeId = emp?.id != null ? String(emp.id) : '';
-    if (role === 'MANAGER') {
-      return myEmployeeId !== '' && myEmployeeId === rowEmployeeId; // Manager: Edit only own row; team members view-only
-    }
-    if (role === 'EMPLOYEE') {
-      return myEmployeeId !== '' && myEmployeeId === rowEmployeeId && (canUpdateByPermission || (editableTabsFromPermissions && editableTabsFromPermissions.length > 0));
-    }
-    if (canUpdate) return true; // SUPER_ADMIN, ORG_ADMIN, HR_MANAGER can edit all
-    return false;
-  };
 
   // View Credentials: filtered list by Organization, Designation, Status, Search
   const filteredCredentials = useMemo(() => {
@@ -288,7 +405,7 @@ export default function EmployeesPage() {
     return () => { cancelled = true; };
   }, [statusFilter, effectiveOrganizationId, location.pathname]);
 
-  // Open employee edit/rejoin form when navigated with editEmployeeId or rejoinEmployeeId
+  // Open employee edit form when navigated with editEmployeeId or rejoinEmployeeId (from Employee Rejoin list)
   useEffect(() => {
     const state = location.state as { editEmployeeId?: string; rejoinEmployeeId?: string } | null;
     const editId = state?.editEmployeeId;
@@ -301,16 +418,12 @@ export default function EmployeesPage() {
       .getById(id)
       .then((full) => {
         if (!cancelled) {
-          const targetPath = rejoinId ? `/employees/edit/${id}` : `/employees/edit/${id}`;
-          navigate(targetPath, {
-            replace: true,
-            state: {
-              employee: full,
-              mode: 'edit' as const,
-              rejoinMode: !!rejoinId,
-            },
-          });
+          setEditingEmployee(full);
+          setViewMode(false);
+          setRejoinMode(!!rejoinId);
+          setShowForm(true);
         }
+        navigate('/employees', { replace: true, state: {} });
       })
       .catch(() => {
         if (!cancelled) alert(rejoinId ? 'Failed to load employee for rejoin' : 'Failed to load employee details');
@@ -368,24 +481,26 @@ export default function EmployeesPage() {
       setLoadingEmployee(true);
       const email = user.email;
       if (!email) {
+        // Fallback: show Configurator-only detail modal
         setViewingUser(user);
         return;
       }
+      // Look up the HRMS employee by email
       const hrmsEmployee = await employeeService.getByEmail(email);
       if (!hrmsEmployee) {
+        // No HRMS record — show basic Configurator info
         const details = await configuratorDataService.getConfiguratorUser(user.user_id);
         setViewingUser({ ...user, ...details });
         return;
       }
+      // Fetch full HRMS employee details and open EmployeeForm in view mode
       const full = await employeeService.getById(hrmsEmployee.id);
-      navigate(`/employees/view/${hrmsEmployee.id}`, {
-        state: {
-          employee: full,
-          mode: 'view' as const,
-        },
-      });
+      setEditingEmployee(full);
+      setViewMode(true);
+      setShowForm(true);
     } catch (err: any) {
       console.error('Failed to load user details', err);
+      // Fallback: show what we already have from the list
       setViewingUser(user);
     } finally {
       setLoadingEmployee(false);
@@ -416,33 +531,34 @@ export default function EmployeesPage() {
       }
       const configFields = buildConfigFields(user);
 
+      // Look up the HRMS employee by email
       const hrmsEmployee = await employeeService.getByEmail(email);
       if (!hrmsEmployee) {
-        const _fallbackFullName = user.full_name || user.name || user.fullname || '';
+        // Fallback: open form with Configurator data so the user can still edit/create
         const fallback: any = {
           id: user.user_id || user.id || '',
-          firstName: user.first_name || _fallbackFullName.split(' ')[0] || '',
-          lastName: user.last_name || _fallbackFullName.split(' ').slice(1).join(' ') || '',
+          firstName: user.first_name || (user.name || user.fullname || '').split(' ')[0] || '',
+          lastName: user.last_name || (user.name || user.fullname || '').split(' ').slice(1).join(' ') || '',
           email: user.email,
           phone: user.phone || '',
           employeeCode: user.code || user.employee_code || '',
           ...configFields,
         };
-        navigate(`/employees/edit/${fallback.id}`, {
-          state: {
-            employee: fallback,
-            mode: 'edit' as const,
-          },
-        });
+        setEditingEmployee(fallback);
+        setViewMode(false);
+        setShowForm(true);
         return;
       }
+      // Fetch full HRMS employee details
       const full = await employeeService.getById(hrmsEmployee.id);
+      // Enrich with Configurator IDs from user list data (may be missing in HRMS)
       const emp = full as any;
       if (!emp.configuratorUserId) emp.configuratorUserId = configFields.configuratorUserId;
       if (!emp.costCentreConfiguratorId && configFields.costCentreConfiguratorId) emp.costCentreConfiguratorId = configFields.costCentreConfiguratorId;
       if (!emp.departmentConfiguratorId && configFields.departmentConfiguratorId) emp.departmentConfiguratorId = configFields.departmentConfiguratorId;
       if (!emp.subDepartmentConfiguratorId && configFields.subDepartmentConfiguratorId) emp.subDepartmentConfiguratorId = configFields.subDepartmentConfiguratorId;
       if (!emp.configuratorRoleId && configFields.configuratorRoleId) emp.configuratorRoleId = configFields.configuratorRoleId;
+      // Fill in relation objects if HRMS didn't have them
       if (!emp.costCentre && configFields.costCentre) emp.costCentre = configFields.costCentre;
       if (!emp.department && configFields.department) emp.department = configFields.department;
       if (!emp.sub_department && !emp.subDepartment && configFields.sub_department) {
@@ -450,31 +566,24 @@ export default function EmployeesPage() {
         emp.subDepartment = configFields.sub_department.name;
       }
 
-      navigate(`/employees/edit/${hrmsEmployee.id}`, {
-        state: {
-          employee: full,
-          mode: 'edit' as const,
-        },
-      });
+      setEditingEmployee(full);
+      setViewMode(false);
+      setShowForm(true);
     } catch (err: any) {
       console.error('Failed to load employee for edit', err);
       const configFields = buildConfigFields(user);
-      const _catchFullName = user.full_name || user.name || user.fullname || '';
       const fallback: any = {
         id: user.user_id || user.id || '',
-        firstName: user.first_name || _catchFullName.split(' ')[0] || '',
-        lastName: user.last_name || _catchFullName.split(' ').slice(1).join(' ') || '',
+        firstName: user.first_name || (user.name || user.fullname || '').split(' ')[0] || '',
+        lastName: user.last_name || (user.name || user.fullname || '').split(' ').slice(1).join(' ') || '',
         email: user.email,
         phone: user.phone || '',
         employeeCode: user.code || user.employee_code || '',
         ...configFields,
       };
-      navigate(`/employees/edit/${fallback.id}`, {
-        state: {
-          employee: fallback,
-          mode: 'edit' as const,
-        },
-      });
+      setEditingEmployee(fallback);
+      setViewMode(false);
+      setShowForm(true);
     } finally {
       setLoadingEmployee(false);
     }
@@ -483,9 +592,15 @@ export default function EmployeesPage() {
 
 
   const handleCreate = async () => {
+    setEditingEmployee(null);
+    setSelectedPaygroupId(null);
+    setSelectedPaygroupName(null);
+
     let resolvedOrgId: string | undefined = effectiveOrganizationId;
 
     if (isSuperAdmin && !resolvedOrgId) {
+      // SUPER_ADMIN with "All organizations" selected — resolve org dynamically
+      // Try ref first (always-fresh), then state, then fetch fresh from API
       let orgs: Organization[] =
         superAdminOrganizationsRef.current.length > 0
           ? superAdminOrganizationsRef.current
@@ -505,6 +620,7 @@ export default function EmployeesPage() {
       }
 
       if (orgs.length > 0) {
+        // Prefer the user's own org; fall back to first org in the list
         const latestUser = useAuthStore.getState().user;
         const userOrgId =
           latestUser?.employee?.organizationId ||
@@ -516,6 +632,7 @@ export default function EmployeesPage() {
         setSuperAdminSelectedOrgId(resolvedOrgId);
       }
     } else if (!resolvedOrgId && !isSuperAdmin) {
+      // Non-super-admin: org hasn't loaded yet — refresh user data
       try {
         await loadUser();
         const refreshedUser = useAuthStore.getState().user;
@@ -533,35 +650,8 @@ export default function EmployeesPage() {
       return;
     }
 
-    navigate('/employees/create', {
-      state: {
-        organizationId: resolvedOrgId,
-      },
-    });
-  };
-
-  const handleView = async (employee: Employee) => {
-    setLoadingEmployee(true);
-    try {
-      const full = await employeeService.getById(employee.id);
-      navigate(`/employees/view/${employee.id}`, {
-        state: {
-          employee: full,
-          mode: 'view' as const,
-        },
-      });
-    } catch (err) {
-      console.error('Failed to load employee', err);
-      alert('Failed to load employee details');
-    } finally {
-      setLoadingEmployee(false);
-    }
-  };
-
-  const handleUpdateFaceOpen = (emp: Employee) => {
-    setUpdateFaceModal(emp);
-    setUpdateFaceEncoding(null);
-    setUpdateFaceError('');
+    setPaygroupModalOrgId(resolvedOrgId);
+    setShowPaygroupModal(true);
   };
 
   const handleUpdateFaceClose = () => {
@@ -614,24 +704,38 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleEdit = async (employee: Employee) => {
-    setLoadingEmployee(true);
-    try {
-      const full = await employeeService.getById(employee.id);
-      navigate(`/employees/edit/${employee.id}`, {
-        state: {
-          employee: full,
-          mode: 'edit' as const,
-        },
-      });
-    } catch (err) {
-      console.error('Failed to load employee', err);
-      alert('Failed to load employee details');
-    } finally {
-      setLoadingEmployee(false);
-    }
+  const handleFormSuccess = () => {
+    setShowForm(false);
+    setEditingEmployee(null);
+    setRejoinMode(false);
+    const params: any = {
+      page: currentPage,
+      limit: pageSize,
+      employeeStatus: statusFilter,
+    };
+    if (searchTerm) params.search = searchTerm;
+    if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
+    if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
+    if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
+    fetchEmployees(params);
   };
 
+  const handleFormCancel = () => {
+    setShowForm(false);
+    setEditingEmployee(null);
+    setViewMode(false);
+    setRejoinMode(false);
+    setSelectedPaygroupId(null);
+    setSelectedPaygroupName(null);
+    setPaygroupModalOrgId(null);
+  };
+
+  const handlePaygroupSubmit = (paygroupId: string, paygroupName: string) => {
+    setSelectedPaygroupId(paygroupId);
+    setSelectedPaygroupName(paygroupName);
+    setShowPaygroupModal(false);
+    setShowForm(true);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -771,6 +875,23 @@ export default function EmployeesPage() {
     }
   };
 
+  const mapGender = (val: string): string | undefined => {
+    const v = String(val).trim().toUpperCase();
+    if (v === 'M' || v === 'MALE') return 'MALE';
+    if (v === 'F' || v === 'FEMALE') return 'FEMALE';
+    if (v === 'OTHER') return 'OTHER';
+    return undefined;
+  };
+
+  const mapMaritalStatus = (val: string): string | undefined => {
+    const v = String(val).trim().toUpperCase();
+    if (v === 'S' || v === 'SINGLE') return 'SINGLE';
+    if (v === 'M' || v === 'MARRIED') return 'MARRIED';
+    if (v === 'DIVORCED') return 'DIVORCED';
+    if (v === 'WIDOWED') return 'WIDOWED';
+    return undefined;
+  };
+
   const handleImportEmployees = async () => {
     if (!importFile) {
       alert('Please choose an Excel file first.');
@@ -784,27 +905,427 @@ export default function EmployeesPage() {
     setImportingEmployees(true);
     setImportResult(null);
     try {
-      // Use bulk import API — send Excel file directly to backend
-      const result = await employeeService.bulkImport(importFile, effectiveOrganizationId, {
-        createSalaryRecords: true,
-        skipConfiguratorSync: false,
-      });
+      const [
+        { positions: orgPositions },
+        { departments: orgDepartments },
+        orgPaygroups,
+        { employees: orgEmployees },
+        orgCostCentres,
+        orgEntitiesImport,
+      ] = await Promise.all([
+        positionService.getAll({ organizationId: effectiveOrganizationId, limit: 500 }),
+        departmentService.getAll({ organizationId: effectiveOrganizationId, limit: 500 }),
+        paygroupService.getAll({ organizationId: effectiveOrganizationId }),
+        employeeService.getAll({ organizationId: effectiveOrganizationId, employeeStatus: 'ALL', limit: 5000 }),
+        costCentreService.getByOrganization(effectiveOrganizationId),
+        entityService.getByOrganization(effectiveOrganizationId),
+      ]);
+      const orgEntitiesList = orgEntitiesImport || [];
+      const buffer = await importFile.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) {
+        alert('No sheets found in the selected file.');
+        return;
+      }
 
-      setImportResult({
-        total: result.total,
-        success: result.success,
-        updated: result.updated,
-        skipped: result.skipped,
-        failed: result.failed,
-        managersSet: result.managersSet,
-        failures: result.failures.map((f) => ({
-          row: f.row,
-          email: f.email,
-          associateCode: f.associateCode,
-          message: f.message,
-        })),
-        configuratorResults: result.configuratorResults,
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheet], {
+        defval: '',
       });
+      if (!rows.length) {
+        alert('Selected file has no data rows.');
+        return;
+      }
+
+      const failures: EmployeeImportFailure[] = [];
+      let success = 0;
+      let updated = 0;
+      let skipped = 0;
+      let total = 0;
+      /** Employees created in this batch: for same-batch Reporting Manager lookup */
+      const createdInBatch: Array<{ id: string; employeeCode: string; firstName: string; lastName: string }> = [];
+      /** Rows where Reporting Manager was specified but manager not found yet (appears later in Excel) - fix in second pass */
+      const pendingReportingManager: Array<{ employeeId: string; reportingManagerName: string }> = [];
+
+      const resolveReportingManagerId = (nameOrCode: string): string | null => {
+        if (!nameOrCode?.trim()) return null;
+        const raw = nameOrCode.trim();
+        const codeFromBrackets = raw.match(/\[([^\]]+)\]/)?.[1]?.trim().toLowerCase();
+        const codeFromParens = raw.match(/\(([^)]+)\)/)?.[1]?.trim().toLowerCase();
+        const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase();
+        const searchRaw = namePart || raw.toLowerCase();
+        const search = searchRaw.replace(/\s+/g, ' ').trim();
+        const looksLikeCode = /^[a-zA-Z]*\d+[a-z0-9]*$/i.test(raw) && raw.length <= 20;
+        const possibleCodes = [codeFromBrackets, codeFromParens, looksLikeCode ? raw.toLowerCase() : null].filter(Boolean);
+        const normalizeForMatch = (s: string) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        const nameMatches = (full: string, alt: string) =>
+          full === search || alt === search || full.includes(search) || search.includes(full) || alt.includes(search) || search.includes(alt);
+        const byCodeInBatch = createdInBatch.find((e) => {
+          const code = e.employeeCode?.toLowerCase()?.trim();
+          return code && (code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c));
+        });
+        if (byCodeInBatch) return byCodeInBatch.id;
+        const byCodeInOrg = orgEmployees?.find((e) => {
+          const code = (e as { employeeCode?: string }).employeeCode?.toLowerCase()?.trim();
+          return code && (code === search || code === codeFromBrackets || code === codeFromParens || possibleCodes.some((c) => c && code === c));
+        })?.id;
+        if (byCodeInOrg) return byCodeInOrg;
+        const byNameInOrg = orgEmployees?.find((e) => {
+          const full = normalizeForMatch(`${e.firstName || ''} ${e.lastName || ''}`);
+          const alt = normalizeForMatch(`${e.lastName || ''} ${e.firstName || ''}`);
+          return nameMatches(full, alt);
+        })?.id;
+        if (byNameInOrg) return byNameInOrg;
+        const byNameInBatch = createdInBatch.find((e) => {
+          const full = normalizeForMatch(`${e.firstName || ''} ${e.lastName || ''}`);
+          const alt = normalizeForMatch(`${e.lastName || ''} ${e.firstName || ''}`);
+          return nameMatches(full, alt);
+        });
+        return byNameInBatch?.id ?? null;
+      };
+
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index];
+        const associateName = getAssociateNameWithFallback(row);
+        const firstNameCol = String(getCellValue(row, ['firstName', 'first_name', 'firstname', 'First Name', 'EMP.F.NAME'])).trim();
+        const lastNameCol = String(getCellValue(row, ['lastName', 'last_name', 'lastname', 'Last Name', 'EMP.L.NAME'])).trim();
+        let firstName = firstNameCol;
+        let lastName = lastNameCol;
+        if (associateName && !firstNameCol && !lastNameCol) {
+          const parts = associateName.split(/\s+/).filter(Boolean);
+          firstName = parts[0] || associateName;
+          lastName = parts.length > 1 ? parts.slice(1).join(' ') : associateName;
+        }
+        const middleName = String(getCellValue(row, ['middleName', 'middle_name', 'EMP.M.NAME'])).trim();
+        const officialEmail = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'Official E-Mail Id', 'officialEmail', 'official_email', 'Official Email', 'email', 'E-Mail', 'Email'])).trim();
+        const permanentEmail = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'Permanent E-Mail Id', 'permanentEmail', 'permanent_email', 'Permanent Email'])).trim();
+        const emailCol = String(getCellValue(row, ['Official/Permanent E-Mail Id', 'email', 'emailId', 'mail', 'Email ID', 'EMAIL ID', 'Email', 'E-Mail Id', 'E-Mail', 'Mail', 'Official E-Mail', 'Mail Id', 'Email Address'])).trim();
+        let email = emailCol || officialEmail || permanentEmail || getEmailWithFallback(row);
+        if (!email) {
+          const emailLike = Object.values(row).find((v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim()));
+          if (emailLike) email = String(emailLike).trim();
+        }
+        if ((!firstName || !lastName) && email && /^[^\s@]+@[^\s@]+/.test(email)) {
+          const localPart = email.split('@')[0] || '';
+          const nameParts = localPart.replace(/[._]/g, ' ').split(/\s+/).filter(Boolean);
+          if (!firstName && nameParts.length) firstName = nameParts[0];
+          if (!lastName && nameParts.length) lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : nameParts[0] || localPart;
+        }
+        const fatherName = String(getCellValue(row, ['fatherName', 'father_name', 'Father Name', 'FATHER NAME'])).trim();
+        if (!lastName && fatherName) lastName = fatherName;
+        const personalEmailRaw = String(getCellValue(row, ['personalEmail', 'personal_email', 'Permanent E-Mail Id'])).trim()
+          || (permanentEmail && permanentEmail !== email ? permanentEmail : '');
+        const personalEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(personalEmailRaw) ? personalEmailRaw : '';
+        const dateOfJoining = toDateOnly(getCellValue(row, ['dateOfJoining', 'date_of_joining', 'joiningDate', 'doj', 'Date of Joining', 'DOJ', 'Joining Date', 'Appointment Date', 'Date of Appointment', 'DOJ (Date of Joining)']));
+        const employeeCode = String(getCellValue(row, ['Associate Code', 'employeeCode', 'employee_code', 'empCode', 'empcode', 'empId', 'emp id', 'Emp ID', 'EMP.CODE'])).trim();
+        const phone = String(getCellValue(row, ['phone', 'mobile', 'mobileNumber', 'mobile_number', 'phone_number', 'Mobile No', 'Permanent mobile', 'Permanent Phone', 'Current Phone', 'EMRG.CONTACT NO.'])).trim();
+        const designation = String(getCellValue(row, ['designation', 'Designation', 'position'])).trim();
+        const department = String(getCellValue(row, ['department', 'departmentName', 'dept', 'Department', 'DEPARTMENT'])).trim();
+        const paygroupName = String(getCellValue(row, ['Paygroup', 'paygroup', 'payGroup', 'PAY GROUP'])).trim();
+        const gender = mapGender(String(getCellValue(row, ['gender', 'Gender', 'GENDER'])));
+        const maritalStatus = mapMaritalStatus(String(getCellValue(row, ['maritalStatus', 'marital_status', 'Marital Status', 'MARITIAL STATUS'])));
+        const dateOfLeaving = toDateOnly(getCellValue(row, ['dateOfLeaving', 'date_of_leaving', 'dol', 'RELIEVING DATE']));
+        const permanentAddress = String(getCellValue(row, ['permanentAddress', 'permanent_address', 'Permanent Address', 'Address - Permanent', 'PARMANENT ADDRESS'])).trim();
+        const presentAddress = String(getCellValue(row, ['presentAddress', 'present_address', 'Current Address', 'Address - Current', 'COMMUNICATON ADDRESS'])).trim();
+        const city = String(getCellValue(row, ['city', 'City', 'Permanent City', 'City - Permanent'])).trim();
+        const cityCurrent = String(getCellValue(row, ['cityCurrent', 'City - Current', 'Current City'])).trim();
+        const state = String(getCellValue(row, ['state', 'State', 'Permanent State', 'State - Permanent'])).trim();
+        const stateCurrent = String(getCellValue(row, ['stateCurrent', 'State - Current', 'Current State'])).trim();
+        const pincode = String(getCellValue(row, ['pincode', 'postalCode', 'postal_code', 'Permanent Pincode', 'Pincode - Permanent'])).trim();
+        const pincodeCurrent = String(getCellValue(row, ['pincodeCurrent', 'Pincode - Current', 'Current Pincode'])).trim();
+        const countryPermanent = String(getCellValue(row, ['countryPermanent', 'Country - Permanent'])).trim();
+        const countryCurrent = String(getCellValue(row, ['countryCurrent', 'Country - Current'])).trim();
+        const panNumber = String(getCellValue(row, ['panNumber', 'pan_number', 'PAN', 'Pan No', 'Pan No.', 'Pan Card Number', 'PANCARD NO'])).trim();
+        const aadhaarNumber = String(getCellValue(row, ['aadhaarNumber', 'aadhar_number', 'aadhar', 'Aadhar', 'Aadhar No', 'Adhaar Number', 'Aadhar Number', 'AADHAR NO'])).trim();
+        const uanNumber = String(getCellValue(row, ['uanNumber', 'uan_number', 'UAN', 'UAN No', 'UAN Number', 'UAN NO'])).trim();
+        const pfNumber = String(getCellValue(row, ['pfNumber', 'pf_number', 'EPF', 'epfNumber', 'PF No', 'PF Number', 'PF NO'])).trim();
+        const esiNumber = getEsiNumber(row);
+        const bankName = String(getCellValue(row, ['bankName', 'bank_name', 'Bank Name', 'BANK NAME'])).trim();
+        const accountNumber = String(getCellValue(row, ['accountNumber', 'account_number', 'accountNo', 'Account No', 'Bank Account No', 'Bank A/c No.', 'ACCOUNT NO'])).trim();
+        const ifscCode = String(getCellValue(row, ['ifscCode', 'ifsc_code', 'IFSC', 'Bank IFSC Code', 'IFSC CODE'])).trim();
+        const age = String(getCellValue(row, ['age', 'Age'])).trim();
+        const passportNumber = String(getCellValue(row, ['passportNumber', 'passport_number', 'PASSPORT NO'])).trim();
+        const drivingLicenseNumber = String(getCellValue(row, ['drivingLicenseNumber', 'driving_license', 'DRIVING LICENCE NO'])).trim();
+        const bloodGroup = String(getCellValue(row, ['bloodGroup', 'blood_group', 'Blood Group', 'BLOOD GROUP'])).trim();
+        const experienceYears = String(getCellValue(row, ['experienceYears', 'experience', 'Experience', 'Exp - Total', 'Exp - Relevant', 'PREVIOUS EXPERIENCE'])).trim();
+        const dateOfBirth = toDateOnly(getCellValue(row, ['dateOfBirth', 'date_of_birth', 'dob', 'Date of Birth', 'DOB']));
+        const subDepartment = String(getCellValue(row, ['subDepartment', 'sub_department', 'Sub Department', 'SubDepartment', 'SUB.DEPARTMENT'])).trim();
+        const qualification = String(getCellValue(row, ['qualification', 'Qualification', 'QUALIFICATION'])).trim();
+        const course = String(getCellValue(row, ['course', 'Course'])).trim();
+        const university = String(getCellValue(row, ['university', 'University', 'INSTITUTE'])).trim();
+        const passoutYear = String(getCellValue(row, ['passoutYear', 'passout_year', 'Passout Year', 'YEAR OF PASSING'])).trim();
+        const emergencyContactName = String(getCellValue(row, ['emergencyContactName', 'emergency_contact_name', 'Emergency Contact Name', 'EMRG.CONTACT NAME'])).trim();
+        const emergencyContactNo = String(getCellValue(row, ['emergencyContactNo', 'emergency_contact_no', 'Emergency Contact No', 'EMRG.CONTACT NO.'])).trim();
+        const relationship = String(getCellValue(row, ['relationship', 'Relationship', 'RELATION'])).trim();
+        const placeOfTaxRaw = String(getCellValue(row, ['Place of Tax Deduction', 'placeOfTaxDeduction', 'place_of_tax_deduction'])).trim().toUpperCase();
+        const placeOfTax = placeOfTaxRaw === 'M' ? 'METRO' : placeOfTaxRaw === 'N' ? 'NON_METRO' : placeOfTaxRaw;
+        const workLocation = String(getCellValue(row, ['Location', 'location', 'workLocation'])).trim();
+        const reportingManagerName = getReportingManagerWithFallback(row);
+        const costCentreCol = String(getCellValue(row, ['Cost Centre', 'costCentre', 'cost_centre', 'cost_center'])).trim();
+        const fixedGross = String(getCellValue(row, ['Fixed Gross', 'fixedGross', 'fixed_gross'])).trim();
+        const vehicleAllowances = String(getCellValue(row, ['Vehicle Allowances', 'vehicleAllowances', 'vehicle_allowances'])).trim();
+
+        const esiLocation = String(getCellValue(row, ['ESI Location', 'esiLocation', 'esi_location'])).trim();
+        const ptaxLocation = String(getCellValue(row, ['Ptax Location', 'ptaxLocation', 'ptax_location'])).trim();
+        const associateNoticePeriodDays = String(getCellValue(row, ['Associate Notice Period Days', 'associateNoticePeriodDays', 'notice_period_days'])).trim();
+        const lwfLocation = String(getCellValue(row, ['LWF Location', 'lwfLocation', 'lwf_location'])).trim();
+        const taxRegimeRaw = String(getCellValue(row, ['Tax Regime', 'taxRegime', 'tax_regime'])).trim();
+        const taxRegime = taxRegimeRaw ? (taxRegimeRaw.toUpperCase() === 'N' || taxRegimeRaw.toUpperCase() === 'NEW' ? 'NEW' : taxRegimeRaw.toUpperCase() === 'O' || taxRegimeRaw.toUpperCase() === 'OLD' ? 'OLD' : taxRegimeRaw) : undefined;
+        const alternateSaturdayOff = String(getCellValue(row, ['Alternate Saturday Off', 'alternateSaturdayOff', 'alternate_saturday_off'])).trim();
+        const compoffApplicable = String(getCellValue(row, ['Compoff Applicable', 'compoffApplicable', 'compoff_applicable'])).trim();
+
+        // Skip fully empty rows
+        if (!firstName && !lastName && !email && !dateOfJoining && !employeeCode) {
+          continue;
+        }
+
+        total += 1;
+
+        // Use Excel data when present; use placeholders only when backend requires values (not displayed in UI)
+        const finalFirstName = (firstName || lastName || associateName || employeeCode || `Emp${index + 1}`).trim();
+        const finalLastName = (lastName || firstName || '').trim();
+        const safeFirstName = finalFirstName.length >= 2 ? finalFirstName : (finalFirstName + ' ').slice(0, 2);
+        const finalEmail = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+          ? email.trim()
+          : `${(employeeCode || `imported${index + 2}`).replace(/[^a-zA-Z0-9]/g, '')}@imported.placeholder`;
+        const finalDateOfJoining = dateOfJoining || new Date().toISOString().slice(0, 10);
+
+        const positionId = designation
+          ? orgPositions?.find((p) => p.title?.toLowerCase() === designation.toLowerCase())?.id ?? null
+          : null;
+        const departmentId = department
+          ? orgDepartments?.find((d) => d.name?.toLowerCase() === department.toLowerCase())?.id ?? null
+          : null;
+        const entityCol = String(getCellValue(row, ['entity', 'Entity', 'ENTITY', 'entityName'])).trim();
+        const entityId = entityCol
+          ? orgEntitiesList.find((e) => e.name?.toLowerCase() === entityCol.toLowerCase() || e.code?.toLowerCase() === entityCol.toLowerCase())?.id ?? null
+          : null;
+        const paygroupId = paygroupName
+          ? orgPaygroups?.find((p) => p.name?.toLowerCase() === paygroupName.toLowerCase())?.id ?? null
+          : null;
+        const reportingManagerId = null;
+        const costCentreId = costCentreCol
+          ? orgCostCentres?.find(
+              (c) =>
+                c.name?.toLowerCase() === costCentreCol.toLowerCase() ||
+                (c.code && c.code.toLowerCase() === costCentreCol.toLowerCase())
+            )?.id ?? null
+          : null;
+        const placeOfTaxDeduction = placeOfTax === 'METRO' || placeOfTax === 'NON_METRO' ? placeOfTax : undefined;
+
+        const permanentDistrict = String(getCellValue(row, ['Permanent District', 'permanentDistrict', 'permanent_district'])).trim();
+        const presentDistrict = String(getCellValue(row, ['Current District', 'presentDistrict', 'currentDistrict', 'current_district'])).trim();
+        const presentPhone = String(getCellValue(row, ['Current Phone', 'presentPhone', 'present_phone'])).trim();
+
+        const address =
+          permanentAddress || presentAddress || city || cityCurrent || state || stateCurrent || pincode || pincodeCurrent || countryPermanent || countryCurrent || permanentDistrict || presentDistrict || presentPhone
+            ? {
+                ...(permanentAddress ? { street: permanentAddress, permanentAddress } : {}),
+                ...(presentAddress ? { presentAddress } : {}),
+                ...(city ? { city } : {}),
+                ...(state ? { state } : {}),
+                ...(pincode ? { postalCode: pincode } : {}),
+                ...(countryPermanent ? { country: countryPermanent } : {}),
+                ...(cityCurrent ? { presentCity: cityCurrent } : {}),
+                ...(stateCurrent ? { presentState: stateCurrent } : {}),
+                ...(pincodeCurrent ? { presentPincode: pincodeCurrent } : {}),
+                ...(permanentDistrict ? { permanentDistrict } : {}),
+                ...(presentDistrict ? { presentDistrict } : {}),
+                ...(presentPhone ? { presentPhoneNumber: presentPhone } : {}),
+              }
+            : undefined;
+
+        const taxInformation =
+          panNumber || aadhaarNumber || uanNumber || pfNumber || esiNumber || esiLocation || ptaxLocation || taxRegime
+            ? {
+                ...(panNumber ? { panNumber } : {}),
+                ...(aadhaarNumber ? { aadhaarNumber } : {}),
+                ...(uanNumber ? { uanNumber } : {}),
+                ...(pfNumber ? { pfNumber } : {}),
+                ...(esiNumber ? { esiNumber } : {}),
+                ...(esiLocation ? { esiLocation } : {}),
+                ...(ptaxLocation ? { ptaxLocation } : {}),
+                ...(taxRegime ? { taxRegime } : {}),
+              }
+            : undefined;
+
+        const bankDetails =
+          bankName || accountNumber || ifscCode
+            ? {
+                ...(bankName ? { bankName } : {}),
+                ...(accountNumber ? { accountNumber } : {}),
+                ...(ifscCode ? { ifscCode } : {}),
+              }
+            : undefined;
+
+        const profileExtensions =
+          fatherName || age || passportNumber || drivingLicenseNumber || bloodGroup || experienceYears ||
+          subDepartment || qualification || course || university || passoutYear ||
+          associateNoticePeriodDays || lwfLocation || alternateSaturdayOff || compoffApplicable
+            ? {
+                ...(fatherName ? { fatherName } : {}),
+                ...(age ? { age } : {}),
+                ...(passportNumber ? { passportNumber } : {}),
+                ...(drivingLicenseNumber ? { drivingLicenseNumber } : {}),
+                ...(bloodGroup ? { bloodGroup } : {}),
+                ...(experienceYears ? { experienceYears } : {}),
+                ...(subDepartment ? { subDepartment } : {}),
+                ...(qualification ? { qualification } : {}),
+                ...(course ? { course } : {}),
+                ...(university ? { university } : {}),
+                ...(passoutYear ? { passoutYear } : {}),
+                ...(associateNoticePeriodDays ? { associateNoticePeriodDays } : {}),
+                ...(lwfLocation ? { lwfLocation } : {}),
+                ...(alternateSaturdayOff ? { alternateSaturdayOff } : {}),
+                ...(compoffApplicable ? { compoffApplicable } : {}),
+              }
+            : undefined;
+
+        const fixedGrossNum = parseFloat(String(fixedGross).replace(/,/g, '')) || 0;
+        const vehicleAllowancesNum = parseFloat(String(vehicleAllowances).replace(/,/g, '')) || 0;
+        const hasSalary = fixedGrossNum > 0 || vehicleAllowancesNum > 0;
+
+        const emergencyContacts =
+          emergencyContactName || emergencyContactNo || relationship
+            ? [{ name: emergencyContactName || '', phone: emergencyContactNo || '', relationship: relationship || '' }]
+            : undefined;
+
+        const employmentTypeVal = String(getCellValue(row, ['employmentType', 'Emp Type', 'empType'])).trim().toUpperCase();
+        const employmentType = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'].includes(employmentTypeVal) ? employmentTypeVal : undefined;
+
+        const existingByEmail = orgEmployees?.some((e) => e.email?.toLowerCase() === finalEmail.toLowerCase());
+        const existingEmpByCode = employeeCode && orgEmployees?.find((e) => (e as { employeeCode?: string }).employeeCode?.toLowerCase() === employeeCode.toLowerCase());
+
+        if (existingEmpByCode) {
+          const empId = existingEmpByCode.id;
+          const updatePayload: Record<string, unknown> = {};
+          if (positionId) updatePayload.positionId = positionId;
+          if (departmentId) updatePayload.departmentId = departmentId;
+          if (entityId) updatePayload.entityId = entityId;
+          if (paygroupId) updatePayload.paygroupId = paygroupId;
+          if (costCentreId) updatePayload.costCentreId = costCentreId;
+          if (workLocation) updatePayload.workLocation = workLocation;
+          if (placeOfTaxDeduction) updatePayload.placeOfTaxDeduction = placeOfTaxDeduction;
+          if (reportingManagerName) pendingReportingManager.push({ employeeId: empId, reportingManagerName });
+          if (profileExtensions && Object.keys(profileExtensions).length > 0) {
+            const existingExt = (existingEmpByCode as { profileExtensions?: Record<string, unknown> }).profileExtensions as Record<string, unknown> | null | undefined;
+            const merged = { ...(existingExt || {}), ...profileExtensions };
+            updatePayload.profileExtensions = merged;
+          }
+          try {
+            if (Object.keys(updatePayload).length > 0) {
+              await employeeService.update(empId, updatePayload);
+            }
+            updated += 1;
+          } catch (err: any) {
+            console.warn('Failed to update existing employee', empId, err?.response?.data?.message || err?.message);
+            failures.push({ row: index + 2, email, associateCode: employeeCode || undefined, message: err?.response?.data?.message || 'Failed to update existing employee' });
+          }
+          continue;
+        }
+
+        if (existingByEmail) {
+          skipped += 1;
+          continue;
+        }
+
+        try {
+          const createResult = await employeeService.create({
+            organizationId: effectiveOrganizationId,
+            firstName: safeFirstName,
+            lastName: finalLastName,
+            email: finalEmail,
+            dateOfJoining: finalDateOfJoining,
+            ...(employeeCode ? { employeeCode } : {}),
+            ...(middleName ? { middleName } : {}),
+            ...(phone ? { phone } : {}),
+            ...(officialEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(officialEmail) ? { officialEmail } : {}),
+            ...(personalEmail ? { personalEmail } : {}),
+            ...(dateOfBirth ? { dateOfBirth } : {}),
+            ...(gender ? { gender: gender as 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY' } : {}),
+            ...(maritalStatus ? { maritalStatus: maritalStatus as 'SINGLE' | 'MARRIED' | 'DIVORCED' | 'WIDOWED' } : {}),
+            ...(employmentType ? { employmentType: employmentType as 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN' } : {}),
+            ...(dateOfLeaving ? { dateOfLeaving } : {}),
+            ...(positionId ? { positionId } : {}),
+            ...(departmentId ? { departmentId } : {}),
+            ...(entityId ? { entityId } : {}),
+            ...(paygroupId ? { paygroupId } : {}),
+            ...(reportingManagerId ? { reportingManagerId } : {}),
+            ...(costCentreId ? { costCentreId } : {}),
+            ...(workLocation ? { workLocation } : {}),
+            ...(placeOfTaxDeduction ? { placeOfTaxDeduction } : {}),
+            ...(address && Object.keys(address).length > 0 ? { address } : {}),
+            ...(taxInformation && Object.keys(taxInformation).length > 0 ? { taxInformation } : {}),
+            ...(bankDetails && Object.keys(bankDetails).length > 0 ? { bankDetails } : {}),
+            ...(profileExtensions && Object.keys(profileExtensions).length > 0 ? { profileExtensions } : {}),
+            ...(emergencyContacts ? { emergencyContacts } : {}),
+          });
+          success += 1;
+          if (createResult?.employee?.id && (employeeCode || firstName || lastName)) {
+            createdInBatch.push({
+              id: createResult.employee.id,
+              employeeCode: employeeCode || createResult.employee.employeeCode || '',
+              firstName: safeFirstName,
+              lastName: finalLastName,
+            });
+            if (reportingManagerName) {
+              pendingReportingManager.push({ employeeId: createResult.employee.id, reportingManagerName });
+            }
+          }
+          if (hasSalary && createResult?.employee?.id && finalDateOfJoining) {
+            const gross = fixedGrossNum + vehicleAllowancesNum;
+            try {
+              await employeeSalaryService.createSalary({
+                employeeId: createResult.employee.id,
+                effectiveDate: finalDateOfJoining,
+                basicSalary: Math.round(gross * 0.4),
+                grossSalary: gross,
+                netSalary: Math.round(gross * 0.75),
+                paymentFrequency: 'MONTHLY',
+                currency: 'INR',
+                components: { 'Fixed Gross': fixedGrossNum, 'Vehicle Allowances': vehicleAllowancesNum },
+              });
+            } catch (salErr: any) {
+              console.warn('Salary create failed for import row', index + 2, salErr?.response?.data?.message || salErr?.message);
+            }
+          }
+        } catch (err: any) {
+          const errMsg = String(err?.response?.data?.message || err?.message || '');
+          const isDuplicate = /already exists|duplicate/i.test(errMsg);
+          if (isDuplicate) {
+            skipped += 1;
+            continue;
+          }
+          let msg = errMsg || 'Failed to create employee';
+          const errData = err?.response?.data;
+          if (errData?.errors && Array.isArray(errData.errors)) {
+            const details = errData.errors.map((e: { field?: string; message?: string }) => `${e.field || '?'}: ${e.message || ''}`).join('; ');
+            if (details) msg = `Validation: ${details}`;
+          }
+          failures.push({
+            row: index + 2,
+            email,
+            associateCode: employeeCode || undefined,
+            message: msg,
+          });
+        }
+      }
+
+      // Second pass: set Reporting Manager (all managers now exist - either from batch or org)
+      let managersSet = 0;
+      for (const { employeeId, reportingManagerName } of pendingReportingManager) {
+        const managerId = resolveReportingManagerId(reportingManagerName);
+        if (managerId) {
+          try {
+            await employeeService.update(employeeId, { reportingManagerId: managerId });
+            managersSet += 1;
+          } catch (err: any) {
+            console.warn('Failed to set reporting manager for', employeeId, err?.response?.data?.message || err?.message);
+          }
+        }
+      }
+
+      setImportResult({ total, success, updated, skipped, failures, managersSet });
 
       const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
       if (searchTerm) params.search = searchTerm;
@@ -812,7 +1333,6 @@ export default function EmployeesPage() {
       if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
       if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
       await fetchEmployees(params);
-
     } catch (err: any) {
       const msg = err?.response?.data?.message || err?.message || 'Import failed';
       const isNetwork = !err?.response && (err?.code === 'ECONNREFUSED' || err?.message?.includes('Network'));
@@ -822,23 +1342,7 @@ export default function EmployeesPage() {
     }
   };
 
-  const handleDownloadImportTemplate = async () => {
-    // Try downloading from Configurator API first; fall back to client-side template
-    try {
-      const blob = await employeeService.downloadImportTemplate();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `employee_import_template_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-      return;
-    } catch {
-      // Configurator template not available — generate locally
-    }
-
+  const handleDownloadImportTemplate = () => {
     const COLUMNS = [
       'S.No', 'Paygroup', 'Associate Code', 'Associate Name', 'Gender', 'Department', 'Designation', 'Father Name', 'Blood Group',
       'Date of Birth', 'Date of Joining', 'Cost Centre', 'Pan Card Number', 'Bank Name', 'Account No', 'Bank IFSC Code',
@@ -930,7 +1434,7 @@ export default function EmployeesPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Employee Directory"
-        subtitle={effectiveOrganizationName || undefined}
+        subtitle={effectiveOrganizationName ? `Organization: ${effectiveOrganizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -1200,7 +1704,7 @@ export default function EmployeesPage() {
                             <span
                               className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                                 cred.employeeStatus === 'ACTIVE'
-                                  ? 'bg-blue-100 text-blue-800'
+                                  ? 'bg-green-100 text-green-800'
                                   : cred.employeeStatus === 'ON_LEAVE'
                                   ? 'bg-yellow-100 text-yellow-800'
                                   : 'bg-red-100 text-red-800'
@@ -1212,15 +1716,15 @@ export default function EmployeesPage() {
                           <td className="w-[14%] px-4 py-4 whitespace-nowrap min-w-0">
                             {hasNewPassword ? (
                               <div className="flex items-center space-x-2 min-w-0">
-                                <div className="flex-1 min-w-0 bg-blue-50 border border-blue-200 rounded px-2 py-1">
-                                  <p className="text-xs font-mono font-bold text-blue-800 truncate">{showNewPassword}</p>
+                                <div className="flex-1 min-w-0 bg-green-50 border border-green-200 rounded px-2 py-1">
+                                  <p className="text-xs font-mono font-bold text-green-800 truncate">{showNewPassword}</p>
                                 </div>
                                 <button
                                   onClick={() => {
                                     navigator.clipboard.writeText(showNewPassword || '');
                                     alert('Password copied!');
                                   }}
-                                  className="text-blue-600 hover:text-blue-700 text-xs flex-shrink-0"
+                                  className="text-green-600 hover:text-green-700 text-xs flex-shrink-0"
                                   title="Copy password"
                                 >
                                   📋
@@ -1273,21 +1777,21 @@ export default function EmployeesPage() {
             </div>
 
             {showNewPassword ? (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <p className="text-sm font-medium text-blue-800 mb-2">Password Reset Successfully!</p>
-                <div className="flex items-center justify-between bg-white border border-blue-300 rounded px-3 py-2">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                <p className="text-sm font-medium text-green-800 mb-2">Password Reset Successfully!</p>
+                <div className="flex items-center justify-between bg-white border border-green-300 rounded px-3 py-2">
                   <p className="text-sm font-mono text-gray-900 font-bold">{showNewPassword}</p>
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(showNewPassword);
                       alert('Password copied to clipboard!');
                     }}
-                    className="ml-2 text-blue-600 hover:text-blue-700 text-sm font-medium"
+                    className="ml-2 text-green-600 hover:text-green-700 text-sm font-medium"
                   >
                     Copy
                   </button>
                 </div>
-                <p className="text-xs text-blue-700 mt-2">
+                <p className="text-xs text-green-700 mt-2">
                   Please share this password with the employee. They should change it after first login.
                 </p>
               </div>
@@ -1443,7 +1947,7 @@ export default function EmployeesPage() {
                 type="button"
                 onClick={handleUpdateFaceSave}
                 disabled={!updateFaceEncoding || updateFaceEncoding.length !== 128 || updateFaceSaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {updateFaceSaving ? 'Saving...' : 'Save face'}
               </button>
@@ -1556,7 +2060,7 @@ export default function EmployeesPage() {
               </div>
             </div>
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#2196F3] flex items-center justify-center">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#4CAF50] flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -1908,6 +2412,45 @@ export default function EmployeesPage() {
       )}
 
         </div>
+      {/* Paygroup Selection Modal (Create flow only) */}
+      {showPaygroupModal && (
+        <PaygroupSelectionModal
+          isOpen={showPaygroupModal}
+          onClose={() => { setShowPaygroupModal(false); setPaygroupModalOrgId(null); }}
+          organizationId={paygroupModalOrgId ?? ''}
+          onSubmit={handlePaygroupSubmit}
+        />
+      )}
+
+      {/* Employee Form Modal - full width for large form */}
+      <Modal
+        isOpen={showForm}
+        onClose={handleFormCancel}
+        title={rejoinMode ? 'Employee Rejoin' : editingEmployee ? (viewMode ? 'View Employee' : 'Edit Employee') : 'Create Employee'}
+        size="full"
+      >
+        {(effectiveOrganizationId || editingEmployee?.organizationId || showForm) && (
+          <EmployeeForm
+            key={editingEmployee?.id ?? 'create'}
+            employee={editingEmployee}
+            organizationId={effectiveOrganizationId ?? editingEmployee?.organizationId ?? ''}
+            initialPaygroupId={selectedPaygroupId ?? undefined}
+            initialPaygroupName={selectedPaygroupName ?? undefined}
+            onSuccess={handleFormSuccess}
+            onCancel={handleFormCancel}
+            mode={editingEmployee && viewMode ? 'view' : 'edit'}
+            rejoinMode={rejoinMode}
+            editableTabs={
+              rejoinMode ? undefined : editingEmployee && !viewMode
+                ? canUpdateByRole
+                  ? undefined
+                  : (editableTabsFromPermissions ?? ((baseRole === 'EMPLOYEE' || baseRole === 'MANAGER') && user?.employee?.id === editingEmployee.id ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[]) : undefined))
+                : undefined
+            }
+          />
+        )}
+      </Modal>
+
       {/* Employee Import Modal */}
       <Modal
         isOpen={showImportModal}
@@ -1952,7 +2495,7 @@ export default function EmployeesPage() {
           {importResult && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
               <p>Total rows processed: <strong>{importResult.total}</strong></p>
-              <p>Created successfully: <strong className="text-blue-700">{importResult.success}</strong></p>
+              <p>Created successfully: <strong className="text-green-700">{importResult.success}</strong></p>
               {importResult.updated != null && importResult.updated > 0 && (
                 <p>Updated (existing by code): <strong className="text-blue-700">{importResult.updated}</strong></p>
               )}
@@ -2003,7 +2546,7 @@ export default function EmployeesPage() {
       {viewingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={() => setViewingUser(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="animate-gradient-bg relative overflow-hidden px-6 py-4 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Employee Details</h2>
               <button onClick={() => setViewingUser(null)} className="text-white hover:text-blue-200 transition">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -2030,7 +2573,7 @@ export default function EmployeesPage() {
                 <div>
                   <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Status</div>
                   <div className="mt-0.5">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${viewingUser.is_active ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${viewingUser.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                       {viewingUser.is_active ? 'Active' : 'Inactive'}
                     </span>
                   </div>

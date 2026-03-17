@@ -26,21 +26,6 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-// Configurator login schema - supports 2-step flow:
-// Step 1: { company_name_or_code } only → verify company exists
-// Step 2: { company_name_or_code, username, password } → full login
-export const configuratorLoginSchema = z.object({
-  company_name_or_code: z.string().optional(),
-  username: z.string().optional(),
-  password: z.string().optional(),
-  company_id: z.coerce.number().int().positive('Company ID must be a positive integer').optional(),
-});
-
-// Configurator refresh schema
-export const configuratorRefreshSchema = z.object({
-  refresh_token: z.string().min(1, 'Refresh token is required'),
-});
-
 // Refresh token schema
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
@@ -94,10 +79,24 @@ export const updateProfileSchema = z.object({
   profilePictureUrl: z.string().url().optional(),
 });
 
+// Configurator login schema - supports 2-step flow:
+// Step 1: { company_name_or_code } only → verify company exists
+// Step 2: { company_name_or_code, username, password } → full login
+export const configuratorLoginSchema = z.object({
+  company_name_or_code: z.string().optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  company_id: z.coerce.number().int().positive('Company ID must be a positive integer').optional(),
+});
+
+// Configurator refresh schema
+export const configuratorRefreshSchema = z.object({
+  refresh_token: z.string().min(1, 'Refresh token is required'),
+});
+
 // Types
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
-export type ConfiguratorLoginInput = z.infer<typeof configuratorLoginSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

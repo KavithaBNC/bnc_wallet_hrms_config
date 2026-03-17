@@ -1,11 +1,11 @@
 import { prisma } from '../utils/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
-import { parseFormulaDependencies } from './payroll-rules-execution.service';
+import { parseFormulaDependencies, parseConditionalDependencies } from './payroll-rules-execution.service';
 
-export const INPUT_TYPES = ['Input', 'Derived', 'System Derived'] as const;
+export const INPUT_TYPES = ['Input', 'Derived', 'System Derived', 'Conditional'] as const;
 export const COMPONENT_BEHAVIORS = ['Default', 'Variable Input', 'Reimbursement', 'Deduction', 'Employer Contribution', 'System'] as const;
 
-const INPUT_TYPE_DB = { 'Input': 'INPUT', 'Derived': 'DERIVED', 'System Derived': 'SYSTEM_DERIVED' } as const;
+const INPUT_TYPE_DB = { 'Input': 'INPUT', 'Derived': 'DERIVED', 'System Derived': 'SYSTEM_DERIVED', 'Conditional': 'CONDITIONAL' } as const;
 const BEHAVIOR_DB = {
   'Default': 'DEFAULT',
   'Variable Input': 'VARIABLE_INPUT',
@@ -61,6 +61,7 @@ function toDto(
     INPUT: 'Input',
     DERIVED: 'Derived',
     SYSTEM_DERIVED: 'System Derived',
+    CONDITIONAL: 'Conditional',
   };
   const behaviorMap: Record<string, string> = {
     DEFAULT: 'Default',
@@ -162,6 +163,65 @@ export class RulesEngineService {
           }
         }
       }
+
+      if (inputTypeDb === 'CONDITIONAL') {
+        const formula = r.formula?.trim() || null;
+        if (!formula) {
+          const err = new Error('Conditional rule must have at least one condition.') as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
+        let parsed: { type: string; condition: string; then: string }[];
+        try {
+          parsed = JSON.parse(formula);
+        } catch {
+          const err = new Error('Invalid conditional formula format.') as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          const err = new Error('Conditional rule must have at least one condition.') as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
+        const elseRows = parsed.filter((row) => row.type === 'ELSE');
+        if (elseRows.length > 1) {
+          const err = new Error('Only one ELSE row is allowed in a conditional rule.') as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
+        if (elseRows.length === 1 && parsed[parsed.length - 1].type !== 'ELSE') {
+          const err = new Error('ELSE must be the last row in a conditional rule.') as Error & { status?: number };
+          err.status = 400;
+          throw err;
+        }
+        for (const row of parsed) {
+          if (row.type === 'IF' && !row.condition?.trim()) {
+            const err = new Error('IF rows must have a condition expression.') as Error & { status?: number };
+            err.status = 400;
+            throw err;
+          }
+          if (!row.then?.trim()) {
+            const err = new Error('Every conditional row must have a Then expression.') as Error & { status?: number };
+            err.status = 400;
+            throw err;
+          }
+        }
+        // Validate component references in conditional expressions
+        const knownShortNames = new Set(compounds.map((c) => c.shortName));
+        const deps = parseConditionalDependencies(formula, knownShortNames);
+        const shortNameLower = (s: string) => s.trim().toLowerCase();
+        for (const ref of deps) {
+          const comp = compounds.find((c) => shortNameLower(c.shortName) === shortNameLower(ref));
+          if (!comp) continue; // bare identifier that isn't a component — safe to skip
+          const compStatus = statusByShortName.get(shortNameLower(ref));
+          if (compStatus != null && String(compStatus).toUpperCase() !== 'ACTIVE') {
+            const err = new Error(`Conditional formula references component "${ref}" which is Inactive. Only Active components may be used.`) as Error & { status?: number };
+            err.status = 400;
+            throw err;
+          }
+        }
+      }
     }
 
     let saved = 0;
@@ -170,6 +230,7 @@ export class RulesEngineService {
       const inputTypeDb = INPUT_TYPE_DB[r.inputType as keyof typeof INPUT_TYPE_DB] ?? 'INPUT';
       const behaviorDb = BEHAVIOR_DB[r.componentBehavior as keyof typeof BEHAVIOR_DB] ?? 'DEFAULT';
       const formula = inputTypeDb === 'INPUT' ? null : (r.formula?.trim() || null);
+      // For CONDITIONAL type, formula stores JSON array of conditions — skip dependency validation
       const percentage = r.percentage != null ? new Decimal(r.percentage) : null;
       const roundOffValue = r.roundOffValue != null ? new Decimal(r.roundOffValue) : null;
 

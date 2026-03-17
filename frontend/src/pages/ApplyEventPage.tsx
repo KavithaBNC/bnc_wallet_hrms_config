@@ -640,7 +640,7 @@ export default function ApplyEventPage() {
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
         <AppHeader
           title={pageMode === 'Permission' ? 'Apply Permission' : pageMode === 'Onduty' ? 'Apply On Duty' : 'Apply Event'}
-          subtitle={organizationName ? organizationName : undefined}
+          subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
           onLogout={handleLogout}
         />
         <div className="flex-1 p-4">
@@ -657,7 +657,7 @@ export default function ApplyEventPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title={pageMode === 'Permission' ? 'Apply Permission' : pageMode === 'Onduty' ? 'Apply On Duty' : 'Apply Event'}
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -758,7 +758,7 @@ export default function ApplyEventPage() {
                       type="button"
                       onClick={() => setOndutyHourlyEnabled(true)}
                       className={`px-3 py-1 text-xs font-medium rounded ${
-                        ondutyHourlyEnabled ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                        ondutyHourlyEnabled ? 'bg-green-600 text-white' : 'text-gray-700 hover:bg-gray-100'
                       }`}
                     >
                       YES
@@ -965,7 +965,7 @@ export default function ApplyEventPage() {
             <button
               type="submit"
               disabled={saving || !canSubmit || loading}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />

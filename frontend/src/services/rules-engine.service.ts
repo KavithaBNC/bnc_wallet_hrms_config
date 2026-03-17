@@ -1,5 +1,11 @@
 import api from './api';
 
+export interface ConditionalRule {
+  type: 'IF' | 'ELSE';
+  condition: string;
+  then: string;
+}
+
 export interface RulesEngineRow {
   ruleId: string | null;
   compoundId: string;

@@ -101,17 +101,9 @@ export default function ValidationProcessEmployeeGridPage() {
     navigate('/login');
   };
 
-  if (!user) {
-    return (
-      <div className="flex flex-col flex-1 min-h-0 bg-gray-100 items-center justify-center p-8">
-        <p className="text-gray-600">Loading...</p>
-      </div>
-    );
-  }
+  // ─── Hooks must be declared before any conditional return ───────────────────
 
-  const title = getValidationTitle(type);
-  const selectedCorrection =
-    correctionOptions.find((opt) => opt.id === selectedCorrectionId) ?? correctionOptions[0];
+  const isOnHoldType = type.toLowerCase() === 'validationonhold';
 
   const loadEmployeeList = useCallback(async () => {
     if (!organizationId || !type) {
@@ -148,8 +140,6 @@ export default function ValidationProcessEmployeeGridPage() {
   useEffect(() => {
     loadEmployeeList();
   }, [loadEmployeeList]);
-
-  const isOnHoldType = type.toLowerCase() === 'validationonhold';
 
   useEffect(() => {
     if (isOnHoldType) {
@@ -221,11 +211,24 @@ export default function ValidationProcessEmployeeGridPage() {
     loadCorrectionOptions();
   }, [organizationId, type, fromDate, toDate, date, isOnHoldType]);
 
+  // ─── Conditional render after all hooks ──────────────────────────────────────
+  if (!user) {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 bg-gray-100 items-center justify-center p-8">
+        <p className="text-gray-600">Loading...</p>
+      </div>
+    );
+  }
+
+  const title = getValidationTitle(type);
+  const selectedCorrection =
+    correctionOptions.find((opt) => opt.id === selectedCorrectionId) ?? correctionOptions[0];
+
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="HR Activities"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -385,7 +388,7 @@ export default function ValidationProcessEmployeeGridPage() {
                 {submitMessage && (
                   <div
                     className={`mb-4 p-3 rounded text-sm ${
-                      submitMessage.type === 'success' ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-700'
+                      submitMessage.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'
                     }`}
                   >
                     {submitMessage.text}
@@ -467,7 +470,7 @@ export default function ValidationProcessEmployeeGridPage() {
                       setSubmitting(false);
                     }
                   }}
-                  className="inline-flex items-center justify-center w-full h-9 px-3 rounded-lg border border-blue-600 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center justify-center w-full h-9 px-3 rounded-lg border border-green-600 bg-green-600 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? 'Proceeding...' : 'Proceed'}
                 </button>

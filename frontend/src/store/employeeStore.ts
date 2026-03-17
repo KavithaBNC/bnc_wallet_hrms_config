@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Employee } from '../services/employee.service';
 import employeeService from '../services/employee.service';
-import configuratorDataService, { ConfigUser } from '../services/configurator-data.service';
+import configuratorDataService from '../services/configurator-data.service';
 
 interface EmployeeStore {
   /** Employee list from Configurator API (ConfigUser[]) */
@@ -17,18 +17,16 @@ interface EmployeeStore {
   };
   /** Keep for backward compatibility — same as employees */
   allConfigUsers: any[];
-
-  // Actions
-  fetchEmployees: (params?: any) => Promise<void>;
-  fetchEmployeeById: (id: string) => Promise<void>;
-  createEmployee: (data: any) => Promise<{ employee: Employee; temporaryPassword?: string }>;
-  updateEmployee: (id: string, data: any) => Promise<Employee>;
-  deleteEmployee: (id: string | number) => Promise<void>;
   setCurrentEmployee: (employee: Employee | null) => void;
   clearError: () => void;
+  fetchEmployees: (params?: any) => Promise<void>;
+  fetchEmployeeById: (id: string) => Promise<void>;
+  createEmployee: (data: any) => Promise<any>;
+  updateEmployee: (id: string, data: any) => Promise<any>;
+  deleteEmployee: (id: string | number) => Promise<void>;
 }
 
-export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
+export const useEmployeeStore = create<EmployeeStore>((set) => ({
   employees: [],
   currentEmployee: null,
   loading: false,

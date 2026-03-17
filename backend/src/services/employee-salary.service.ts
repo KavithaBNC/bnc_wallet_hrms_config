@@ -9,12 +9,38 @@ import {
 } from '../utils/payroll.validation';
 import { prisma } from '../utils/prisma';
 import { Prisma } from '@prisma/client';
+import { auditLogService } from './audit-log.service';
+
+/** Check whether the active payroll cycle for an employee's org is locked/finalized. */
+async function checkPayrollLock(employeeId: string): Promise<void> {
+  const employee = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { organizationId: true },
+  });
+  if (!employee) return;
+  const lockedCycle = await prisma.payrollCycle.findFirst({
+    where: {
+      organizationId: employee.organizationId,
+      isLocked: true,
+    },
+    orderBy: { periodEnd: 'desc' },
+  });
+  if (lockedCycle) {
+    throw new AppError(
+      `Salary cannot be modified while payroll cycle "${lockedCycle.name}" is locked/finalized. Rollback the payroll first.`,
+      400
+    );
+  }
+}
 
 export class EmployeeSalaryService {
   /**
    * Create employee salary
    */
   async createSalary(data: CreateEmployeeSalaryInput) {
+    // Check payroll lock before any modification
+    await checkPayrollLock(data.employeeId);
+
     // Verify employee exists
     const employee = await prisma.employee.findUnique({
       where: { id: data.employeeId },
@@ -104,6 +130,15 @@ export class EmployeeSalaryService {
       },
     });
 
+    // Audit log
+    await auditLogService.log({
+      organizationId: employee.organizationId,
+      entityType: 'EMPLOYEE_SALARY',
+      entityId: salary.id,
+      action: 'CREATE',
+      newValue: { basicSalary: data.basicSalary, grossSalary: data.grossSalary, netSalary: data.netSalary, effectiveDate: data.effectiveDate },
+    });
+
     return salary;
   }
 
@@ -111,6 +146,9 @@ export class EmployeeSalaryService {
    * Create employee salary with enhanced features (CTC, revision history, template support)
    */
   async createSalaryEnhanced(data: CreateEmployeeSalaryEnhancedInput, createdBy?: string) {
+    // Check payroll lock before any modification
+    await checkPayrollLock(data.employeeId);
+
     // Verify employee exists
     const employee = await prisma.employee.findUnique({
       where: { id: data.employeeId },
@@ -246,6 +284,24 @@ export class EmployeeSalaryService {
           },
         },
       },
+    });
+
+    // Audit log for enhanced salary creation
+    await auditLogService.log({
+      organizationId: employee.organizationId,
+      entityType: 'EMPLOYEE_SALARY',
+      entityId: salary.id,
+      action: 'CREATE',
+      newValue: {
+        basicSalary: data.basicSalary,
+        grossSalary: data.grossSalary,
+        netSalary: data.netSalary,
+        ctc: data.ctc,
+        effectiveDate: data.effectiveDate,
+        revisionReason: data.revisionReason,
+        templateId: data.salaryTemplateId,
+      },
+      changedBy: createdBy,
     });
 
     return salary;

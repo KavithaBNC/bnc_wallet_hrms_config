@@ -111,6 +111,70 @@ const postToPayrollService = {
     );
     return response.data.data;
   },
+
+  /** Core HR Variable Input Entry: save (upsert) edited rows for paygroup + month + year */
+  saveVariableInputEntry: async (
+    organizationId: string,
+    paygroupId: string,
+    year: number,
+    month: number,
+    rows: Array<{
+      employeeId: string;
+      compensationSalary: number;
+      lossOfPay: number;
+      vehicleAllowance: number;
+      nfh: number;
+      weekOff: number;
+      otHours: number;
+      otherEarnings: number;
+      incentive: number;
+      normalTax: number;
+      salaryAdvance: number;
+      otherDeductions: number;
+      ptax: number;
+    }>
+  ): Promise<void> => {
+    await api.post('/post-to-payroll/variable-input-entry', {
+      organizationId,
+      paygroupId,
+      year,
+      month,
+      rows,
+    });
+  },
+
+  /** Core HR Variable Input Entry: get posted data for paygroup + month + year (same as Post to Payroll list) */
+  getVariableInputEntry: async (
+    organizationId: string,
+    paygroupId: string,
+    year: number,
+    month: number
+  ) => {
+    const response = await api.get<{
+      data: {
+        rows: Array<{
+          employeeId: string;
+          associateCode: string;
+          associateName: string;
+          compensationSalary: number;
+          lossOfPay: number;
+          vehicleAllowance: number;
+          nfh: number;
+          weekOff: number;
+          otHours: number;
+          otherEarnings: number;
+          incentive: number;
+          normalTax: number;
+          salaryAdvance: number;
+          otherDeductions: number;
+          ptax: number;
+        }>;
+      };
+    }>('/post-to-payroll/variable-input-entry', {
+      params: { organizationId, paygroupId, year, month },
+    });
+    return response.data.data?.rows ?? [];
+  },
 };
 
 export default postToPayrollService;

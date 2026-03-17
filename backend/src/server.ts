@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { config } from './config/config';
 import { logger } from './utils/logger';
@@ -20,8 +21,32 @@ const app: Application = express();
 // MIDDLEWARE
 // ============================================================================
 
-// Security middleware
-app.use(helmet());
+// Security middleware — skip helmet for biometric device routes (eSSL devices choke on CSP/HSTS headers)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/iclock')) return next();
+  return helmet()(req, res, next);
+});
+
+// ── Rate Limiting ──────────────────────────────────────────────────────────
+// Strict limit for auth routes (login, register, password reset)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests from this IP, please try again after 15 minutes.' },
+  skip: () => config.nodeEnv === 'development',
+});
+
+// General API limit — prevents abuse / DoS on all other routes
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests, please slow down.' },
+  skip: () => config.nodeEnv === 'development',
+});
 
 // CORS configuration
 const corsOptions = {
@@ -48,6 +73,11 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// Parse body as text for biometric device routes BEFORE global JSON/URL-encoded parsers.
+// ESSL/ZKTeco devices may send ATTLOG data with Content-Type: text/plain, application/octet-stream,
+// or no Content-Type at all. Using `type: () => true` ensures the body is always captured as a string.
+app.use('/iclock', express.text({ type: () => true, limit: '1mb' }));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -103,6 +133,7 @@ app.get('/api/v1', (_req: Request, res: Response) => {
       documents: '/api/v1/documents',
       reports: '/api/v1/reports',
       notifications: '/api/v1/notifications',
+      postToPayroll: '/api/v1/post-to-payroll',
     },
   });
 });
@@ -125,6 +156,10 @@ import shiftAssignmentRuleRoutes from './routes/shift-assignment-rule.routes';
 import permissionRoutes from './routes/permission.routes';
 import payrollRoutes from './routes/payroll.routes';
 import employeeSeparationRoutes from './routes/employee-separation.routes';
+import fnfSettlementRoutes from './routes/fnf-settlement.routes';
+import complianceReportRoutes from './routes/compliance-report.routes';
+import statutoryConfigRoutes from './routes/statutory-config.routes';
+import loanRoutes from './routes/loan.routes';
 import paygroupRoutes from './routes/paygroup.routes';
 import locationRoutes from './routes/location.routes';
 import entityRoutes from './routes/entity.routes';
@@ -155,6 +190,9 @@ app.use('/iclock', iclockRoutes);
 // iClock at root for devices with no path field (device sends to IP:port/ only)
 app.get('/', iclockController.getCdata);
 app.post('/', express.text({ type: 'text/plain', limit: '1mb' }), iclockController.postCdata);
+app.use('/api/v1/auth', authLimiter, authRoutes);
+app.use('/api/v1', apiLimiter); // Apply general rate limit to all remaining API routes
+app.post('/', express.text({ type: () => true, limit: '1mb' }), iclockController.postCdata);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/departments', departmentRoutes);
@@ -183,6 +221,10 @@ app.use('/api/v1/post-to-payroll', postToPayrollRoutes);
 app.use('/api/v1/permissions', permissionRoutes);
 app.use('/api/v1/payroll', payrollRoutes);
 app.use('/api/v1/employee-separations', employeeSeparationRoutes);
+app.use('/api/v1/fnf-settlements', fnfSettlementRoutes);
+app.use('/api/v1/compliance-reports', complianceReportRoutes);
+app.use('/api/v1/statutory-config', statutoryConfigRoutes);
+app.use('/api/v1/loans', loanRoutes);
 app.use('/api/v1/paygroups', paygroupRoutes);
 app.use('/api/v1/locations', locationRoutes);
 app.use('/api/v1/entities', entityRoutes);
@@ -208,20 +250,22 @@ app.use(errorHandler);
 // SERVER
 // ============================================================================
 
-const port = config.port;
-if (!port || port <= 0) {
-  logger.error('PORT must be set in backend/.env');
-  process.exit(1);
-}
+const PORT = config.port || 5000;
 
-const server = app.listen(port, () => {
-  logger.info(`🚀 Server running in ${config.nodeEnv} mode on port ${port}`);
+const server = app.listen(PORT, () => {
+  logger.info(`🚀 Server running in ${config.nodeEnv} mode on port ${PORT}`);
   logger.info(`📍 Base URL: ${config.baseUrl}`);
   logger.info(`🔗 Health check: ${config.baseUrl}/health`);
-});
-server.on('error', (err: NodeJS.ErrnoException) => {
+}).on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    logger.error(`\n❌ Port ${port} is in use. Kill the process using it or run: npm run kill-port`);
+    logger.error(`\n❌ Port ${PORT} is already in use!`);
+    logger.error(`\n💡 To fix this, run one of these commands:`);
+    logger.error(`   1. Find and kill the process:`);
+    logger.error(`      netstat -ano | findstr :${PORT}`);
+    logger.error(`      taskkill /PID <PID> /F`);
+    logger.error(`\n   2. Or change the port in .env file:`);
+    logger.error(`      PORT=5001`);
+    logger.error(`\n   3. Or run: npm run kill-port`);
     process.exit(1);
   } else {
     logger.error('Server error:', err);

@@ -226,15 +226,7 @@ export const getEmployeeFieldsByRole = (role: UserRole): any => {
       return { ...baseFields, ...sensitiveFields };
 
     case 'MANAGER':
-      return {
-        ...baseFields,
-        phone: true,
-        email: true,
-        reportingManagerId: true,
-        dateOfJoining: true,
-        employmentType: true,
-        configuratorUserId: true,
-      };
+      return { ...baseFields, reportingManagerId: true, dateOfJoining: true, workLocation: true, employmentType: true };
 
     case 'EMPLOYEE':
     default:

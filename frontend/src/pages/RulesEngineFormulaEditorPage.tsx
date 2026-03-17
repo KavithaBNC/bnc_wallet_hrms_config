@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
-import rulesEngineService, { type RulesEngineRow } from '../services/rules-engine.service';
+import rulesEngineService, { type RulesEngineRow, type ConditionalRule } from '../services/rules-engine.service';
 import paygroupService from '../services/paygroup.service';
 
-const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived'];
+const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived', 'Conditional'];
 const ROUNDING_TYPE_OPTIONS = ['Nearest', 'Up', 'Down'];
 
 type LocationState = { paygroupName?: string; longName?: string; shortName?: string } | null;
@@ -34,6 +34,12 @@ export default function RulesEngineFormulaEditorPage() {
   const [roundOffValue, setRoundOffValue] = useState<number | null>(0);
   const [percentage, setPercentage] = useState<number | null>(100);
   const [order, setOrder] = useState(0);
+  const [conditionalRules, setConditionalRules] = useState<ConditionalRule[]>([]);
+  const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null);
+  const [editingRow, setEditingRow] = useState<ConditionalRule | null>(null);
+  const [activeConditionalField, setActiveConditionalField] = useState<'condition' | 'then' | null>(null);
+  const conditionInputRef = useRef<HTMLInputElement>(null);
+  const thenInputRef = useRef<HTMLInputElement>(null);
   const formulaInputRef = useRef<HTMLTextAreaElement>(null);
 
   const fetchData = useCallback(async () => {
@@ -63,6 +69,16 @@ export default function RulesEngineFormulaEditorPage() {
       setRoundOffValue(rule.roundOffValue ?? 0);
       setPercentage(rule.percentage ?? 100);
       setOrder(rule.order ?? 0);
+      if (rule.inputType === 'Conditional' && rule.formula) {
+        try {
+          const parsed = JSON.parse(rule.formula);
+          if (Array.isArray(parsed)) setConditionalRules(parsed);
+        } catch {
+          setConditionalRules([]);
+        }
+      } else {
+        setConditionalRules([]);
+      }
     } catch {
       setError('Failed to load rule.');
       setCurrentRule(null);
@@ -96,11 +112,74 @@ export default function RulesEngineFormulaEditorPage() {
     }
   };
 
+  const insertConditionalToken = (shortName: string) => {
+    if (editingRowIndex === null || !editingRow) return;
+    const field = activeConditionalField ?? 'then';
+    const ref = field === 'condition' ? conditionInputRef.current : thenInputRef.current;
+    const currentVal = field === 'condition' ? (editingRow.condition ?? '') : (editingRow.then ?? '');
+    const start = ref?.selectionStart ?? currentVal.length;
+    const end = ref?.selectionEnd ?? currentVal.length;
+    const newVal = currentVal.slice(0, start) + shortName + currentVal.slice(end);
+    setEditingRow((prev) => prev ? { ...prev, [field]: newVal } : prev);
+    setTimeout(() => {
+      ref?.focus();
+      ref?.setSelectionRange(start + shortName.length, start + shortName.length);
+    }, 0);
+  };
+
+  const handleComponentClick = (shortName: string) => {
+    if (inputType === 'Conditional') {
+      insertConditionalToken(shortName);
+    } else if (inputType !== 'Input') {
+      insertFormulaToken(`[${shortName}]`);
+    }
+  };
+
   const handleSave = async () => {
     if (!organizationId || !paygroupId || !currentRule) return;
     setSaving(true);
     setError(null);
+
+    if (inputType === 'Conditional') {
+      if (conditionalRules.length === 0) {
+        setError('Add at least one condition row.');
+        setSaving(false);
+        return;
+      }
+      for (const cr of conditionalRules) {
+        if (cr.type === 'IF' && !cr.condition.trim()) {
+          setError('All IF rows must have a condition expression.');
+          setSaving(false);
+          return;
+        }
+        if (!cr.then.trim()) {
+          setError('All rows must have a Then expression.');
+          setSaving(false);
+          return;
+        }
+      }
+      const elseRows = conditionalRules.filter((cr) => cr.type === 'ELSE');
+      if (elseRows.length > 1) {
+        setError('Only one ELSE row is allowed.');
+        setSaving(false);
+        return;
+      }
+      if (elseRows.length === 1 && conditionalRules[conditionalRules.length - 1].type !== 'ELSE') {
+        setError('ELSE must be the last row.');
+        setSaving(false);
+        return;
+      }
+    }
+
     try {
+      let formulaToSave: string | null;
+      if (inputType === 'Input') {
+        formulaToSave = null;
+      } else if (inputType === 'Conditional') {
+        formulaToSave = conditionalRules.length > 0 ? JSON.stringify(conditionalRules) : null;
+      } else {
+        formulaToSave = formula.trim() || null;
+      }
       await rulesEngineService.saveRules({
         organizationId,
         paygroupId,
@@ -109,7 +188,7 @@ export default function RulesEngineFormulaEditorPage() {
             compoundId: currentRule.compoundId,
             inputType,
             componentBehavior: currentRule.componentBehavior,
-            formula: inputType === 'Input' ? null : formula.trim() || null,
+            formula: formulaToSave,
             percentage,
             rounding,
             roundingType: roundingType?.trim() || null,
@@ -150,7 +229,7 @@ export default function RulesEngineFormulaEditorPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Formula Editor"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
       <main className="flex-1 min-h-0 overflow-y-auto w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50">
@@ -206,34 +285,36 @@ export default function RulesEngineFormulaEditorPage() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Formula</label>
-                  <div className="flex flex-wrap items-start gap-2">
-                    <textarea
-                      ref={formulaInputRef}
-                      value={formula}
-                      onChange={(e) => setFormula(e.target.value)}
-                      disabled={inputType === 'Input'}
-                      placeholder={inputType === 'Input' ? '—' : 'e.g. (FGROSS * 55/100)'}
-                      rows={2}
-                      className="flex-1 min-w-[200px] w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 font-mono text-sm disabled:bg-gray-100 disabled:text-gray-500 focus:ring-2 focus:ring-gray-400 focus:border-gray-400 resize-y"
-                    />
-                    {inputType !== 'Input' && (
-                      <div className="flex flex-wrap gap-1">
-                        {['(', ')', '+', '-', '*', '/'].map((op) => (
-                          <button
-                            key={op}
-                            type="button"
-                            onClick={() => insertFormulaToken(op)}
-                            className="h-9 w-9 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-400"
-                          >
-                            {op}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                {inputType !== 'Conditional' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Formula</label>
+                    <div className="flex flex-wrap items-start gap-2">
+                      <textarea
+                        ref={formulaInputRef}
+                        value={formula}
+                        onChange={(e) => setFormula(e.target.value)}
+                        disabled={inputType === 'Input'}
+                        placeholder={inputType === 'Input' ? '—' : 'e.g. (FGROSS * 55/100)'}
+                        rows={2}
+                        className="flex-1 min-w-[200px] w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 font-mono text-sm disabled:bg-gray-100 disabled:text-gray-500 focus:ring-2 focus:ring-gray-400 focus:border-gray-400 resize-y"
+                      />
+                      {inputType !== 'Input' && (
+                        <div className="flex flex-wrap gap-1">
+                          {['(', ')', '+', '-', '*', '/'].map((op) => (
+                            <button
+                              key={op}
+                              type="button"
+                              onClick={() => insertFormulaToken(op)}
+                              className="h-9 w-9 rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-medium hover:bg-gray-50 focus:ring-2 focus:ring-gray-400"
+                            >
+                              {op}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-gray-200">
                   <div>
@@ -247,8 +328,8 @@ export default function RulesEngineFormulaEditorPage() {
                             <li key={r.compoundId}>
                               <button
                                 type="button"
-                                onClick={() => inputType !== 'Input' && insertFormulaToken(`[${r.shortName}]`)}
-                                disabled={inputType === 'Input'}
+                                onClick={() => handleComponentClick(r.shortName)}
+                                disabled={inputType === 'Input' || (inputType === 'Conditional' && editingRowIndex === null)}
                                 className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <span className="font-medium text-gray-900">{r.longName}</span>
@@ -271,8 +352,8 @@ export default function RulesEngineFormulaEditorPage() {
                             <li key={r.compoundId}>
                               <button
                                 type="button"
-                                onClick={() => inputType !== 'Input' && insertFormulaToken(`[${r.shortName}]`)}
-                                disabled={inputType === 'Input'}
+                                onClick={() => handleComponentClick(r.shortName)}
+                                disabled={inputType === 'Input' || (inputType === 'Conditional' && editingRowIndex === null)}
                                 className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 <span className="font-medium text-gray-900">{r.longName}</span>
@@ -295,7 +376,7 @@ export default function RulesEngineFormulaEditorPage() {
                       aria-checked={rounding}
                       onClick={() => setRounding(!rounding)}
                       className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                        rounding ? 'bg-blue-500' : 'bg-gray-200'
+                        rounding ? 'bg-green-500' : 'bg-gray-200'
                       }`}
                     >
                       <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${rounding ? 'translate-x-5' : 'translate-x-0.5'}`} />
@@ -349,6 +430,181 @@ export default function RulesEngineFormulaEditorPage() {
                   </div>
                 </div>
 
+                {inputType === 'Conditional' && (
+                  <div className="pt-4 border-t border-gray-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-lg font-semibold text-blue-600">Conditional</h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const hasElse = conditionalRules.some((r) => r.type === 'ELSE');
+                          const newRule: ConditionalRule = hasElse
+                            ? { type: 'IF', condition: '', then: '' }
+                            : conditionalRules.length === 0
+                              ? { type: 'IF', condition: '', then: '' }
+                              : { type: 'ELSE', condition: '', then: '' };
+                          setConditionalRules([...conditionalRules, newRule]);
+                          setEditingRowIndex(conditionalRules.length);
+                          setEditingRow({ ...newRule });
+                        }}
+                        className="h-8 px-3 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 inline-flex items-center gap-1"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Add
+                      </button>
+                    </div>
+                    <hr className="border-blue-400 mb-3" />
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="bg-blue-600 text-white text-sm">
+                            <th className="px-4 py-2 text-left font-medium w-28">If or Else</th>
+                            <th className="px-4 py-2 text-left font-medium">Condition</th>
+                            <th className="px-4 py-2 text-left font-medium">Then</th>
+                            <th className="px-4 py-2 text-left font-medium w-24">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {conditionalRules.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-400">
+                                No conditions added. Click "+ Add" to create one.
+                              </td>
+                            </tr>
+                          )}
+                          {conditionalRules.map((rule, idx) => (
+                            <tr key={idx} className="border-b border-gray-200 hover:bg-gray-50">
+                              {editingRowIndex === idx ? (
+                                <>
+                                  <td className="px-4 py-2">
+                                    <select
+                                      value={editingRow?.type ?? 'IF'}
+                                      onChange={(e) =>
+                                        setEditingRow((prev) =>
+                                          prev ? { ...prev, type: e.target.value as 'IF' | 'ELSE' } : prev
+                                        )
+                                      }
+                                      className="h-8 w-full px-2 border border-gray-300 rounded bg-white text-sm"
+                                    >
+                                      <option value="IF">IF</option>
+                                      <option value="ELSE">ELSE</option>
+                                    </select>
+                                  </td>
+                                  <td className="px-4 py-2">
+                                    <input
+                                      ref={conditionInputRef}
+                                      type="text"
+                                      value={editingRow?.condition ?? ''}
+                                      onChange={(e) =>
+                                        setEditingRow((prev) =>
+                                          prev ? { ...prev, condition: e.target.value } : prev
+                                        )
+                                      }
+                                      onFocus={() => setActiveConditionalField('condition')}
+                                      disabled={editingRow?.type === 'ELSE'}
+                                      placeholder={editingRow?.type === 'ELSE' ? '' : 'e.g. FGROSS <= 21000'}
+                                      className="h-8 w-full px-2 border border-gray-300 rounded bg-white text-sm font-mono disabled:bg-gray-100"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-2">
+                                    <input
+                                      ref={thenInputRef}
+                                      type="text"
+                                      value={editingRow?.then ?? ''}
+                                      onChange={(e) =>
+                                        setEditingRow((prev) =>
+                                          prev ? { ...prev, then: e.target.value } : prev
+                                        )
+                                      }
+                                      onFocus={() => setActiveConditionalField('then')}
+                                      placeholder="e.g. (FGROSS*0.75/100)"
+                                      className="h-8 w-full px-2 border border-gray-300 rounded bg-white text-sm font-mono"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-2">
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (editingRow) {
+                                            const updated = [...conditionalRules];
+                                            updated[idx] = { ...editingRow };
+                                            if (editingRow.type === 'ELSE') updated[idx].condition = '';
+                                            setConditionalRules(updated);
+                                          }
+                                          setEditingRowIndex(null);
+                                          setEditingRow(null);
+                                        }}
+                                        className="h-8 w-8 rounded bg-green-100 text-green-700 hover:bg-green-200 inline-flex items-center justify-center"
+                                        title="Save"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!conditionalRules[idx].condition && !conditionalRules[idx].then) {
+                                            setConditionalRules(conditionalRules.filter((_, i) => i !== idx));
+                                          }
+                                          setEditingRowIndex(null);
+                                          setEditingRow(null);
+                                        }}
+                                        className="h-8 w-8 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 inline-flex items-center justify-center"
+                                        title="Cancel"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{rule.type}</td>
+                                  <td className="px-4 py-3 text-sm font-mono text-gray-700">{rule.condition}</td>
+                                  <td className="px-4 py-3 text-sm font-mono text-gray-700">{rule.then}</td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingRowIndex(idx);
+                                          setEditingRow({ ...rule });
+                                        }}
+                                        className="h-8 w-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 inline-flex items-center justify-center"
+                                        title="Edit"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                        </svg>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConditionalRules(conditionalRules.filter((_, i) => i !== idx))}
+                                        className="h-8 w-8 rounded bg-red-50 text-red-600 hover:bg-red-100 inline-flex items-center justify-center"
+                                        title="Delete"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-gray-200">
                   <button
                     type="button"
@@ -364,7 +620,7 @@ export default function RulesEngineFormulaEditorPage() {
                     type="button"
                     onClick={handleSave}
                     disabled={saving}
-                    className="h-10 px-4 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-2"
+                    className="h-10 px-4 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 inline-flex items-center gap-2"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

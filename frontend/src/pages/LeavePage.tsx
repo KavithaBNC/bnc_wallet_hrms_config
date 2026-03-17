@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
-import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 
 interface LeaveRequest {
@@ -63,11 +62,14 @@ const LeavePage = () => {
   });
   const [submittingLeaveType, setSubmittingLeaveType] = useState(false);
   
-  // Module permissions from /api/v1/user-role-modules/project API response
-  const leavePerms = getModulePermissions('/leave');
-  const canManageLeaveTypes = leavePerms.can_add;
-  const canApproveLeave = leavePerms.can_edit;
-
+  // Check if user can manage leave types
+  const canManageLeaveTypes = user?.role === 'ORG_ADMIN' || user?.role === 'HR_MANAGER' || user?.role === 'SUPER_ADMIN';
+  
+  // Check if user is a manager
+  const isManager = user?.role === 'MANAGER';
+  const isHRManager = user?.role === 'HR_MANAGER';
+  const isOrgAdmin = user?.role === 'ORG_ADMIN';
+  const canApproveLeave = isManager || isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
   
   const [approvingRequest, setApprovingRequest] = useState<string | null>(null);
   const [rejectingRequest, setRejectingRequest] = useState<string | null>(null);
@@ -81,8 +83,8 @@ const LeavePage = () => {
   useEffect(() => {
     if (organizationId) {
       fetchLeaveRequests();
-      if (canApproveLeave) {
-        fetchMyLeaveRequests(); // Always fetch approver's own requests
+      if (isManager || isHRManager || isOrgAdmin) {
+        fetchMyLeaveRequests(); // Always fetch manager's own requests
       }
       fetchLeaveTypes();
     } else {
@@ -112,7 +114,7 @@ const LeavePage = () => {
 
   // Fetch manager's own leave requests
   const fetchMyLeaveRequests = async () => {
-    if (!canApproveLeave || !user?.employee?.id) return;
+    if (!isManager && !isHRManager && !isOrgAdmin || !user?.employee?.id) return;
     
     try {
       setLoadingMyRequests(true);
@@ -368,7 +370,7 @@ const LeavePage = () => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'APPROVED':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-green-100 text-green-800';
       case 'REJECTED':
         return 'bg-red-100 text-red-800';
       case 'PENDING':
@@ -389,7 +391,7 @@ const LeavePage = () => {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Leave Management"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -477,7 +479,7 @@ const LeavePage = () => {
                 <button
                   type="submit"
                   disabled={submittingLeaveType}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submittingLeaveType ? 'Creating...' : 'Create Leave Type'}
                 </button>
@@ -610,9 +612,9 @@ const LeavePage = () => {
           <div className="px-6 py-4 border-b border-gray-200">
             <div className="flex justify-between items-center">
               <h2 className="text-xl font-semibold text-gray-900">
-                {canApproveLeave
-                  ? (viewMode === 'team'
-                      ? 'Team Leave Requests'
+                {isManager || isHRManager || isOrgAdmin
+                  ? (viewMode === 'team' 
+                      ? 'Team Leave Requests' 
                       : 'My Leave Requests')
                   : 'My Leave Requests'}
               </h2>
@@ -625,7 +627,7 @@ const LeavePage = () => {
                     + Apply Leave
                   </button>
                 )}
-                {canApproveLeave && (
+                {(isManager || isHRManager || isOrgAdmin) && (
                   <>
                     <div className="flex bg-gray-100 rounded-lg p-1">
                       <button
@@ -739,7 +741,7 @@ const LeavePage = () => {
                               <button
                                 onClick={() => handleApproveLeave(request.id)}
                                 disabled={approvingRequest === request.id || rejectingRequest === request.id}
-                                className="text-blue-600 hover:text-blue-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="text-green-600 hover:text-green-900 disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Approve"
                               >
                                 {approvingRequest === request.id ? 'Approving...' : '✅ Approve'}

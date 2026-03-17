@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import employeeService, { Employee } from '../services/employee.service';
-import { esopService } from '../services/esop.service';
+import { esopSimpleService } from '../services/esop.service';
 
 function fullName(e: Employee): string {
   const parts = [e.firstName, e.middleName, e.lastName].filter(Boolean);
@@ -121,7 +121,7 @@ export default function EsopPage() {
     setSubmitError(null);
     setSaving(true);
     try {
-      await esopService.createBulk({
+      await esopSimpleService.createBulk({
         organizationId,
         financialYear,
         records: recordsToSave,

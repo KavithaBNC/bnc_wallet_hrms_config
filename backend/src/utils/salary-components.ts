@@ -202,6 +202,7 @@ export interface SalaryComponent {
   value: number;
   isTaxable: boolean;
   isStatutory: boolean;
+  isFlat?: boolean;
   formula?: string;
   baseComponent?: string; // For PERCENTAGE calculations, which component to base on
   description?: string;

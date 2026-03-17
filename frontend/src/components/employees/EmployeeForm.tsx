@@ -10,7 +10,7 @@ import configuratorDataService from '../../services/configurator-data.service';
 import entityService from '../../services/entity.service';
 import locationService from '../../services/location.service';
 import { employeeSalaryService } from '../../services/payroll.service';
-import { esopService, EsopRecord } from '../../services/esop.service';
+import { esopSimpleService, EsopRecord } from '../../services/esop.service';
 import Modal from '../common/Modal';
 import SearchableSelect from '../common/SearchableSelect';
 import { toDisplayEmail, toDisplayName } from '../../utils/display';
@@ -117,9 +117,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [newUserRoleName, setNewUserRoleName] = useState('');
   const [userRoleError, setUserRoleError] = useState('');
   const [userRoleOptions, setUserRoleOptions] = useState<{ id: number; name: string }[]>([]);
-  const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(
-    (employee as any)?.configuratorRoleId ? Number((employee as any).configuratorRoleId) : null
-  );
+  const [selectedUserRoleId, setSelectedUserRoleId] = useState<number | null>(null);
 
   const [salaryTab, setSalaryTab] = useState<'earnings' | 'deductions' | 'reimbursement'>('earnings');
   const [salaryFixedGross, setSalaryFixedGross] = useState(0);
@@ -265,7 +263,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   useEffect(() => {
     if (currentTab === 'esop' && employee?.id) {
       setEsopLoading(true);
-      esopService
+      esopSimpleService
         .getByEmployeeId(employee.id)
         .then((records) => {
           setEsopRecords(records);
@@ -304,7 +302,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     costCentreId: (employee as any)?.costCentreId || '',
     costCentre: (employee as any)?.costCentre?.name || (employee as any)?.profileExtensions?.costCentre || '',
     managerId: employee?.reportingManagerId || '',
-    userRoleId: (employee as any)?.configuratorRoleId ? String((employee as any).configuratorRoleId) : '',
+    userRoleId: '',
     grade: (employee as any)?.grade || '',
     placeOfTaxDeduction: (employee as any)?.placeOfTaxDeduction || '',
     jobResponsibility: (employee as any)?.jobResponsibility || '',
@@ -558,8 +556,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       let allCostCentres: { id: number; name: string }[] = [];
       let filteredDepts: { id: number; name: string }[] = [];
       let allSubDepts: { id: number; name: string; department_id?: number }[] = [];
-      let allUserRoles: { role_id: number; name: string }[] = [];
-
       try {
         const [ccList, subDeptList, roleList] = await Promise.all([
           configuratorDataService.getCostCentres(),
@@ -568,7 +564,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         ]);
         allCostCentres = ccList.map((c) => ({ id: c.id, name: c.name }));
         allSubDepts = subDeptList.map((s) => ({ id: s.id, name: s.name, department_id: s.department_id }));
-        allUserRoles = roleList;
         // Ensure user role options are populated for the dropdown
         if (roleList.length > 0) {
           setUserRoleOptions(roleList.map((r) => ({ id: r.role_id, name: r.name })));
@@ -607,7 +602,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         || '';
 
       const deptMatch = empDeptConfigId ? filteredDepts.find((d) => d.id === empDeptConfigId) : null;
-      const deptName = (employee as any)?.department?.name || deptMatch?.name || '';
 
       const subDeptName = (employee as any)?.profileExtensions?.subDepartment
         || (empSubDeptConfigId ? allSubDepts.find((s) => s.id === empSubDeptConfigId)?.name : null)
@@ -885,19 +879,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const validateCompany = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.firstName?.trim()) newErrors.firstName = 'First name is required';
-    if (!formData.lastName?.trim()) newErrors.lastName = 'Last name is required';
     if (!formData.dateOfBirth?.trim()) newErrors.dateOfBirth = 'Date of birth is required';
     if (!formData.gender) newErrors.gender = 'Gender is required';
     if (!formData.joiningDate?.trim()) newErrors.joiningDate = 'Date of joining is required';
     if (!formData.placeOfTaxDeduction?.trim()) {
       newErrors.placeOfTaxDeduction = 'Place of Tax Deduction is required';
     }
-    if (!formData.costCentre?.trim()) newErrors.costCentre = 'Cost Centre is required';
     if (!formData.departmentId?.trim()) newErrors.departmentId = 'Department is required';
-    if (!formData.subDepartment?.trim()) newErrors.subDepartment = 'Sub-Department is required';
     if (!formData.positionId?.trim()) newErrors.positionId = 'Designation is required';
-    if (!formData.managerId?.trim()) newErrors.managerId = 'Reporting Manager is required';
-    if (!formData.userRoleId?.trim()) newErrors.userRoleId = 'User Role is required';
     setErrors(prev => ({ ...prev, ...newErrors }));
     return Object.keys(newErrors).length === 0;
   };
@@ -929,7 +918,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       newErrors.gender = 'Gender is required';
     }
 
-    setErrors(prev => ({ ...prev, ...newErrors }));
+    setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -992,7 +981,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       }
       setRejoinSubmitting(true);
       try {
-        const result = await employeeService.rejoin({
+        await employeeService.rejoin({
           previousEmployeeId: employee.id,
           newJoiningDate: formData.joiningDate!.trim(),
           newLoginEmail: rejoinNewEmail.trim(),
@@ -1008,17 +997,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       return;
     }
 
-    // Validate all mandatory fields across tabs
-    const companyValid = validateCompany();
-    const personalValid = validatePersonal();
-    if (!companyValid || !personalValid) {
-      console.warn('[EmployeeForm] Validation FAILED — companyValid:', companyValid, 'personalValid:', personalValid);
-      setErrors(prev => ({ ...prev, submit: 'Please fill all mandatory fields.' }));
-      if (!companyValid) {
-        setCurrentTab('company');
-      } else {
-        setCurrentTab('personal');
-      }
+    if (!validatePersonal()) {
+      console.warn('[EmployeeForm] validatePersonal() FAILED — switching to personal tab. Errors:', errors);
+      setCurrentTab('personal');
       return;
     }
     console.log('[EmployeeForm] Validation passed — building submitData...');
@@ -1328,7 +1309,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         console.log('[EmployeeForm] Configurator Payload:', JSON.stringify(configuratorPayload, null, 2));
         console.log('[EmployeeForm] hasConfigToken:', hasConfigToken, 'companyId:', companyId, 'projectId:', projectId);
 
-        let configuratorFailed = false;
+        // Track configurator failures (non-blocking)
         if (hasConfigToken && companyId > 0) {
           try {
             const configUser = await configuratorDataService.createConfiguratorUser(configuratorPayload);
@@ -1356,7 +1337,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             console.log('[EmployeeForm] Configurator user created, id:', realConfigUserId,
               'deptId:', respDeptId, 'ccId:', respCCId, 'subDeptId:', respSubDeptId, 'companyId:', companyId);
           } catch (err: any) {
-            configuratorFailed = true;
             const detail = err?.response?.data?.detail || err?.response?.data?.message || err?.message || 'Unknown error';
             console.error('[EmployeeForm] Configurator user creation failed:', err?.response?.status, detail, err?.response?.data);
             // Don't block HRMS creation — just log the warning
@@ -1414,7 +1394,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   return (
     <>
-    <form onSubmit={handleSubmit} className="space-y-6 w-full min-w-0 h-full">
+    <form onSubmit={handleSubmit} className="space-y-6 w-full max-w-full min-w-0 h-full">
       {/* Rejoin banner: full form is shown; on Save a new employee record will be created */}
       {rejoinMode && employee && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -1583,9 +1563,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       {currentTab === 'company' && (
         <div className="space-y-4">
           {rejoinMode && employee && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">New Login Email <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700">New Login Email <span className="text-red-500">*</span></label>
                 <input
                   type="email"
                   value={rejoinNewEmail}
@@ -1600,42 +1580,54 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
           )}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Paygroup</label>
+              <label className="block text-sm font-medium text-gray-700">Paygroup</label>
               <input
                 type="text"
                 value={formData.paygroupDisplay || ''}
                 readOnly
                 placeholder="Select paygroup when creating employee"
-                className="mt-1.5 block w-full h-11 bg-gray-50/50 backdrop-blur-sm shadow-sm rounded-xl border border-gray-200 text-gray-700 sm:text-sm px-4 focus:outline-none transition-all duration-200"
+                className="mt-1 block w-full h-10 bg-gray-100 rounded-md border border-gray-300 text-gray-700 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">First Name <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700">First Name <span className="text-red-500">*</span></label>
               <input type="text" name="firstName" value={formData.firstName} onChange={handleChange} placeholder="First Name"
-                className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ errors.firstName ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`} />
+                className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                  errors.firstName
+                    ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                }`} />
               {errors.firstName && <p className="mt-1 text-sm text-red-600">{errors.firstName}</p>}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Middle Name</label>
+              <label className="block text-sm font-medium text-gray-700">Middle Name</label>
               <input type="text" name="middleName" value={formData.middleName} onChange={handleChange} placeholder="Middle Name"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300" />
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Last Name <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700">Last Name</label>
               <input type="text" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Last Name"
-                className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ errors.lastName ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`} />
+                className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                  errors.lastName
+                    ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                }`} />
               {errors.lastName && <p className="mt-1 text-sm text-red-600">{errors.lastName}</p>}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 Date Of Birth <span className="text-red-500">*</span>
               </label>
               <div
-                className={`relative mt-1.5 h-11 rounded-xl bg-white/60 backdrop-blur-md shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] border transition-all duration-300 ${ errors.dateOfBirth ? 'border-red-400 focus-within:ring-2 focus-within:ring-red-500/50 focus-within:border-red-400' : 'border-gray-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500/50 focus-within:border-indigo-400' }`}
+                className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
+                  errors.dateOfBirth
+                    ? 'border-red-500 focus-within:ring-2 focus-within:ring-red-500 focus-within:border-red-500'
+                    : 'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
+                }`}
               >
                 <input
                   type="date"
@@ -1662,9 +1654,13 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               {errors.dateOfBirth && <p className="mt-1 text-sm text-red-600">{errors.dateOfBirth}</p>}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Gender <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700">Gender <span className="text-red-500">*</span></label>
               <select name="gender" value={formData.gender} onChange={handleChange}
-                className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ errors.gender ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`}>
+                className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                  errors.gender
+                    ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                }`}>
                 <option value="">-- Select --</option>
                 <option value="MALE">Male</option>
                 <option value="FEMALE">Female</option>
@@ -1673,11 +1669,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               {errors.gender && <p className="mt-1 text-sm text-red-600">{errors.gender}</p>}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 Date Of Joining <span className="text-red-500">*</span>
               </label>
               <div
-                className={`relative mt-1.5 h-11 rounded-xl bg-white/60 backdrop-blur-md shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] border transition-all duration-300 ${ errors.joiningDate ? 'border-red-400 focus-within:ring-2 focus-within:ring-red-500/50 focus-within:border-red-400' : 'border-gray-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500/50 focus-within:border-indigo-400' }`}
+                className={`relative mt-1 h-10 rounded-md bg-white shadow-sm border ${
+                  errors.joiningDate
+                    ? 'border-red-500 focus-within:ring-2 focus-within:ring-red-500 focus-within:border-red-500'
+                    : 'border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500'
+                }`}
               >
                 <input
                   type="date"
@@ -1704,12 +1704,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               {errors.joiningDate && <p className="mt-1 text-sm text-red-600">{errors.joiningDate}</p>}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Marital Status</label>
+              <label className="block text-sm font-medium text-gray-700">Marital Status</label>
               <select
                 name="maritalStatus"
                 value={formData.maritalStatus}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Select</option>
                 <option value="SINGLE">Single</option>
@@ -1719,38 +1719,42 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Official Email</label>
+              <label className="block text-sm font-medium text-gray-700">Official Email</label>
               <input
                 type="email"
                 name="officialEmail"
                 value={formData.officialEmail}
                 onChange={handleChange}
                 placeholder="Official Email"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Official Mobile</label>
+              <label className="block text-sm font-medium text-gray-700">Official Mobile</label>
               <input
                 type="tel"
                 name="officialMobile"
                 value={formData.officialMobile}
                 onChange={handleChange}
                 placeholder="Official Mobile"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 Place of Tax Deduction <span className="text-red-500">*</span>
               </label>
               <select
                 name="placeOfTaxDeduction"
                 value={formData.placeOfTaxDeduction}
                 onChange={handleChange}
-                className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ errors.placeOfTaxDeduction ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`}
+                className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                  errors.placeOfTaxDeduction
+                    ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                    : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                }`}
               >
                 <option value="">-- Select --</option>
                 <option value="METRO">Metro</option>
@@ -1761,16 +1765,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               )}
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* 1️⃣ Cost Centre (first in cascading order) */}
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Cost Centre <span className="text-red-500">*</span></label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Cost Centre</label>
+              <div className="flex gap-2">
                 <SearchableSelect
                   name="costCentre"
                   value={formData.costCentre}
                   placeholder="Cost Centre"
-                  hasError={!!errors.costCentre}
                   options={costCentreOptions.map((name) => ({ value: name, label: name }))}
                   onChange={(val) => {
                     // Simulate native event for handleChange
@@ -1806,7 +1809,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     setNewCostCentreName('');
                     setCostCentreError('');
                   }}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
                   title="Add New Cost Centre"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1814,18 +1817,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </svg>
                 </button>
               </div>
-              {errors.costCentre && <p className="mt-1 text-sm text-red-600">{errors.costCentre}</p>}
             </div>
             {/* 2️⃣ Department (depends on Cost Centre) */}
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Department <span className="text-red-500">*</span></label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Department <span className="text-red-500">*</span></label>
+              <div className="flex gap-2">
                 <SearchableSelect
                   name="departmentId"
                   value={formData.departmentId}
                   placeholder={formData.costCentre?.trim() ? 'Department' : 'Select cost centre first'}
                   disabled={!formData.costCentre?.trim()}
-                  hasError={!!errors.departmentId}
                   options={(() => {
                     const merged: { value: string; label: string }[] = [];
                     const seenNames = new Set<string>();
@@ -1862,7 +1863,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   type="button"
                   onClick={() => formData.costCentre?.trim() && setShowDepartmentModal(true)}
                   disabled={!formData.costCentre?.trim()}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                   title={formData.costCentre?.trim() ? 'Add New Department' : 'Select a cost centre first'}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1873,15 +1874,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               {errors.departmentId && <p className="mt-1 text-sm text-red-600">{errors.departmentId}</p>}
             </div>
             {/* 3️⃣ Sub-Department (depends on Department) */}
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Sub-Department <span className="text-red-500">*</span></label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Sub-Department</label>
+              <div className="flex gap-2">
                 <SearchableSelect
                   name="subDepartment"
                   value={formData.subDepartment}
                   placeholder={formData.departmentId?.trim() ? 'Sub-Department' : 'Select department first'}
                   disabled={!formData.departmentId?.trim()}
-                  hasError={!!errors.subDepartment}
                   options={subDepartmentOptions.map((name) => ({ value: name, label: name }))}
                   onChange={(val) => {
                     const syntheticEvent = { target: { name: 'subDepartment', value: val } } as React.ChangeEvent<HTMLSelectElement>;
@@ -1901,7 +1901,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     setSubDepartmentError('');
                   }}
                   disabled={!formData.departmentId?.trim()}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                   title={formData.departmentId?.trim() ? 'Add New Sub-Department' : 'Select a department first'}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1909,13 +1909,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </svg>
                 </button>
               </div>
-              {errors.subDepartment && <p className="mt-1 text-sm text-red-600">{errors.subDepartment}</p>}
             </div>
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Designation <span className="text-red-500">*</span></label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Designation <span className="text-red-500">*</span></label>
+              <div className="flex gap-2">
                 <select name="positionId" value={formData.positionId} onChange={handleChange}
-                  className={`flex-1 mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ errors.positionId ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`}>
+                  className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    errors.positionId
+                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}>
                   <option value="">Designation</option>
                   {positions
                     .filter((p) => !formData.departmentId?.trim() || !p.departmentId || p.departmentId === formData.departmentId)
@@ -1924,7 +1927,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPositionModal(true)}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
                   title="Add New Designation"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1934,18 +1937,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {errors.positionId && <p className="mt-1 text-sm text-red-600">{errors.positionId}</p>}
             </div>
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Entity</label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Entity</label>
+              <div className="flex gap-2">
                 <select name="entityId" value={formData.entityId} onChange={handleChange}
-                  className="flex-1 mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300">
+                  className="flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                   <option value="">Entity</option>
                   {entities.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
                 <button
                   type="button"
                   onClick={() => setShowEntityModal(true)}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
                   title="Add New Entity"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1954,13 +1957,13 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </button>
               </div>
             </div>
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Location</label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Location</label>
+              <div className="flex gap-2">
                 <select name="locationId" value={formData.locationId} onChange={handleChange}
                   disabled={!formData.entityId?.trim()}
-                  className={`flex-1 mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] sm:text-sm px-4 text-gray-800 transition-all duration-300 ${
-                    !formData.entityId?.trim() ? 'opacity-60 cursor-not-allowed border-gray-300' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400'
+                  className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    !formData.entityId?.trim() ? 'opacity-60 cursor-not-allowed border-gray-300' : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
                   }`}>
                   <option value="">{formData.entityId?.trim() ? 'Location' : 'Select entity first'}</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -1969,7 +1972,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   type="button"
                   onClick={() => formData.entityId?.trim() && setShowLocationModal(true)}
                   disabled={!formData.entityId?.trim()}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                   title={formData.entityId?.trim() ? 'Add New Location' : 'Select an entity first'}
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1979,17 +1982,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Grade</label>
+              <label className="block text-sm font-medium text-gray-700">Grade</label>
               <input type="text" name="grade" value={formData.grade} onChange={handleChange} placeholder="Grade"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300" />
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Reporting Manager <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
               <select
                 name="managerId"
                 value={formData.managerId}
                 onChange={handleChange}
-                className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 text-gray-800 transition-all duration-300 ${ errors.managerId ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`}
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Reporting Manager</option>
                 {availableManagers.map((m) => (
@@ -1998,17 +2001,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </option>
                 ))}
               </select>
-              {errors.managerId && <p className="mt-1 text-sm text-red-600">{errors.managerId}</p>}
             </div>
             {/* User Role dropdown (same pattern as Cost Centre) */}
-            <div className="min-w-0">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">User Role <span className="text-red-500">*</span></label>
-              <div className="flex gap-2 min-w-0">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">User Role</label>
+              <div className="flex gap-2">
                 <SearchableSelect
                   name="userRoleId"
                   value={formData.userRoleId}
                   placeholder="Select User Role"
-                  hasError={!!errors.userRoleId}
                   options={userRoleOptions.map((r) => ({ value: String(r.id), label: r.name }))}
                   onChange={(val) => {
                     const syntheticEvent = { target: { name: 'userRoleId', value: val } } as React.ChangeEvent<HTMLSelectElement>;
@@ -2023,7 +2024,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                     setNewUserRoleName('');
                     setUserRoleError('');
                   }}
-                  className="mt-1.5 px-3 h-11 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white rounded-xl shadow-[0_4px_14px_0_rgba(99,102,241,0.39)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.23)] hover:from-indigo-400 hover:to-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center justify-center transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center"
                   title="Add New User Role"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2031,13 +2032,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   </svg>
                 </button>
               </div>
-              {errors.userRoleId && <p className="mt-1 text-sm text-red-600">{errors.userRoleId}</p>}
             </div>
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Job Responsibility</label>
+            <label className="block text-sm font-medium text-gray-700">Job Responsibility</label>
             <textarea name="jobResponsibility" value={formData.jobResponsibility} onChange={handleChange} rows={3} placeholder="Job Responsibility"
-              className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300" />
+              className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
           </div>
           <div className="border-t pt-4 mt-4">
             <FaceCapture
@@ -2055,11 +2055,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       {currentTab === 'personal' && (
         <div className={`space-y-6 ${!isTabEditable('personal') ? 'pointer-events-none opacity-75' : ''}`}>
           {/* Permanent Address Section */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] p-6 text-left hover:shadow-[0_4px_25px_rgb(0,0,0,0.04)] transition-shadow duration-300">
-            <h3 className="text-lg font-bold text-gray-800 tracking-tight flex items-center gap-2 mb-6"><div className="w-1 h-5 rounded-full bg-indigo-500"></div>Permanent Address</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="bg-gray-50 border rounded-lg p-4 text-left">
+            <h3 className="text-base font-semibold text-gray-900 mb-4">Permanent Address</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Address</label>
+                <label className="block text-sm font-medium text-gray-700">Address</label>
                 <textarea
                   name="permanentAddress"
                   value={formData.permanentAddress}
@@ -2069,90 +2069,98 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Personal Email <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700">Personal Email <span className="text-red-500">*</span></label>
                 <input
                   type="email"
                   name="personalEmail"
                   value={formData.personalEmail}
                   onChange={handleChange}
-                  className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ (errors.email || errors.personalEmail) ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`}
+                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    (errors.email || errors.personalEmail)
+                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
                 />
                 {(errors.email || errors.personalEmail) && (
                   <p className="mt-1 text-sm text-red-600">{errors.email || errors.personalEmail}</p>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">City</label>
+                <label className="block text-sm font-medium text-gray-700">City</label>
                 <input
                   type="text"
                   name="permanentCity"
                   value={formData.permanentCity}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">District</label>
+                <label className="block text-sm font-medium text-gray-700">District</label>
                 <input
                   type="text"
                   name="permanentDistrict"
                   value={formData.permanentDistrict}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">State</label>
+                <label className="block text-sm font-medium text-gray-700">State</label>
                 <input
                   type="text"
                   name="permanentState"
                   value={formData.permanentState}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Pincode</label>
+                <label className="block text-sm font-medium text-gray-700">Pincode</label>
                 <input
                   type="text"
                   name="permanentPincode"
                   value={formData.permanentPincode}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Phone Number <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium text-gray-700">Phone Number <span className="text-red-500">*</span></label>
                 <input
                   type="tel"
                   name="permanentPhoneNumber"
                   value={formData.permanentPhoneNumber}
                   onChange={handleChange}
-                  className={`mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white sm:text-sm px-4 py-2.5 text-gray-800 transition-all duration-300 ${ (errors.phoneNumber || errors.permanentPhoneNumber) ? 'border-red-400 focus:ring-2 focus:ring-red-500/50 focus:border-red-400' : 'border-gray-200 focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400' }`}
+                  className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
+                    (errors.phoneNumber || errors.permanentPhoneNumber)
+                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
+                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+                  }`}
                 />
                 {(errors.phoneNumber || errors.permanentPhoneNumber) && (
                   <p className="mt-1 text-sm text-red-600">{errors.phoneNumber || errors.permanentPhoneNumber}</p>
                 )}
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Personal Mobile</label>
+                <label className="block text-sm font-medium text-gray-700">Personal Mobile</label>
                 <input
                   type="tel"
                   name="personalMobile"
                   value={formData.personalMobile}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
             </div>
           </div>
 
           {/* Present Address Section */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] p-6 hover:shadow-[0_4px_25px_rgb(0,0,0,0.04)] transition-shadow duration-300">
+          <div className="bg-gray-50 border rounded-lg p-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-800 tracking-tight flex items-center gap-2 mb-2"><div className="w-1 h-5 rounded-full bg-indigo-500"></div>Present Address</h3>
+              <h3 className="text-base font-semibold text-gray-900">Present Address</h3>
               <div className="flex items-center gap-3">
                 <span className="text-sm font-medium text-gray-700">Same as permanent</span>
                 <button
@@ -2174,7 +2182,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   }}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                     formData.sameAsPermanent
-                      ? 'bg-blue-500 border-blue-600 text-white'
+                      ? 'bg-green-500 border-green-600 text-white'
                       : 'bg-red-500 border-red-600 text-white'
                   }`}
                 >
@@ -2182,9 +2190,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-3">
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Address</label>
+                <label className="block text-sm font-medium text-gray-700">Address</label>
                 <textarea
                   name="presentAddress"
                   value={formData.presentAddress}
@@ -2197,7 +2205,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">City</label>
+                <label className="block text-sm font-medium text-gray-700">City</label>
                 <input
                   type="text"
                   name="presentCity"
@@ -2210,7 +2218,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">District</label>
+                <label className="block text-sm font-medium text-gray-700">District</label>
                 <input
                   type="text"
                   name="presentDistrict"
@@ -2223,7 +2231,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">State</label>
+                <label className="block text-sm font-medium text-gray-700">State</label>
                 <input
                   type="text"
                   name="presentState"
@@ -2236,7 +2244,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Pincode</label>
+                <label className="block text-sm font-medium text-gray-700">Pincode</label>
                 <input
                   type="text"
                   name="presentPincode"
@@ -2249,7 +2257,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Phone Number</label>
+                <label className="block text-sm font-medium text-gray-700">Phone Number</label>
                 <input
                   type="tel"
                   name="presentPhoneNumber"
@@ -2265,16 +2273,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           </div>
 
           {/* Others Section */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] p-6 text-left hover:shadow-[0_4px_25px_rgb(0,0,0,0.04)] transition-shadow duration-300">
-            <h3 className="text-lg font-bold text-gray-800 tracking-tight flex items-center gap-2 mb-6"><div className="w-1 h-5 rounded-full bg-indigo-500"></div>Others</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="bg-gray-50 border rounded-lg p-4 text-left">
+            <h3 className="text-base font-semibold text-gray-900 mb-4">Others</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Blood Group</label>
+                <label className="block text-sm font-medium text-gray-700">Blood Group</label>
                 <select
                   name="bloodGroup"
                   value={formData.bloodGroup}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                   <option value="">Blood Group</option>
                   <option value="A+">A+</option>
@@ -2288,7 +2296,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Date of Wedding</label>
+                <label className="block text-sm font-medium text-gray-700">Date of Wedding</label>
                 <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                   <input
                     type="date"
@@ -2304,24 +2312,24 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Children</label>
+                <label className="block text-sm font-medium text-gray-700">Children</label>
                 <input
                   type="text"
                   name="children"
                   value={formData.children}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Physically Challenged</label>
+                <label className="block text-sm font-medium text-gray-700">Physically Challenged</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, physicallyChallenged: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.physicallyChallenged
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2341,27 +2349,27 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </div>
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Physically Challenged Remarks</label>
+                <label className="block text-sm font-medium text-gray-700">Physically Challenged Remarks</label>
                 <textarea
                   name="physicallyChallengedRemarks"
                   value={formData.physicallyChallengedRemarks}
                   onChange={handleChange}
                   rows={3}
-                  className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Passport Number</label>
+                <label className="block text-sm font-medium text-gray-700">Passport Number</label>
                 <input
                   type="text"
                   name="passportNumber"
                   value={formData.passportNumber}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Passport Expiry</label>
+                <label className="block text-sm font-medium text-gray-700">Passport Expiry</label>
                 <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                   <input
                     type="date"
@@ -2377,17 +2385,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Driving License Number</label>
+                <label className="block text-sm font-medium text-gray-700">Driving License Number</label>
                 <input
                   type="text"
                   name="drivingLicenseNumber"
                   value={formData.drivingLicenseNumber}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Driving License Expiry</label>
+                <label className="block text-sm font-medium text-gray-700">Driving License Expiry</label>
                 <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                   <input
                     type="date"
@@ -2413,17 +2421,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           {/* Statutory fields – first 12 in specified order, then rest */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
             <h3 className="text-base font-medium text-gray-900">Statutory Numbers & Locations</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* 1. PF Applicable */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PF Applicable</label>
+                <label className="block text-sm font-medium text-gray-700">PF Applicable</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, pfApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.pfApplicable
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2444,50 +2452,50 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* 2. PF Number */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PF Number</label>
+                <label className="block text-sm font-medium text-gray-700">PF Number</label>
                 <input
                   type="text"
                   name="pfNumber"
                   value={formData.pfNumber}
                   onChange={handleChange}
                   placeholder="PF Number"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               {/* 3. UAN Number */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">UAN Number</label>
+                <label className="block text-sm font-medium text-gray-700">UAN Number</label>
                 <input
                   type="text"
                   name="uanNumber"
                   value={formData.uanNumber}
                   onChange={handleChange}
                   placeholder="UAN Number"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               {/* 4. ESI Number */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">ESI Number</label>
+                <label className="block text-sm font-medium text-gray-700">ESI Number</label>
                 <input
                   type="text"
                   name="esiNumber"
                   value={formData.esiNumber}
                   onChange={handleChange}
                   placeholder="ESI Number"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               {/* 5. ESI Applicable */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">ESI Applicable</label>
+                <label className="block text-sm font-medium text-gray-700">ESI Applicable</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, esiApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.esiApplicable
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2508,14 +2516,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* 6. Gratuity Applicable */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Gratuity Applicable</label>
+                <label className="block text-sm font-medium text-gray-700">Gratuity Applicable</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, gratuityApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.gratuityApplicable
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2536,24 +2544,24 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* 7. LWF Location */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">LWF Location</label>
+                <label className="block text-sm font-medium text-gray-700">LWF Location</label>
                 <input
                   type="text"
                   name="lwfLocation"
                   value={formData.lwfLocation}
                   onChange={handleChange}
                   placeholder="LWF Location"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               {/* 8. Tax Regime */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Tax Regime</label>
+                <label className="block text-sm font-medium text-gray-700">Tax Regime</label>
                 <select
                   name="taxRegime"
                   value={formData.taxRegime}
                   onChange={handleChange}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 >
                   <option value="OLD">Old</option>
                   <option value="NEW">New</option>
@@ -2561,7 +2569,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* 9. Date Of Probationary */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Date Of Probationary</label>
+                <label className="block text-sm font-medium text-gray-700">Date Of Probationary</label>
                 <div className="relative">
                   <input
                     type="date"
@@ -2579,7 +2587,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* 10. Date Of Confirmation */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Date Of Confirmation</label>
+                <label className="block text-sm font-medium text-gray-700">Date Of Confirmation</label>
                 <div className="relative">
                   <input
                     type="date"
@@ -2597,19 +2605,19 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* 11. Confirmation Period */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Confirmation Period</label>
+                <label className="block text-sm font-medium text-gray-700">Confirmation Period</label>
                 <input
                   type="text"
                   name="confirmationPeriod"
                   value={formData.confirmationPeriod}
                   onChange={handleChange}
                   placeholder="Confirmation Period"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               {/* 12. Notice Period Days */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Notice Period Days</label>
+                <label className="block text-sm font-medium text-gray-700">Notice Period Days</label>
                 <input
                   type="number"
                   min={0}
@@ -2617,46 +2625,46 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   value={formData.noticePeriodDays}
                   onChange={handleChange}
                   placeholder="Notice Period Days"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
 
               {/* Rest of fields */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PTax Location</label>
+                <label className="block text-sm font-medium text-gray-700">PTax Location</label>
                 <input
                   type="text"
                   name="pTaxLocation"
                   value={formData.pTaxLocation}
                   onChange={handleChange}
                   placeholder="PTax Location"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PAN Card Number</label>
+                <label className="block text-sm font-medium text-gray-700">PAN Card Number</label>
                 <input
                   type="text"
                   name="panNumber"
                   value={formData.panNumber}
                   onChange={handleChange}
                   placeholder="PAN Card Number"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Aadhaar Number</label>
+                <label className="block text-sm font-medium text-gray-700">Aadhaar Number</label>
                 <input
                   type="text"
                   name="aadhaarNumber"
                   value={formData.aadhaarNumber}
                   onChange={handleChange}
                   placeholder="Aadhaar Number"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Date Of Retirement</label>
+                <label className="block text-sm font-medium text-gray-700">Date Of Retirement</label>
                 <div className="relative">
                   <input
                     type="date"
@@ -2673,37 +2681,37 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">ESI Dispensary</label>
+                <label className="block text-sm font-medium text-gray-700">ESI Dispensary</label>
                 <input
                   type="text"
                   name="esiDispensary"
                   value={formData.esiDispensary}
                   onChange={handleChange}
                   placeholder="ESI Dispensary"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Husband Name On Online PF</label>
+                <label className="block text-sm font-medium text-gray-700">Husband Name On Online PF</label>
                 <input
                   type="text"
                   name="husbandNameOnOnlinePf"
                   value={formData.husbandNameOnOnlinePf}
                   onChange={handleChange}
                   placeholder="Husband Name On Online PF"
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
               {/* Tax Applicable */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Tax Applicable</label>
+                <label className="block text-sm font-medium text-gray-700">Tax Applicable</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, taxApplicable: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.taxApplicable
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2724,14 +2732,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* Expatriate */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Expatriate</label>
+                <label className="block text-sm font-medium text-gray-700">Expatriate</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, expatriate: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.expatriate
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2752,14 +2760,14 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
               {/* PF Transferred */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PF Transferred</label>
+                <label className="block text-sm font-medium text-gray-700">PF Transferred</label>
                 <div className="mt-1 flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, pfTransferred: true }))}
                     className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                       formData.pfTransferred
-                        ? 'bg-blue-500 border-blue-600 text-white'
+                        ? 'bg-green-500 border-green-600 text-white'
                         : 'bg-white border-black text-gray-700'
                     }`}
                   >
@@ -2786,50 +2794,50 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       {/* Bank Details Tab */}
       {currentTab === 'bank' && (
         <div className={`space-y-4 ${!isTabEditable('bank') ? 'pointer-events-none opacity-75' : ''}`}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Bank Name</label>
+              <label className="block text-sm font-medium text-gray-700">Bank Name</label>
               <input
                 type="text"
                 name="bankName"
                 value={formData.bankName}
                 onChange={handleChange}
                 placeholder="Bank Name"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Account Number</label>
+              <label className="block text-sm font-medium text-gray-700">Account Number</label>
               <input
                 type="text"
                 name="bankAccountNumber"
                 value={formData.bankAccountNumber}
                 onChange={handleChange}
                 placeholder="Account Number"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">IFSC Code</label>
+              <label className="block text-sm font-medium text-gray-700">IFSC Code</label>
               <input
                 type="text"
                 name="bankIfscCode"
                 value={formData.bankIfscCode}
                 onChange={handleChange}
                 placeholder="IFSC Code"
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Payment Mode</label>
+              <label className="block text-sm font-medium text-gray-700">Payment Mode</label>
               <select
                 name="bankPaymentMode"
                 value={formData.bankPaymentMode}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Payment Mode</option>
                 <option value="BANK_TRANSFER">Bank Transfer</option>
@@ -2838,12 +2846,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Currency</label>
+              <label className="block text-sm font-medium text-gray-700">Currency</label>
               <select
                 name="bankCurrency"
                 value={formData.bankCurrency}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Currency</option>
                 <option value="INR">INR - Indian Rupee</option>
@@ -2907,7 +2915,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                       </span>
                     )}
                     <span className="text-gray-600">
-                      Now updated fixed gross: <span className="font-semibold text-blue-700">₹ {(salaryFixedGross + salaryVehicleAllowances).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      Now updated fixed gross: <span className="font-semibold text-green-700">₹ {(salaryFixedGross + salaryVehicleAllowances).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </span>
                   </div>
                 </div>
@@ -2938,7 +2946,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                         }
                         if (isLast && isCurrent) {
                           return (
-                            <li key={idx} className={isCurrent ? 'text-blue-700 font-medium' : 'text-gray-900'}>
+                            <li key={idx} className={isCurrent ? 'text-green-700 font-medium' : 'text-gray-900'}>
                               <span className="tabular-nums">{dateStr}</span>
                               <span className="mx-1">-</span>
                               <span className="tabular-nums">{row.grossSalary.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
@@ -3647,25 +3655,25 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       {currentTab === 'newFields' && (
         <div className={`space-y-4 ${!isTabEditable('newFields') ? 'pointer-events-none opacity-75' : ''}`}>
           <h3 className="text-lg font-semibold text-gray-900 mb-4">New Fields</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">IMEI</label>
+              <label className="block text-sm font-medium text-gray-700">IMEI</label>
               <input
                 type="text"
                 name="imei"
                 value={formData.imei}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="IMEI"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Sub Department</label>
+              <label className="block text-sm font-medium text-gray-700">Sub Department</label>
               <select
                 name="subDepartment"
                 value={formData.subDepartment}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Sub Department</option>
                 {subDepartmentOptions.map((name) => (
@@ -3674,12 +3682,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PF ABRY Scheme Applicable</label>
+              <label className="block text-sm font-medium text-gray-700">PF ABRY Scheme Applicable</label>
               <select
                 name="pfAbrySchemeApplicable"
                 value={formData.pfAbrySchemeApplicable}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">PF ABRY Scheme Applicable</option>
                 <option value="Yes">Yes</option>
@@ -3687,12 +3695,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Alternate Saturday Off</label>
+              <label className="block text-sm font-medium text-gray-700">Alternate Saturday Off</label>
               <select
                 name="alternateSaturdayOff"
                 value={formData.alternateSaturdayOff}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Alternate Saturday Off</option>
                 <option value="1st 3rd saturday off">1st 3rd saturday off</option>
@@ -3701,12 +3709,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Compoff Applicable</label>
+              <label className="block text-sm font-medium text-gray-700">Compoff Applicable</label>
               <select
                 name="compoffApplicable"
                 value={formData.compoffApplicable}
                 onChange={handleChange}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Compoff Applicable</option>
                 <option value="Yes">Yes</option>
@@ -3795,18 +3803,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               email: 'Email',
               personalEmail: 'Personal Email',
               phoneNumber: 'Phone Number',
-              permanentPhoneNumber: 'Phone Number',
               dateOfBirth: 'Date of Birth',
-              gender: 'Gender',
-              placeOfTaxDeduction: 'Place of Tax Deduction',
               entityId: 'Entity',
               locationId: 'Location',
-              costCentre: 'Cost Centre',
               costCentreId: 'Cost Centre',
-              subDepartment: 'Sub-Department',
-              subDepartmentId: 'Sub-Department',
-              managerId: 'Reporting Manager',
-              userRoleId: 'User Role',
+              subDepartmentId: 'Sub Department',
               newLoginEmail: 'New Login Email',
             };
             const fieldErrors = Object.entries(errors).filter(([k]) => k !== 'submit');
@@ -3992,7 +3993,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               id="deptName"
               name="deptName"
               autoFocus
-              className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+              className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               placeholder="e.g., Engineering, Sales"
             />
           </div>
@@ -4504,28 +4505,28 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Asset Name</label>
+              <label className="block text-sm font-medium text-gray-700">Asset Name</label>
               <input
                 type="text"
                 value={assetFormData.assetName}
                 onChange={(e) => setAssetFormData({ ...assetFormData, assetName: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Serial Number</label>
+              <label className="block text-sm font-medium text-gray-700">Serial Number</label>
               <input
                 type="text"
                 value={assetFormData.serialNumber}
                 onChange={(e) => setAssetFormData({ ...assetFormData, serialNumber: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Date of Issuance</label>
+              <label className="block text-sm font-medium text-gray-700">Date of Issuance</label>
               <div className="relative">
                 <input
                   type="date"
@@ -4541,68 +4542,68 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Asset ID</label>
+              <label className="block text-sm font-medium text-gray-700">Asset ID</label>
               <input
                 type="text"
                 value={assetFormData.assetId}
                 onChange={(e) => setAssetFormData({ ...assetFormData, assetId: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Make</label>
+              <label className="block text-sm font-medium text-gray-700">Make</label>
               <input
                 type="text"
                 value={assetFormData.make}
                 onChange={(e) => setAssetFormData({ ...assetFormData, make: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Model</label>
+              <label className="block text-sm font-medium text-gray-700">Model</label>
               <input
                 type="text"
                 value={assetFormData.model}
                 onChange={(e) => setAssetFormData({ ...assetFormData, model: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Colour</label>
+              <label className="block text-sm font-medium text-gray-700">Colour</label>
               <input
                 type="text"
                 value={assetFormData.colour}
                 onChange={(e) => setAssetFormData({ ...assetFormData, colour: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Incharge Name</label>
+              <label className="block text-sm font-medium text-gray-700">Incharge Name</label>
               <input
                 type="text"
                 value={assetFormData.inchargeName}
                 onChange={(e) => setAssetFormData({ ...assetFormData, inchargeName: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Remarks</label>
+              <label className="block text-sm font-medium text-gray-700">Remarks</label>
               <textarea
                 value={assetFormData.remarks}
                 onChange={(e) => setAssetFormData({ ...assetFormData, remarks: e.target.value })}
                 rows={3}
-                className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Released</label>
+              <label className="block text-sm font-medium text-gray-700">Released</label>
               <div className="mt-1 flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setAssetFormData({ ...assetFormData, released: true })}
                   className={`px-4 py-1.5 rounded-full text-xs font-medium border ${
                     assetFormData.released
-                      ? 'bg-blue-500 border-blue-600 text-white'
+                      ? 'bg-green-500 border-green-600 text-white'
                       : 'bg-white border-black text-gray-700'
                   }`}
                 >
@@ -4674,78 +4675,78 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Degree</label>
+              <label className="block text-sm font-medium text-gray-700">Degree</label>
               <input
                 type="text"
                 value={academicFormData.degree}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, degree: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Discipline</label>
+              <label className="block text-sm font-medium text-gray-700">Discipline</label>
               <input
                 type="text"
                 value={academicFormData.discipline}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, discipline: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">University</label>
+              <label className="block text-sm font-medium text-gray-700">University</label>
               <input
                 type="text"
                 value={academicFormData.university}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, university: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Grade</label>
+              <label className="block text-sm font-medium text-gray-700">Grade</label>
               <input
                 type="text"
                 value={academicFormData.grade}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, grade: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Percentage</label>
+              <label className="block text-sm font-medium text-gray-700">Percentage</label>
               <input
                 type="text"
                 value={academicFormData.percentage}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, percentage: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Year of Passing</label>
+              <label className="block text-sm font-medium text-gray-700">Year of Passing</label>
               <input
                 type="text"
                 value={academicFormData.yearOfPassing}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, yearOfPassing: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Name of Institution</label>
+              <label className="block text-sm font-medium text-gray-700">Name of Institution</label>
               <input
                 type="text"
                 value={academicFormData.nameOfInstitution}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, nameOfInstitution: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Remarks</label>
+              <label className="block text-sm font-medium text-gray-700">Remarks</label>
               <textarea
                 value={academicFormData.remarks}
                 onChange={(e) => setAcademicFormData({ ...academicFormData, remarks: e.target.value })}
                 rows={3}
-                className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
           </div>
@@ -4801,28 +4802,28 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Organization</label>
+              <label className="block text-sm font-medium text-gray-700">Organization</label>
               <input
                 type="text"
                 value={previousEmploymentFormData.organization}
                 onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, organization: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Designation</label>
+              <label className="block text-sm font-medium text-gray-700">Designation</label>
               <input
                 type="text"
                 value={previousEmploymentFormData.designation}
                 onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, designation: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">From Date</label>
+              <label className="block text-sm font-medium text-gray-700">From Date</label>
               <div className="relative">
                 <input
                   type="date"
@@ -4838,7 +4839,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">To Date</label>
+              <label className="block text-sm font-medium text-gray-700">To Date</label>
               <div className="relative">
                 <input
                   type="date"
@@ -4854,39 +4855,39 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Years of Experience</label>
+              <label className="block text-sm font-medium text-gray-700">Years of Experience</label>
               <input
                 type="text"
                 value={previousEmploymentFormData.yearsOfExperience}
                 onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, yearsOfExperience: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Relevant experience</label>
+              <label className="block text-sm font-medium text-gray-700">Relevant experience</label>
               <input
                 type="text"
                 value={previousEmploymentFormData.relevantExperience}
                 onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, relevantExperience: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">CTC (Cost to Company)</label>
+              <label className="block text-sm font-medium text-gray-700">CTC (Cost to Company)</label>
               <input
                 type="text"
                 value={previousEmploymentFormData.ctc}
                 onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, ctc: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Remarks</label>
+              <label className="block text-sm font-medium text-gray-700">Remarks</label>
               <textarea
                 value={previousEmploymentFormData.remarks}
                 onChange={(e) => setPreviousEmploymentFormData({ ...previousEmploymentFormData, remarks: e.target.value })}
                 rows={3}
-                className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               />
             </div>
           </div>
@@ -4948,38 +4949,38 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 First Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={familyFormData.firstName}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, firstName: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="First Name"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Last Name</label>
+              <label className="block text-sm font-medium text-gray-700">Last Name</label>
               <input
                 type="text"
                 value={familyFormData.lastName}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, lastName: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Last Name"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 Relationship <span className="text-red-500">*</span>
               </label>
               <select
                 value={familyFormData.relationship}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, relationship: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 required
               >
                 <option value="">-- Select --</option>
@@ -4994,7 +4995,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Date of Birth</label>
+              <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
               <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                 <input
                   type="date"
@@ -5010,57 +5011,57 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Phone Number</label>
+              <label className="block text-sm font-medium text-gray-700">Phone Number</label>
               <input
                 type="tel"
                 value={familyFormData.phoneNumber}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, phoneNumber: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Phone Number"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Occupation</label>
+              <label className="block text-sm font-medium text-gray-700">Occupation</label>
               <input
                 type="text"
                 value={familyFormData.occupation}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, occupation: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Occupation"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Address</label>
+              <label className="block text-sm font-medium text-gray-700">Address</label>
               <textarea
                 value={familyFormData.address}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, address: e.target.value })}
                 rows={3}
-                className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Address"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Aadhaar Number</label>
+              <label className="block text-sm font-medium text-gray-700">Aadhaar Number</label>
               <input
                 type="text"
                 value={familyFormData.aadhaarNumber}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, aadhaarNumber: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Aadhaar Number"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Passport Number</label>
+              <label className="block text-sm font-medium text-gray-700">Passport Number</label>
               <input
                 type="text"
                 value={familyFormData.passportNumber}
                 onChange={(e) => setFamilyFormData({ ...familyFormData, passportNumber: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Passport Number"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Passport Issue Date</label>
+              <label className="block text-sm font-medium text-gray-700">Passport Issue Date</label>
               <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                 <input
                   type="date"
@@ -5076,7 +5077,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Passport Expiry Date</label>
+              <label className="block text-sm font-medium text-gray-700">Passport Expiry Date</label>
               <div className="relative mt-1 h-10 rounded-md bg-white shadow-sm border border-black focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
                 <input
                   type="date"
@@ -5094,36 +5095,36 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           </div>
 
           {/* Nomination Section */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] p-6 text-left hover:shadow-[0_4px_25px_rgb(0,0,0,0.04)] transition-shadow duration-300">
+          <div className="bg-gray-50 border rounded-lg p-4 text-left">
             <h4 className="text-base font-semibold text-gray-900 mb-4">Nomination</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">PF Share Percentage</label>
+                <label className="block text-sm font-medium text-gray-700">PF Share Percentage</label>
                 <input
                   type="text"
                   value={familyFormData.pfShare}
                   onChange={(e) => setFamilyFormData({ ...familyFormData, pfShare: e.target.value })}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   placeholder="Percentage"
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Gratuity Share Percentage</label>
+                <label className="block text-sm font-medium text-gray-700">Gratuity Share Percentage</label>
                 <input
                   type="text"
                   value={familyFormData.gratuityShare}
                   onChange={(e) => setFamilyFormData({ ...familyFormData, gratuityShare: e.target.value })}
-                  className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   placeholder="Percentage"
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Remarks</label>
+                <label className="block text-sm font-medium text-gray-700">Remarks</label>
                 <textarea
                   value={familyFormData.nominationRemarks}
                   onChange={(e) => setFamilyFormData({ ...familyFormData, nominationRemarks: e.target.value })}
                   rows={3}
-                  className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                  className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   placeholder="Nomination Remarks"
                 />
               </div>
@@ -5143,7 +5144,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -5184,47 +5185,47 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 Skill Set <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={certificationFormData.skillSet}
                 onChange={(e) => setCertificationFormData({ ...certificationFormData, skillSet: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Skill Set"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Years of Experience</label>
+              <label className="block text-sm font-medium text-gray-700">Years of Experience</label>
               <input
                 type="text"
                 value={certificationFormData.yearsOfExperience}
                 onChange={(e) => setCertificationFormData({ ...certificationFormData, yearsOfExperience: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Years of Experience"
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Certified By</label>
+              <label className="block text-sm font-medium text-gray-700">Certified By</label>
               <input
                 type="text"
                 value={certificationFormData.certifiedBy}
                 onChange={(e) => setCertificationFormData({ ...certificationFormData, certifiedBy: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Certified By"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Remarks</label>
+              <label className="block text-sm font-medium text-gray-700">Remarks</label>
               <textarea
                 value={certificationFormData.remarks}
                 onChange={(e) => setCertificationFormData({ ...certificationFormData, remarks: e.target.value })}
                 rows={3}
-                className="mt-1.5 block w-full bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm p-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Remarks"
               />
             </div>
@@ -5243,7 +5244,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -5284,26 +5285,26 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           }}
           className="space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">
+              <label className="block text-sm font-medium text-gray-700">
                 Language <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={knownLanguageFormData.language}
                 onChange={(e) => setKnownLanguageFormData({ ...knownLanguageFormData, language: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 placeholder="Language"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Speak</label>
+              <label className="block text-sm font-medium text-gray-700">Speak</label>
               <select
                 value={knownLanguageFormData.speak}
                 onChange={(e) => setKnownLanguageFormData({ ...knownLanguageFormData, speak: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Select --</option>
                 <option value="Yes">Yes</option>
@@ -5311,11 +5312,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Write</label>
+              <label className="block text-sm font-medium text-gray-700">Write</label>
               <select
                 value={knownLanguageFormData.write}
                 onChange={(e) => setKnownLanguageFormData({ ...knownLanguageFormData, write: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Select --</option>
                 <option value="Yes">Yes</option>
@@ -5323,11 +5324,11 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 tracking-tight ml-1">Read</label>
+              <label className="block text-sm font-medium text-gray-700">Read</label>
               <select
                 value={knownLanguageFormData.read}
                 onChange={(e) => setKnownLanguageFormData({ ...knownLanguageFormData, read: e.target.value })}
-                className="mt-1.5 block w-full h-11 bg-white/60 backdrop-blur-md rounded-xl border border-gray-200 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] focus:bg-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-400 sm:text-sm px-4 text-gray-800 transition-all duration-300"
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="">Select --</option>
                 <option value="Yes">Yes</option>
@@ -5349,7 +5350,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 text-sm font-medium flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

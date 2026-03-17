@@ -7,7 +7,7 @@ import rulesEngineService, { type RulesEngineRow } from '../services/rules-engin
 
 type TabKey = 'earnings' | 'deductions';
 
-const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived'];
+const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived', 'Conditional'];
 const COMPONENT_TYPE_OPTIONS = ['Default', 'Variable Input', 'Reimbursement', 'Deduction', 'Employer Contribution', 'System'];
 
 export default function RulesEnginePage() {
@@ -161,7 +161,7 @@ export default function RulesEnginePage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Rules Engine"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 

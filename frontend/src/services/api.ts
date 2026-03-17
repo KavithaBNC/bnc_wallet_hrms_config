@@ -84,20 +84,6 @@ api.interceptors.response.use(
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('configuratorRefreshToken');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      }
-    }
-
-    // Handle network errors
-    if (!error.response) {
-      // Network error (server not reachable, timeout, etc.)
-      console.error('Network Error:', error.message);
-      if (error.code === 'ECONNABORTED') {
-        error.message = 'Request timeout. Please check your connection and try again.';
-      } else if (error.message === 'Network Error' || error.code === 'ECONNREFUSED') {
-        error.message = 'Backend is not running. Start it with: cd backend && npm run dev';
       }
     }
 

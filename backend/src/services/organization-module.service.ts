@@ -32,6 +32,7 @@ export const ASSIGNABLE_MODULE_RESOURCES = [
   'employee_separations',
   'employee_rejoin',
   'salary_structures',
+  'salary_templates',
   'employee_salaries',
   'hr_audit_settings',
   'employee_master_approval',

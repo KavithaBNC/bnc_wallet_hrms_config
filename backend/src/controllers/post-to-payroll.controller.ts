@@ -119,6 +119,55 @@ export class PostToPayrollController {
     }
   }
 
+  /** Core HR Variable Input Entry: list of employees with posted data for paygroup + month + year */
+  async getVariableInputEntry(req: Request, res: Response) {
+    try {
+      const organizationId = (req.query.organizationId as string) || (req.body?.organizationId as string);
+      if (!organizationId) {
+        return res.status(400).json({ message: 'Organization ID is required' });
+      }
+      const paygroupId = (req.query.paygroupId as string)?.trim();
+      if (!paygroupId) {
+        return res.status(400).json({ message: 'Paygroup ID is required' });
+      }
+      const year = parseInt(req.query.year as string, 10);
+      const month = parseInt(req.query.month as string, 10);
+      if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+        return res.status(400).json({ message: 'Valid year and month (1-12) are required' });
+      }
+      const rows = await postToPayrollService.getVariableInputEntry(organizationId, paygroupId, year, month);
+      return res.status(200).json({ message: 'OK', data: { rows } });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to load variable input';
+      const status =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? ((error as { statusCode?: number }).statusCode ?? 500)
+          : 500;
+      return res.status(status).json({ message });
+    }
+  }
+
+  /** Core HR Variable Input Entry: save (upsert) edited rows for paygroup + month + year */
+  async saveVariableInputEntry(req: Request, res: Response, next: NextFunction) {
+    try {
+      const organizationId = req.body.organizationId as string | undefined;
+      if (!organizationId) return res.status(400).json({ message: 'Organization ID is required' });
+      const paygroupId = (req.body.paygroupId as string)?.trim();
+      if (!paygroupId) return res.status(400).json({ message: 'Paygroup ID is required' });
+      const year = parseInt(req.body.year as string, 10);
+      const month = parseInt(req.body.month as string, 10);
+      if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+        return res.status(400).json({ message: 'Valid year and month (1-12) are required' });
+      }
+      const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+      if (rows.length === 0) return res.status(400).json({ message: 'Rows array is required and must not be empty' });
+      await postToPayrollService.saveVariableInputEntry(organizationId, paygroupId, year, month, rows);
+      return res.status(200).json({ message: 'Variable input saved successfully' });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async saveAll(req: Request, res: Response) {
     try {
       const organizationId = req.body.organizationId as string | undefined;

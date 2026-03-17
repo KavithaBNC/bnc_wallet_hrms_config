@@ -270,7 +270,7 @@ export default function AddTransferPromotionEntryPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="Transaction"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 
@@ -389,7 +389,7 @@ export default function AddTransferPromotionEntryPage() {
               aria-checked={promotionEnabled}
               onClick={() => setPromotionEnabled(!promotionEnabled)}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                promotionEnabled ? 'bg-blue-500' : 'bg-gray-200'
+                promotionEnabled ? 'bg-green-500' : 'bg-gray-200'
               }`}
             >
               <span

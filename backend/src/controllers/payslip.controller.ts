@@ -4,6 +4,7 @@ import {
   queryPayslipsSchema,
   updatePayslipSchema,
 } from '../utils/payroll.validation';
+import { pdfService } from '../services/pdf.service';
 
 export class PayslipController {
   /**
@@ -73,69 +74,64 @@ export class PayslipController {
   }
 
   /**
-   * Generate payslip PDF (PDF generation skipped)
+   * Generate payslip PDF and return download URL
    */
   async generatePDF(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
       const { pdfUrl } = await payslipService.generatePDF(id);
-      
-      res.json({
-        success: true,
-        data: { pdfUrl },
-        message: 'PDF generation skipped - placeholder URL returned',
-      });
+      res.json({ success: true, data: { pdfUrl } });
     } catch (error) {
       next(error);
     }
   }
 
   /**
-   * Download payslip PDF (PDF generation skipped)
+   * Download payslip PDF as binary stream
    */
   async downloadPDF(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { pdfUrl } = await payslipService.generatePDF(id);
-      
-      res.json({
-        success: true,
-        data: { pdfUrl },
-        message: 'PDF generation skipped - placeholder URL returned',
-      });
+      const pdfBuffer = await pdfService.generatePayslipPDF(id);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=payslip-${id}.pdf`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
     } catch (error) {
       next(error);
     }
   }
 
   /**
-   * View payslip PDF (PDF generation skipped)
+   * View payslip PDF inline in browser
    */
   async viewPDF(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const { pdfUrl } = await payslipService.generatePDF(id);
-      
-      res.json({
-        success: true,
-        data: { pdfUrl },
-        message: 'PDF generation skipped - placeholder URL returned',
-      });
+      const pdfBuffer = await pdfService.generatePayslipPDF(id);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename=payslip-${id}.pdf`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
     } catch (error) {
       next(error);
     }
   }
 
   /**
-   * Send payslip to employee
+   * Send payslip to employee via email with PDF attachment
    */
   async sendPayslip(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const payslip = await payslipService.sendPayslip(id);
+      const { payslip, emailSent } = await payslipService.sendPayslip(id);
       res.json({
         success: true,
         data: payslip,
+        emailSent,
+        message: emailSent
+          ? 'Payslip sent to employee email successfully.'
+          : 'Payslip status updated. Email delivery skipped (SMTP not configured or employee has no email).',
       });
     } catch (error) {
       next(error);

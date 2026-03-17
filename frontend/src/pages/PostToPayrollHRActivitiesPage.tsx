@@ -54,11 +54,12 @@ export default function PostToPayrollHRActivitiesPage() {
       setRows(r);
       setMappings(m);
     } catch (err: unknown) {
-      const msg =
+      const backendMsg =
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
-          : 'Failed to load preview';
-      setError(String(msg));
+          : null;
+      const msg = backendMsg || 'Failed to load preview';
+      setError(msg);
       setRows([]);
       setMappings([]);
     } finally {
@@ -178,7 +179,7 @@ export default function PostToPayrollHRActivitiesPage() {
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
       <AppHeader
         title="HR Activities"
-        subtitle={organizationName ? organizationName : undefined}
+        subtitle={organizationName ? `Organization: ${organizationName}` : undefined}
         onLogout={handleLogout}
       />
 

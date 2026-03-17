@@ -33,12 +33,52 @@ export function parseFormulaDependencies(formula: string | null): string[] {
   return [...set];
 }
 
+/**
+ * Extract all component dependencies from a CONDITIONAL JSON formula.
+ * Scans both condition and then expressions in every row for:
+ *   - [BracketRef] syntax (same as Derived formulas)
+ *   - Bare identifiers that match known component shortNames (resolved later by caller)
+ */
+export function parseConditionalDependencies(
+  formulaJson: string | null,
+  knownShortNames: Set<string>
+): string[] {
+  if (!formulaJson?.trim()) return [];
+  let rows: { condition?: string; then?: string }[];
+  try {
+    rows = JSON.parse(formulaJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rows)) return [];
+
+  const deps = new Set<string>();
+  for (const row of rows) {
+    const text = `${row.condition ?? ''} ${row.then ?? ''}`;
+    // Bracket syntax [ShortName]
+    for (const m of text.matchAll(/\[([^\]]+)\]/g)) {
+      deps.add(m[1].trim());
+    }
+    // Bare identifiers — only add if they match a known component
+    for (const m of text.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
+      if (knownShortNames.has(m[1])) deps.add(m[1]);
+    }
+  }
+  return [...deps];
+}
+
+/** Check if a rule type participates in dependency-sorted evaluation */
+function isDerivedType(inputType: string): boolean {
+  return inputType === 'DERIVED' || inputType === 'SYSTEM_DERIVED' || inputType === 'CONDITIONAL';
+}
+
 /** Topological sort of rules by formula dependencies; respects rule.order for tie-break. Throws if cycle. */
 export function buildEvaluationOrder(
   rules: RuleForExecution[],
   shortNameToRule: Map<string, RuleForExecution>
 ): RuleForExecution[] {
-  const derived = rules.filter((r) => r.inputType === 'DERIVED' || r.inputType === 'SYSTEM_DERIVED');
+  const knownShortNames = new Set(rules.map((r) => r.shortName));
+  const derived = rules.filter((r) => isDerivedType(r.inputType));
   const inDegree = new Map<string, number>();
   const edges = new Map<string, string[]>();
 
@@ -47,10 +87,12 @@ export function buildEvaluationOrder(
     edges.set(r.shortName, []);
   }
   for (const r of derived) {
-    const deps = parseFormulaDependencies(r.formula);
+    const deps = r.inputType === 'CONDITIONAL'
+      ? parseConditionalDependencies(r.formula, knownShortNames)
+      : parseFormulaDependencies(r.formula);
     for (const d of deps) {
       const depRule = shortNameToRule.get(d);
-      if (depRule && (depRule.inputType === 'DERIVED' || depRule.inputType === 'SYSTEM_DERIVED')) {
+      if (depRule && isDerivedType(depRule.inputType)) {
         edges.get(depRule.shortName)!.push(r.shortName);
         inDegree.set(r.shortName, (inDegree.get(r.shortName) ?? 0) + 1);
       }
@@ -91,6 +133,11 @@ export function evaluateFormula(formula: string | null, context: Record<string, 
     const token = `[${key}]`;
     if (expr.includes(token)) expr = expr.split(token).join(String(value));
   }
+  // Also replace bare component names (for conditional then/condition expressions that omit brackets)
+  for (const [key, value] of Object.entries(context)) {
+    const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    expr = expr.replace(re, String(value));
+  }
   const allowed = /^[\d\s+\-*/().]+$/;
   if (!allowed.test(expr)) return 0;
   try {
@@ -100,6 +147,99 @@ export function evaluateFormula(formula: string | null, context: Record<string, 
   } catch {
     return 0;
   }
+}
+
+/**
+ * Safely evaluate a numeric expression string.
+ * Only allows digits, spaces, +, -, *, /, (, ), .
+ */
+function safeEvalNumber(expr: string): number {
+  const cleaned = expr.trim();
+  if (!cleaned) return 0;
+  const allowed = /^[\d\s+\-*/().]+$/;
+  if (!allowed.test(cleaned)) return 0;
+  try {
+    const fn = new Function(`return (${cleaned})`);
+    const out = fn();
+    return typeof out === 'number' && Number.isFinite(out) ? out : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Evaluate a comparison condition expression, e.g. "FGROSS <= 21000"
+ * Substitutes context values for component names, then evaluates the comparison.
+ * Supports: <=, >=, ==, !=, <, >
+ */
+export function evaluateCondition(
+  condition: string | null,
+  context: Record<string, number>
+): boolean {
+  if (!condition?.trim()) return false;
+
+  let expr = condition.trim();
+  // Replace [BracketRef] first
+  for (const [key, value] of Object.entries(context)) {
+    const token = `[${key}]`;
+    if (expr.includes(token)) expr = expr.split(token).join(String(value));
+  }
+  // Replace bare component names (longest first to avoid partial matches)
+  const sortedKeys = Object.keys(context).sort((a, b) => b.length - a.length);
+  for (const key of sortedKeys) {
+    const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+    expr = expr.replace(re, String(context[key]));
+  }
+
+  // Parse comparison: <left> <operator> <right>
+  const match = expr.match(/^(.+?)\s*(<=|>=|==|!=|<|>)\s*(.+)$/);
+  if (!match) return false;
+
+  const left = safeEvalNumber(match[1]);
+  const operator = match[2];
+  const right = safeEvalNumber(match[3]);
+
+  switch (operator) {
+    case '<=': return left <= right;
+    case '>=': return left >= right;
+    case '==': return left === right;
+    case '!=': return left !== right;
+    case '<':  return left < right;
+    case '>':  return left > right;
+    default:   return false;
+  }
+}
+
+/**
+ * Evaluate a CONDITIONAL formula (JSON array of IF/ELSE rules).
+ * Processes rows top-to-bottom: first IF whose condition is true wins.
+ * ELSE acts as default fallback (no condition needed).
+ * Returns 0 if no condition matches and no ELSE exists.
+ */
+export function evaluateConditionalFormula(
+  formulaJson: string | null,
+  context: Record<string, number>
+): number {
+  if (!formulaJson?.trim()) return 0;
+
+  let rows: { type: string; condition: string; then: string }[];
+  try {
+    rows = JSON.parse(formulaJson);
+  } catch {
+    return 0;
+  }
+  if (!Array.isArray(rows)) return 0;
+
+  for (const row of rows) {
+    if (row.type === 'IF') {
+      if (evaluateCondition(row.condition, context)) {
+        return evaluateFormula(row.then, context);
+      }
+    } else if (row.type === 'ELSE') {
+      return evaluateFormula(row.then, context);
+    }
+  }
+  return 0;
 }
 
 export function applyRounding(
@@ -166,6 +306,7 @@ export async function getOrderedRulesForPaygroup(
     };
   });
 
+  const activeShortNames = new Set(list.map((r) => r.shortName));
   const activeShortNamesLower = new Set(list.map((r) => r.shortName.toLowerCase()));
   for (const rule of list) {
     if ((rule.inputType === 'DERIVED' || rule.inputType === 'SYSTEM_DERIVED') && rule.formula) {
@@ -173,6 +314,14 @@ export async function getOrderedRulesForPaygroup(
       for (const ref of deps) {
         if (!activeShortNamesLower.has(ref.trim().toLowerCase())) {
           throw new Error(`Derived formula references component "${ref}" which is Inactive or not found. Only Active components may be used in formulas.`);
+        }
+      }
+    }
+    if (rule.inputType === 'CONDITIONAL' && rule.formula) {
+      const deps = parseConditionalDependencies(rule.formula, activeShortNames);
+      for (const ref of deps) {
+        if (!activeShortNamesLower.has(ref.trim().toLowerCase())) {
+          throw new Error(`Conditional formula references component "${ref}" which is Inactive or not found. Only Active components may be used in formulas.`);
         }
       }
     }
@@ -197,6 +346,8 @@ export function evaluatePayrollComponents(
     let value: number;
     if (r.inputType === 'INPUT') {
       value = context[r.shortName] ?? 0;
+    } else if (r.inputType === 'CONDITIONAL') {
+      value = evaluateConditionalFormula(r.formula, context);
     } else {
       value = evaluateFormula(r.formula, context);
     }
