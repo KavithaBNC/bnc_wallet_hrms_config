@@ -26,12 +26,12 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/configurator-api': {
-        target: 'http://localhost:8000',
+        target: 'http://bnc-ai.com:8001',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/configurator-api/, ''),
         configure: (proxy) => {
           proxy.on('error', (_err, _req, _res) => {
-            console.error('\n[vite] Configurator API proxy error: cannot connect to http://localhost:8000\n');
+            console.error('\n[vite] Configurator API proxy error: cannot connect to http://bnc-ai.com:8001\n');
           });
         },
       },

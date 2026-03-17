@@ -1,7 +1,7 @@
 /**
  * Service for Configurator DB operations (departments, sub-departments, cost centres).
  * Proxied through Vite dev server to avoid CORS:
- *   Browser → /configurator-api/* → Vite proxy → http://localhost:8000/*
+ *   Browser → /configurator-api/* → Vite proxy → http://bnc-ai.com:8001/*
  *
  * Authentication: Bearer token from login stored in localStorage as 'configuratorAccessToken'.
  * company_id is stored in localStorage as 'configuratorCompanyId' at login.
@@ -18,7 +18,7 @@
 import axios, { AxiosInstance } from 'axios';
 
 // Proxied through Vite dev server to avoid CORS issues.
-// Vite rewrites /configurator-api/* → http://localhost:8000/*
+// Vite rewrites /configurator-api/* → http://bnc-ai.com:8001/*
 const BASE_URL = '/configurator-api';
 
 /**

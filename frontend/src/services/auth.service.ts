@@ -3,7 +3,7 @@ import api from './api';
 
 /**
  * Configurator API base URL.
- * Proxied through Vite dev server: /configurator-api/* → http://localhost:8000/*
+ * Proxied through Vite dev server: /configurator-api/* → http://bnc-ai.com:8001/*
  */
 const CONFIGURATOR_BASE = '/configurator-api';
 

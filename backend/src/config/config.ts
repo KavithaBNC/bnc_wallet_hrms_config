@@ -51,7 +51,7 @@ export const config: AppConfig = {
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:3000',
 
   // Database
-  databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/hrms_db_backup',
+  databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/hrms_live',
 
   // Redis
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
@@ -97,7 +97,7 @@ export const config: AppConfig = {
   configuratorApiUrl:
     process.env.CONFIGURATOR_API_URL ||
     process.env.RAG_API_URL ||
-    'http://localhost:8000',
+    'http://bnc-ai.com:8001',
   // Fallback URL when primary is unreachable (e.g. LAN IP from outside office)
   configuratorApiFallbackUrl: process.env.CONFIGURATOR_API_FALLBACK_URL || '',
   configuratorHrmsProjectId: process.env.CONFIGURATOR_HRMS_PROJECT_ID ? parseInt(process.env.CONFIGURATOR_HRMS_PROJECT_ID, 10) : 0,
