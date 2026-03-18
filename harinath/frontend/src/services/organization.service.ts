@@ -1,0 +1,191 @@
+import api from './api';
+
+export interface Organization {
+  id: string;
+  name: string;
+  legalName?: string;
+  industry?: string;
+  sizeRange?: string;
+  taxId?: string;
+  registrationNumber?: string;
+  website?: string;
+  logoUrl?: string;
+  employeeIdPrefix?: string | null;
+  employeeIdNextNumber?: number | null;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+  };
+  timezone: string;
+  currency: string;
+  fiscalYearStart?: string;
+  settings?: {
+    workingDays?: number[];
+    workingHoursStart?: string;
+    workingHoursEnd?: string;
+    overtimeEnabled?: boolean;
+    leaveApprovalRequired?: boolean;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrganizationStatistics {
+  totalEmployees: number;
+  activeEmployees: number;
+  totalDepartments: number;
+  totalPositions: number;
+  recentHires: number;
+}
+
+export interface CreateOrganizationData {
+  name: string;
+  legalName?: string;
+  industry?: string;
+  sizeRange?: '1-10' | '11-50' | '51-200' | '201-500' | '501-1000' | '1000+';
+  timezone?: string;
+  currency?: string;
+  employeeIdPrefix?: string;
+  employeeIdStartingNumber?: number;
+}
+
+export interface OrganizationsListResponse {
+  organizations: Organization[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface OrganizationDevice {
+  id: string;
+  companyId: string;
+  serialNumber: string;
+  name: string | null;
+  isActive: boolean;
+  company?: { id: string; name: string };
+}
+
+const organizationService = {
+  /**
+   * Create new organization
+   */
+  async create(data: CreateOrganizationData): Promise<Organization> {
+    const response = await api.post('/organizations', data);
+    return response.data.data.organization;
+  },
+
+  /**
+   * Get all organizations (Super Admin only)
+   */
+  async getAll(page: number = 1, limit: number = 20, search?: string): Promise<OrganizationsListResponse> {
+    const params = new URLSearchParams();
+    params.append('page', page.toString());
+    params.append('limit', limit.toString());
+    if (search) {
+      params.append('search', search);
+    }
+    const response = await api.get(`/organizations?${params.toString()}`);
+    return response.data.data;
+  },
+
+  /**
+   * Get organization by ID
+   */
+  async getById(id: string): Promise<Organization> {
+    const response = await api.get(`/organizations/${id}`);
+    return response.data.data.organization;
+  },
+
+  /**
+   * Update organization.
+   * Use employeeIdStartingNumber in data to set the next employee code number (backend maps to employeeIdNextNumber).
+   */
+  async update(
+    id: string,
+    data: Partial<Organization> & { employeeIdStartingNumber?: number }
+  ): Promise<Organization> {
+    const response = await api.put(`/organizations/${id}`, data);
+    return response.data.data.organization;
+  },
+
+  /**
+   * Update organization logo
+   */
+  async updateLogo(id: string, logoUrl: string): Promise<Organization> {
+    const response = await api.post(`/organizations/${id}/logo`, { logoUrl });
+    return response.data.data.organization;
+  },
+
+  /**
+   * Get organization statistics
+   */
+  async getStatistics(id: string): Promise<OrganizationStatistics> {
+    const response = await api.get(`/organizations/${id}/statistics`);
+    return response.data.data.statistics;
+  },
+
+  /**
+   * Get enabled modules for an organization (SAP-style per-org assignment)
+   */
+  async getModules(organizationId: string): Promise<string[]> {
+    const response = await api.get(`/organizations/${organizationId}/modules`);
+    return response.data.data.modules;
+  },
+
+  /**
+   * Set enabled modules for an organization (Super Admin only). Org Admin will only see these modules.
+   */
+  async setModules(organizationId: string, modules: string[]): Promise<{ updated: number }> {
+    const response = await api.put(`/organizations/${organizationId}/modules`, { modules });
+    return response.data.data;
+  },
+
+  /**
+   * Backfill Time attendance & Shift Master for all orgs that have modules (fix ABC etc). Super Admin only.
+   */
+  async syncShiftModule(): Promise<{ updated: number; orgIds: string[] }> {
+    const response = await api.post('/organizations/sync-shift-module');
+    return response.data.data;
+  },
+
+  /**
+   * Get biometric devices for an organization
+   */
+  async getDevices(organizationId: string): Promise<OrganizationDevice[]> {
+    const response = await api.get(`/organizations/${organizationId}/devices`);
+    return response.data.data.devices;
+  },
+
+  /**
+   * Add a biometric device to an organization
+   */
+  async addDevice(organizationId: string, data: { serialNumber: string; name?: string }): Promise<OrganizationDevice> {
+    const response = await api.post(`/organizations/${organizationId}/devices`, data);
+    return response.data.data.device;
+  },
+
+  /**
+   * Create organization admin user
+   */
+  async createAdmin(organizationId: string, data: {
+    email: string;
+    password: string;
+    firstName: string;
+    lastName: string;
+  }): Promise<{
+    user: { id: string; email: string; role: string };
+    employee: { id: string; employeeCode: string; firstName: string; lastName: string };
+    organization: { id: string; name: string };
+  }> {
+    const response = await api.post(`/organizations/${organizationId}/admins`, data);
+    return response.data.data;
+  },
+};
+
+export default organizationService;

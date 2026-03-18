@@ -114,6 +114,10 @@ export interface ConfiguratorRoleModuleWithPage {
   is_enabled: boolean;
   page_name?: string;
   page_name_mobile?: string;
+  can_view?: boolean;
+  can_add?: boolean;
+  can_edit?: boolean;
+  can_delete?: boolean;
 }
 
 /** Decoded Configurator JWT payload (sub = user id) */

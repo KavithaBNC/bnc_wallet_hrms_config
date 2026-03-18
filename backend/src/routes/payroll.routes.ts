@@ -4,7 +4,8 @@ import { salaryTemplateController } from '../controllers/salary-template.control
 import { payrollController } from '../controllers/payroll.controller';
 import { payslipController } from '../controllers/payslip.controller';
 import { employeeSalaryController } from '../controllers/employee-salary.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { payslipAccessControl } from '../middlewares/payslip-access';
 
 const router = Router();
@@ -15,42 +16,42 @@ const router = Router();
 router.post(
   '/salary-structures',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('salary_structures', 'create'),
   salaryStructureController.create.bind(salaryStructureController)
 );
 
 router.get(
   '/salary-components',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('salary_structures', 'read'),
   salaryStructureController.getPredefinedComponents.bind(salaryStructureController)
 );
 
 router.get(
   '/salary-structures',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('salary_structures', 'read'),
   salaryStructureController.getAll.bind(salaryStructureController)
 );
 
 router.get(
   '/salary-structures/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('salary_structures', 'read'),
   salaryStructureController.getById.bind(salaryStructureController)
 );
 
 router.put(
   '/salary-structures/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('salary_structures', 'update'),
   salaryStructureController.update.bind(salaryStructureController)
 );
 
 router.delete(
   '/salary-structures/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('salary_structures', 'update'),
   salaryStructureController.delete.bind(salaryStructureController)
 );
 
@@ -60,42 +61,42 @@ router.delete(
 router.post(
   '/salary-templates',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('salary_structures', 'create'),
   salaryTemplateController.create.bind(salaryTemplateController)
 );
 
 router.get(
   '/salary-templates',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('salary_structures', 'read'),
   salaryTemplateController.getAll.bind(salaryTemplateController)
 );
 
 router.get(
   '/salary-templates/grade-level',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('salary_structures', 'read'),
   salaryTemplateController.getByGradeAndLevel.bind(salaryTemplateController)
 );
 
 router.get(
   '/salary-templates/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('salary_structures', 'read'),
   salaryTemplateController.getById.bind(salaryTemplateController)
 );
 
 router.put(
   '/salary-templates/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('salary_structures', 'update'),
   salaryTemplateController.update.bind(salaryTemplateController)
 );
 
 router.delete(
   '/salary-templates/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('salary_structures', 'update'),
   salaryTemplateController.delete.bind(salaryTemplateController)
 );
 
@@ -105,42 +106,42 @@ router.delete(
 router.post(
   '/employee-salaries/enhanced',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_salaries', 'create'),
   employeeSalaryController.createSalaryEnhanced.bind(employeeSalaryController)
 );
 
 router.post(
   '/employee-salaries',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_salaries', 'create'),
   employeeSalaryController.createSalary.bind(employeeSalaryController)
 );
 
 router.get(
   '/employee-salaries',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('employee_salaries', 'read'),
   employeeSalaryController.getAllSalaries.bind(employeeSalaryController)
 );
 
 router.get(
   '/employee-salaries/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('employee_salaries', 'read'),
   employeeSalaryController.getSalaryById.bind(employeeSalaryController)
 );
 
 router.get(
   '/employee-salaries/employee/:employeeId/current',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('employee_salaries', 'read'),
   employeeSalaryController.getCurrentSalary.bind(employeeSalaryController)
 );
 
 router.put(
   '/employee-salaries/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_salaries', 'update'),
   employeeSalaryController.updateSalary.bind(employeeSalaryController)
 );
 
@@ -150,28 +151,28 @@ router.put(
 router.post(
   '/bank-accounts',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'EMPLOYEE'),
+  checkPermission('employee_salaries', 'create'),
   employeeSalaryController.createBankAccount.bind(employeeSalaryController)
 );
 
 router.get(
   '/bank-accounts/employee/:employeeId',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('employee_salaries', 'read'),
   employeeSalaryController.getBankAccounts.bind(employeeSalaryController)
 );
 
 router.put(
   '/bank-accounts/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'EMPLOYEE'),
+  checkPermission('employee_salaries', 'update'),
   employeeSalaryController.updateBankAccount.bind(employeeSalaryController)
 );
 
 router.delete(
   '/bank-accounts/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'EMPLOYEE'),
+  checkPermission('employee_salaries', 'update'),
   employeeSalaryController.deleteBankAccount.bind(employeeSalaryController)
 );
 
@@ -181,70 +182,70 @@ router.delete(
 router.post(
   '/payroll-cycles',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'create'),
   payrollController.create.bind(payrollController)
 );
 
 router.get(
   '/payroll-cycles',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('payroll', 'read'),
   payrollController.getAll.bind(payrollController)
 );
 
 router.get(
   '/payroll-cycles/:id/pre-run-check',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'read'),
   payrollController.preRunCheck.bind(payrollController)
 );
 
 router.get(
   '/payroll-cycles/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('payroll', 'read'),
   payrollController.getById.bind(payrollController)
 );
 
 router.put(
   '/payroll-cycles/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payrollController.update.bind(payrollController)
 );
 
 router.post(
   '/payroll-cycles/:id/process',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payrollController.processPayrollCycle.bind(payrollController)
 );
 
 router.post(
   '/payroll-cycles/:id/finalize',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payrollController.finalizePayrollCycle.bind(payrollController)
 );
 
 router.post(
   '/payroll-cycles/:id/rollback',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payrollController.rollbackPayrollCycle.bind(payrollController)
 );
 
 router.post(
   '/payroll-cycles/:id/mark-paid',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payrollController.markAsPaid.bind(payrollController)
 );
 
 router.delete(
   '/payroll-cycles/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payrollController.delete.bind(payrollController)
 );
 
@@ -254,14 +255,14 @@ router.delete(
 router.get(
   '/payslips',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('payroll', 'read'),
   payslipController.getAll.bind(payslipController)
 );
 
 router.get(
   '/payslips/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('payroll', 'read'),
   payslipAccessControl,
   payslipController.getById.bind(payslipController)
 );
@@ -269,7 +270,7 @@ router.get(
 router.get(
   '/payslips/:id/comprehensive',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('payroll', 'read'),
   payslipAccessControl,
   payslipController.getComprehensive.bind(payslipController)
 );
@@ -277,28 +278,28 @@ router.get(
 router.get(
   '/payslips/employee/:employeeId',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'),
+  checkPermission('payroll', 'read'),
   payslipController.getByEmployeeId.bind(payslipController)
 );
 
 router.put(
   '/payslips/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payslipController.update.bind(payslipController)
 );
 
 router.post(
   '/payslips/:id/generate-pdf',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER', 'EMPLOYEE'),
+  checkPermission('payroll', 'read'),
   payslipController.generatePDF.bind(payslipController)
 );
 
 router.post(
   '/payslips/:id/send',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('payroll', 'update'),
   payslipController.sendPayslip.bind(payslipController)
 );
 

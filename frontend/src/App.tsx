@@ -130,6 +130,24 @@ import TdsWorkingReportPage from './pages/TdsWorkingReportPage';
 import Form16ReportPage from './pages/Form16ReportPage';
 import FnfReportPage from './pages/FnfReportPage';
 
+// Temporary Error Boundary to catch runtime crashes
+import React from 'react';
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean; error: any}> {
+  constructor(props: any) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error: any) { return { hasError: true, error }; }
+  componentDidCatch(error: any, info: any) { console.error('ErrorBoundary caught:', error, info); }
+  render() {
+    if (this.state.hasError) {
+      return <div style={{padding: 40, color: 'red', fontSize: 18}}>
+        <h1>Something went wrong!</h1>
+        <pre style={{whiteSpace: 'pre-wrap', marginTop: 20}}>{String(this.state.error)}</pre>
+        <pre style={{whiteSpace: 'pre-wrap', marginTop: 10}}>{this.state.error?.stack}</pre>
+      </div>;
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const { isAuthenticated, loadUser } = useAuthStore();
 
@@ -141,6 +159,7 @@ function App() {
 
   return (
     <Router>
+      <ErrorBoundary>
       <div className="flex flex-col min-h-screen w-full bg-gray-50">
         <Routes>
           {/* Public Routes */}
@@ -1530,6 +1549,16 @@ function App() {
             }
           />
           <Route
+            path="/department-masters"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <DepartmentMastersPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/user-module"
             element={
               <ProtectedRoute>
@@ -1554,6 +1583,7 @@ function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </div>
+      </ErrorBoundary>
     </Router>
   );
 }

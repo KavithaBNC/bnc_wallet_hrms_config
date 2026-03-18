@@ -1,0 +1,239 @@
+.login-root {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f1f5f9;
+  padding: 1.5rem;
+  position: relative;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Background animated circles */
+.floating-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.6;
+  animation: float 20s infinite alternate;
+}
+.circle-1 {
+  width: 50vw;
+  height: 50vw;
+  max-width: 600px;
+  max-height: 600px;
+  background: rgba(37, 99, 235, 0.4);
+  top: -10%;
+  left: -10%;
+}
+.circle-2 {
+  width: 40vw;
+  height: 40vw;
+  max-width: 500px;
+  max-height: 500px;
+  background: rgba(14, 165, 233, 0.4);
+  bottom: -10%;
+  right: -10%;
+  animation-delay: -5s;
+}
+
+@keyframes float {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(50px, 50px) scale(1.1); }
+  100% { transform: translate(-50px, 100px) scale(0.9); }
+}
+
+/* Base Card structure - Shutter Wipe Layout */
+.login-card {
+  width: 100%;
+  max-width: 1080px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 2.5rem;
+  box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.15), inset 0 0 0 1px rgba(255,255,255,0.7);
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  z-index: 10;
+  min-height: 640px;
+}
+
+/* Welcome Section */
+.welcome-section {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 55%;
+  z-index: 50; /* Above everything during wipe */
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 4rem;
+  box-shadow: 10px 0 50px rgba(0, 0, 0, 0.3);
+}
+
+/* Optional subtle overlay pattern or glow */
+.welcome-section::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 50% -20%, rgba(255,255,255,0.3), transparent 70%);
+  pointer-events: none;
+}
+
+/* Shutter Wipe Animation Logic */
+.login-card:not(.step-2) .welcome-section {
+  left: 0;
+  clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%);
+  animation: wipeToLeft 1s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+
+.login-card.step-2 .welcome-section {
+  animation: wipeToRight 1s cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+
+@keyframes wipeToRight {
+  0% { left: 0; width: 55%; clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%); }
+  50% { left: 0; width: 100%; clip-path: polygon(0 0, 100% 0, 100% 100%, 0% 100%); }
+  100% { left: 45%; width: 55%; clip-path: polygon(15% 0, 100% 0, 100% 100%, 0% 100%); }
+}
+
+@keyframes wipeToLeft {
+  0% { left: 45%; width: 55%; clip-path: polygon(15% 0, 100% 0, 100% 100%, 0% 100%); }
+  50% { left: 0; width: 100%; clip-path: polygon(0 0, 100% 0, 100% 100%, 0% 100%); }
+  100% { left: 0; width: 55%; clip-path: polygon(0 0, 100% 0, 85% 100%, 0% 100%); }
+}
+
+/* Form Section */
+.form-section {
+  position: absolute;
+  top: 0;
+  width: 45%;
+  height: 100%;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4rem;
+  overflow-y: auto;
+  transition: all 0.9s cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+.login-card:not(.step-2) .form-section {
+  right: 0;
+}
+
+.login-card.step-2 .form-section {
+  left: 0;
+}
+
+/* Centering content wrappers */
+.welcome-content {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  text-align: center;
+  z-index: 2;
+  transition: opacity 0.5s ease;
+}
+
+.form-content-wrapper {
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+}
+
+/* Custom inputs to make them look premium */
+.custom-input {
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+  border: 1px solid #e2e8f0;
+}
+.custom-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1), inset 0 2px 4px rgba(0,0,0,0.02);
+}
+
+@keyframes fadeInScale {
+  from { opacity: 0; transform: scale(0.97) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-fadeInScale {
+  animation: fadeInScale 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+/* Animation classes for Step transitions */
+.fade-out {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* Responsive Styles */
+@media (max-width: 960px) {
+  .login-root {
+    padding: 1rem;
+    align-items: flex-start;
+  }
+
+  .login-card {
+    display: flex; /* Override block from old styling */
+    flex-direction: column;
+    max-width: 500px;
+    margin: 0 auto;
+    border-radius: 1.5rem;
+    min-height: auto;
+  }
+
+  .welcome-section, .form-section {
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+    left: auto !important;
+    right: auto !important;
+    clip-path: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .welcome-section {
+    padding: 3rem 2rem;
+    border-radius: 1.5rem 1.5rem 0 0;
+  }
+
+  .form-section {
+    padding: 2.5rem 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-root {
+    padding: 0.5rem;
+  }
+  
+  .login-card {
+    border-radius: 1.2rem;
+  }
+  
+  .welcome-section {
+    padding: 2.5rem 1.5rem;
+    border-radius: 1.2rem 1.2rem 0 0;
+  }
+  
+  .form-section {
+    padding: 2rem 1.5rem;
+  }
+}
+

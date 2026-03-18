@@ -1,0 +1,242 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light;
+  color: #213547;
+  background-color: #f9fafb;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+  min-height: 100vh;
+  width: 100%;
+  background-color: #f9fafb;
+}
+
+#root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  text-align: left;
+}
+
+/* Animations */
+@keyframes slide-in {
+  from { opacity: 0; transform: translateX(1rem); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Staggered fade-in-up for dashboard sections */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeInUp {
+  opacity: 0;
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-delay-1 { animation-delay: 0.05s; }
+.animate-delay-2 { animation-delay: 0.1s; }
+.animate-delay-3 { animation-delay: 0.15s; }
+.animate-delay-4 { animation-delay: 0.2s; }
+.animate-delay-5 { animation-delay: 0.25s; }
+.animate-delay-6 { animation-delay: 0.3s; }
+.animate-delay-7 { animation-delay: 0.35s; }
+.animate-delay-8 { animation-delay: 0.4s; }
+.animate-delay-9 { animation-delay: 0.45s; }
+.animate-delay-10 { animation-delay: 0.5s; }
+.animate-delay-11 { animation-delay: 0.55s; }
+.animate-delay-12 { animation-delay: 0.6s; }
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+/* ═══════════ Animated Blue Gradient Effects ═══════════ */
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmerWave {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes floatBubble {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-8px) scale(1.05); }
+}
+
+.animate-gradient-bg {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb, #3b82f6, #60a5fa, #3b82f6, #2563eb, #1d4ed8);
+  background-size: 300% 300%;
+  animation: gradientShift 6s ease infinite;
+}
+
+.animate-gradient-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  animation: shimmerWave 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.animate-float {
+  animation: floatBubble 4s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: floatBubble 6s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+/* Print styles - hide sidebar, header, and UI elements */
+@media print {
+  /* Hide sidebar */
+  aside,
+  nav[aria-label="Main navigation"],
+  [class*="sidebar"],
+  [class*="Sidebar"] {
+    display: none !important;
+  }
+  
+  /* Hide header */
+  header,
+  [class*="header"],
+  [class*="Header"],
+  [class*="app-header"],
+  [class*="AppHeader"] {
+    display: none !important;
+  }
+  
+  /* Hide action buttons, filters, and navigation */
+  button:not(.print-keep),
+  .no-print,
+  [class*="filter"],
+  [class*="action"],
+  nav[aria-label="Breadcrumb"],
+  .breadcrumb,
+  [aria-label="Breadcrumb"] {
+    display: none !important;
+  }
+  
+  /* Hide pagination */
+  [class*="pagination"],
+  [class*="Pagination"] {
+    display: none !important;
+  }
+  
+  /* Hide export menu and column menu */
+  [class*="export-menu"],
+  [class*="column-menu"] {
+    display: none !important;
+  }
+  
+  /* Hide elements with no-print class */
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Page setup */
+  @page {
+    margin: 1cm;
+  }
+  
+  body {
+    margin: 0;
+    padding: 20px;
+    background: white !important;
+  }
+  
+  /* Show page title when printing */
+  h1, h2 {
+    color: black !important;
+    margin-bottom: 10px !important;
+  }
+  
+  /* Ensure table is visible and properly formatted */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto;
+    margin-top: 10px !important;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  
+  th, td {
+    border: 1px solid #333 !important;
+    padding: 8px !important;
+    text-align: left !important;
+  }
+  
+  th {
+    background: #2563eb !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-weight: bold !important;
+  }
+  
+  /* Show only main content */
+  main {
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Ensure proper page breaks */
+  .page-break-before {
+    page-break-before: always;
+  }
+  
+  .page-break-after {
+    page-break-after: always;
+  }
+  
+  /* Ensure full width for print */
+  * {
+    box-shadow: none !important;
+  }
+}

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, authorize } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { permissionController } from '../controllers/permission.controller';
 import { rolePermissionController } from '../controllers/role-permission.controller';
 
@@ -11,11 +12,11 @@ router.use(authenticate);
 /**
  * @route   POST /api/v1/permissions
  * @desc    Create new permission
- * @access  Private (ORG_ADMIN, HR_MANAGER only)
+ * @access  Private (dynamic permission: permissions.create)
  */
 router.post(
   '/',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('permissions', 'create'),
   permissionController.create.bind(permissionController)
 );
 
@@ -32,7 +33,7 @@ router.get(
 /**
  * @route   POST /api/v1/permissions/sync-app-modules
  * @desc    Ensure all app-module permissions exist (read/create/update). Super Admin only.
- * @access  Private (SUPER_ADMIN only)
+ * @access  Private (SUPER_ADMIN only — this is a system-level operation)
  */
 router.post(
   '/sync-app-modules',
@@ -53,22 +54,22 @@ router.get(
 /**
  * @route   PUT /api/v1/permissions/:id
  * @desc    Update permission
- * @access  Private (ORG_ADMIN, HR_MANAGER only)
+ * @access  Private (dynamic permission: permissions.update)
  */
 router.put(
   '/:id',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('permissions', 'update'),
   permissionController.update.bind(permissionController)
 );
 
 /**
  * @route   DELETE /api/v1/permissions/:id
  * @desc    Delete permission
- * @access  Private (ORG_ADMIN, HR_MANAGER only)
+ * @access  Private (dynamic permission: permissions.update)
  */
 router.delete(
   '/:id',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('permissions', 'update'),
   permissionController.delete.bind(permissionController)
 );
 
@@ -99,22 +100,22 @@ router.get(
 /**
  * @route   POST /api/v1/permissions/role-permissions/assign
  * @desc    Assign permissions to a role
- * @access  Private (ORG_ADMIN, HR_MANAGER only)
+ * @access  Private (dynamic permission: permissions.update)
  */
 router.post(
   '/role-permissions/assign',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('permissions', 'update'),
   rolePermissionController.assignPermissions.bind(rolePermissionController)
 );
 
 /**
  * @route   DELETE /api/v1/permissions/role-permissions/remove
  * @desc    Remove permission from a role
- * @access  Private (ORG_ADMIN, HR_MANAGER only)
+ * @access  Private (dynamic permission: permissions.update)
  */
 router.delete(
   '/role-permissions/remove',
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('permissions', 'update'),
   rolePermissionController.removePermission.bind(rolePermissionController)
 );
 
@@ -141,11 +142,11 @@ router.get(
 /**
  * @route   PUT /api/v1/permissions/role-permissions/:role/replace
  * @desc    Replace all permissions for a role
- * @access  Private (ORG_ADMIN, HR_MANAGER only)
+ * @access  Private (dynamic permission: permissions.update)
  */
 router.put(
   '/role-permissions/:role/replace',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('permissions', 'update'),
   rolePermissionController.replaceRolePermissions.bind(rolePermissionController)
 );
 

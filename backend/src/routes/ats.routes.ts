@@ -4,7 +4,8 @@ import { candidateController } from '../controllers/candidate.controller';
 import { applicationController } from '../controllers/application.controller';
 import { interviewController } from '../controllers/interview.controller';
 import { offerController } from '../controllers/offer.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ const router = Router();
 router.post(
   '/job-openings',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'create'),
   jobOpeningController.create.bind(jobOpeningController)
 );
 
@@ -34,14 +35,14 @@ router.get(
 router.put(
   '/job-openings/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   jobOpeningController.update.bind(jobOpeningController)
 );
 
 router.delete(
   '/job-openings/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   jobOpeningController.delete.bind(jobOpeningController)
 );
 
@@ -52,7 +53,7 @@ router.delete(
 router.post(
   '/candidates',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'create'),
   candidateController.create.bind(candidateController)
 );
 
@@ -77,14 +78,14 @@ router.get(
 router.put(
   '/candidates/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   candidateController.update.bind(candidateController)
 );
 
 router.delete(
   '/candidates/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   candidateController.delete.bind(candidateController)
 );
 
@@ -113,14 +114,14 @@ router.get(
 router.put(
   '/applications/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   applicationController.update.bind(applicationController)
 );
 
 router.delete(
   '/applications/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   applicationController.delete.bind(applicationController)
 );
 
@@ -131,7 +132,7 @@ router.delete(
 router.post(
   '/interviews',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'create'),
   interviewController.create.bind(interviewController)
 );
 
@@ -150,21 +151,21 @@ router.get(
 router.put(
   '/interviews/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   interviewController.update.bind(interviewController)
 );
 
 router.post(
   '/interviews/:id/feedback',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   interviewController.submitFeedback.bind(interviewController)
 );
 
 router.delete(
   '/interviews/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   interviewController.delete.bind(interviewController)
 );
 
@@ -175,7 +176,7 @@ router.delete(
 router.post(
   '/offers',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'create'),
   offerController.create.bind(offerController)
 );
 
@@ -194,14 +195,14 @@ router.get(
 router.put(
   '/offers/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   offerController.update.bind(offerController)
 );
 
 router.post(
   '/offers/:id/send',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   offerController.send.bind(offerController)
 );
 
@@ -220,7 +221,7 @@ router.post(
 router.delete(
   '/offers/:id',
   authenticate,
-  authorize('ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employees', 'update'),
   offerController.delete.bind(offerController)
 );
 

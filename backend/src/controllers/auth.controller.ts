@@ -1,12 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 import { authService } from '../services/auth.service';
 import { configuratorService, type ConfiguratorRoleModuleWithPage } from '../services/configurator.service';
 import { AppError } from '../middlewares/errorHandler';
 import { generateTokenPair, JwtPayload } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
 import { config } from '../config/config';
-import { blacklistToken } from '../utils/token-blacklist';
+import { setUserPermissions, clearUserPermissions, type ModulePermissions } from '../utils/permission-cache';
 
 /**
  * Valid HRMS UserRole enum values (must match prisma schema enum exactly).
@@ -39,6 +38,8 @@ function normalizeToHrmsRole(code: string | undefined | null): HrmsRole | undefi
 const MODULE_NAME_TO_PATH: Record<string, string> = {
   'dashboard': '/dashboard',
   'department': '/departments',
+  'departmentmasters': '/department-masters',
+  'department masters': '/department-masters',
   'employees': '/employees',
   'positions': '/positions',
   'position': '/positions',
@@ -97,6 +98,43 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   'pay group transfer': '/transaction/paygroup-transfer',
   'organization management': '/organizations',
   'module permission': '/permissions',
+  'user module': '/user-module',
+  // ESOP sub-pages
+  'esop dashboard': '/esop/dashboard',
+  'esop pools': '/esop/pools',
+  'esop grants': '/esop/grants',
+  'vesting schedules': '/esop/vesting-schedules',
+  'vesting plans': '/esop/vesting-plans',
+  'exercise requests': '/esop/exercise-requests',
+  'esop ledger': '/esop/ledger',
+  'my holdings': '/esop/my-holdings',
+  // Statutory Compliance
+  'statutory': '/statutory',
+  'statutory compliance': '/statutory',
+  'epf': '/statutory/epf',
+  'esic': '/statutory/esic',
+  'professional tax': '/statutory/professional-tax',
+  'tds': '/statutory/tds',
+  'tds / income tax': '/statutory/tds',
+  // Reports
+  'reports': '/reports',
+  'payroll register': '/reports/payroll-register',
+  'epf report': '/reports/epf',
+  'esic report': '/reports/esic',
+  'professional tax report': '/reports/professional-tax',
+  'tds working': '/reports/tds-working',
+  'form 16': '/reports/form16',
+  'form16': '/reports/form16',
+  'fnf settlement report': '/reports/fnf-settlement',
+  // Payroll sub-pages
+  'payroll dashboard': '/payroll/dashboard',
+  'run payroll': '/payroll/run',
+  'payroll history': '/payroll/history',
+  'fnf settlement': '/payroll/fnf-settlement',
+  'loans': '/payroll/loans',
+  // Other missing
+  'salary templates': '/salary-templates',
+  'department_masters': '/department-masters',
 };
 
 /** Map raw role-module-permission rows to frontend-friendly module objects */
@@ -496,6 +534,35 @@ export class AuthController {
         console.warn('[configuratorLogin] Modules fetch failed, returning empty:', modErr?.message);
       }
 
+      // Build permission cache from Configurator role-module-permissions
+      try {
+        const cacheRoleId = loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
+        if (cacheRoleId != null) {
+          const roleModulesRaw = await configuratorService.getRoleModulesByProject(
+            loginRes.access_token,
+            cacheRoleId
+          );
+          const permMap: Record<string, ModulePermissions> = {};
+          for (const m of roleModulesRaw) {
+            const pageName = (m.page_name || '').trim();
+            const path = pageName.startsWith('/') ? pageName : MODULE_NAME_TO_PATH[pageName.toLowerCase()] || '';
+            if (path) {
+              permMap[path] = {
+                is_enabled: m.is_enabled === true,
+                can_view: m.can_view === true,
+                can_add: m.can_add === true,
+                can_edit: m.can_edit === true,
+                can_delete: m.can_delete === true,
+              };
+            }
+          }
+          setUserPermissions(hrmsUser.id, permMap);
+          console.log('[configuratorLogin] Permission cache set for user', hrmsUser.id, '—', Object.keys(permMap).length, 'modules');
+        }
+      } catch (cacheErr: any) {
+        console.warn('[configuratorLogin] Permission cache build failed:', cacheErr?.message);
+      }
+
       const payload: JwtPayload = {
         userId: hrmsUser.id,
         email: hrmsUser.email,
@@ -710,17 +777,7 @@ export class AuthController {
         throw new AppError('Not authenticated', 401);
       }
 
-      // Blacklist the current access token so it cannot be reused after logout
-      const authHeader = req.headers.authorization;
-      if (authHeader?.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
-        const decoded = jwt.decode(token) as { exp?: number } | null;
-        if (decoded?.exp) {
-          const remainingMs = decoded.exp * 1000 - Date.now();
-          blacklistToken(token, remainingMs);
-        }
-      }
-
+      clearUserPermissions(req.user.userId);
       const result = await authService.logout(req.user.userId);
 
       return res.status(200).json({
@@ -814,6 +871,84 @@ export class AuthController {
     }
   }
 
+
+  /**
+   * Admin reset password for employee
+   * POST /api/v1/auth/admin/reset-password/:employeeId
+   */
+  async adminResetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Not authenticated', 401);
+      }
+
+      const { employeeId } = req.params;
+      const { newPassword } = req.body;
+
+      if (!newPassword || newPassword.length < 8) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'Password must be at least 8 characters',
+        });
+      }
+
+      const result = await authService.adminResetPassword(
+        req.user.userId,
+        employeeId,
+        newPassword
+      );
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: { email: result.email },
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Change password
+   * POST /api/v1/auth/change-password
+   */
+  async changePassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Not authenticated', 401);
+      }
+
+      const result = await authService.changePassword(req.user.userId, req.body);
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * Sync password_hash in HRMS DB after Configurator password reset.
+   * POST /api/v1/auth/sync-password-hash
+   * Body: { encryptedPassword: string }  — the encrypted_password from Configurator reset response
+   */
+  async syncPasswordHash(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        throw new AppError('Not authenticated', 401);
+      }
+      const { encryptedPassword } = req.body;
+      if (!encryptedPassword || typeof encryptedPassword !== 'string') {
+        return res.status(400).json({ status: 'fail', message: 'encryptedPassword is required' });
+      }
+      await authService.syncPasswordHash(req.user.userId, encryptedPassword);
+      return res.status(200).json({ status: 'success', message: 'Password updated successfully' });
+    } catch (error) {
+      return next(error);
+    }
+  }
 
   /**
    * Update profile

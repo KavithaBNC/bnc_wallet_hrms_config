@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { employeeController } from '../controllers/employee.controller';
-import { authorize, authorizeEmployeeUpdate } from '../middlewares/auth';
+import { employeeBulkImportController } from '../controllers/employee-bulk-import.controller';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { employeeListAccess, enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -12,45 +15,89 @@ import {
 
 const router = Router();
 
+// Multer for Excel file upload (memory storage, 50MB limit)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv', // .csv
+    ];
+    if (allowed.includes(file.mimetype) || /\.(xlsx|xls|csv)$/i.test(file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  },
+});
+
+// All routes require authentication
+router.use(authenticate);
+
+/**
+ * @route   POST /api/v1/employees/bulk-import
+ * @desc    Bulk import employees from Excel file
+ * @access  Private (dynamic permission: employees.create)
+ */
+router.post(
+  '/bulk-import',
+  checkPermission('employees', 'create'),
+  upload.single('file'),
+  employeeBulkImportController.bulkImport.bind(employeeBulkImportController)
+);
+
+/**
+ * @route   GET /api/v1/employees/import-template
+ * @desc    Download employee import template from Configurator
+ * @access  Private (dynamic permission: employees.create)
+ */
+router.get(
+  '/import-template',
+  checkPermission('employees', 'create'),
+  employeeBulkImportController.downloadTemplate.bind(employeeBulkImportController)
+);
+
 /**
  * @route   GET /api/v1/employees/credentials
- * @desc    Get employee credentials (for SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ * @desc    Get employee credentials
+ * @access  Private (dynamic permission: employees.read)
  */
 router.get(
   '/credentials',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
-  employeeListAccess, // This sets req.rbac.organizationId
+  checkPermission('employees', 'read'),
+  employeeListAccess,
   employeeController.getEmployeeCredentials.bind(employeeController)
 );
 
 /**
  * @route   GET /api/v1/employees/statistics/:organizationId
  * @desc    Get employee statistics
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ * @access  Private (dynamic permission: employees.read)
  */
 router.get(
   '/statistics/:organizationId',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
-  enforceOrganizationAccess, // Verify organizationId in params matches user's organization
+  checkPermission('employees', 'read'),
+  enforceOrganizationAccess,
   employeeController.getStatistics.bind(employeeController)
 );
 
 /**
  * @route   GET /api/v1/employees/:id/hierarchy
  * @desc    Get employee hierarchy (reporting structure)
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER, MANAGER)
+ * @access  Private (dynamic permission: employees.read)
  */
 router.get(
   '/:id/hierarchy',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('employees', 'read'),
   employeeController.getHierarchy.bind(employeeController)
 );
 
 /**
  * @route   GET /api/v1/employees
  * @desc    Get all employees with filtering (RBAC optimized)
- * @access  Private (Role-based field filtering)
+ * @access  Private (Role-based field filtering via employeeListAccess)
  */
 router.get(
   '/',
@@ -66,18 +113,18 @@ router.get(
  */
 router.get(
   '/:id',
-  employeeListAccess, // Ensure organization filtering for employee access
+  employeeListAccess,
   employeeController.getById.bind(employeeController)
 );
 
 /**
  * @route   POST /api/v1/employees/rejoin
- * @desc    Rejoin: create new employee from separated (resigned/terminated) employee
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ * @desc    Rejoin: create new employee from separated employee
+ * @access  Private (dynamic permission: employee_rejoin.create)
  */
 router.post(
   '/rejoin',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_rejoin', 'create'),
   validate(rejoinEmployeeSchema),
   employeeController.rejoin.bind(employeeController)
 );
@@ -85,25 +132,25 @@ router.post(
 /**
  * @route   POST /api/v1/employees
  * @desc    Create new employee
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ * @access  Private (dynamic permission: employees.create)
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
-  enforceOrganizationAccess, // Ensure organizationId is set from user's organization
+  checkPermission('employees', 'create'),
+  enforceOrganizationAccess,
   validate(createEmployeeSchema),
   employeeController.create.bind(employeeController)
 );
 
 /**
  * @route   PUT /api/v1/employees/:id
- * @desc    Update employee. SUPER_ADMIN/ORG_ADMIN/HR_MANAGER: any employee. MANAGER/EMPLOYEE: own profile only (tab-level by permission).
- * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER for all; MANAGER, EMPLOYEE for own profile)
+ * @desc    Update employee
+ * @access  Private (dynamic permission: employees.update)
  */
 router.put(
   '/:id',
-  authorizeEmployeeUpdate, // Allows admin roles for any update; MANAGER/EMPLOYEE only for own profile
-  enforceOrganizationAccess, // Ensure organizationId set; sets req.rbac for controller
+  checkPermission('employees', 'update'),
+  enforceOrganizationAccess,
   validate(updateEmployeeSchema),
   employeeController.update.bind(employeeController)
 );
@@ -111,23 +158,23 @@ router.put(
 /**
  * @route   DELETE /api/v1/employees/configurator/:configuratorUserId
  * @desc    Delete employee by Configurator user_id (soft delete)
- * @access  Private (SUPER_ADMIN, ORG_ADMIN)
+ * @access  Private (dynamic permission: employees.update)
  */
 router.delete(
   '/configurator/:configuratorUserId',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('employees', 'update'),
   employeeController.deleteByConfiguratorUserId.bind(employeeController)
 );
 
 /**
  * @route   DELETE /api/v1/employees/:id
  * @desc    Delete employee (soft delete)
- * @access  Private (SUPER_ADMIN, ORG_ADMIN)
+ * @access  Private (dynamic permission: employees.update)
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
-  employeeListAccess, // Ensure organization filtering
+  checkPermission('employees', 'update'),
+  employeeListAccess,
   employeeController.delete.bind(employeeController)
 );
 
