@@ -240,32 +240,20 @@ export class JobPositionService {
   }
 
   /**
-   * Delete job position
+   * Soft-delete job position (set isActive to false)
    */
   async delete(id: string) {
     const position = await prisma.jobPosition.findUnique({
       where: { id },
-      include: {
-        _count: {
-          select: { employees: true },
-        },
-      },
     });
 
     if (!position) {
       throw new AppError('Job position not found', 404);
     }
 
-    // Check if position has employees
-    if (position._count.employees > 0) {
-      throw new AppError(
-        `Cannot delete position with ${position._count.employees} employee(s). Please reassign employees first.`,
-        400
-      );
-    }
-
-    await prisma.jobPosition.delete({
+    await prisma.jobPosition.update({
       where: { id },
+      data: { isActive: false },
     });
 
     return { message: 'Job position deleted successfully' };

@@ -1,13 +1,13 @@
 import { AppError } from '../middlewares/errorHandler';
 import { prisma } from '../utils/prisma';
-import { CreateEntityInput } from '../utils/entity.validation';
+import { CreateEntityInput, UpdateEntityInput } from '../utils/entity.validation';
 
 export class EntityService {
   async getByOrganization(organizationId: string) {
     return prisma.entity.findMany({
       where: { organizationId, isActive: true },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, code: true },
+      select: { id: true, name: true, code: true, isActive: true },
     });
   }
 
@@ -28,8 +28,52 @@ export class EntityService {
         name: data.name.trim(),
         code: data.code?.trim() || null,
       },
-      select: { id: true, name: true, code: true, organizationId: true },
+      select: { id: true, name: true, code: true, organizationId: true, isActive: true },
     });
+  }
+
+  async update(id: string, data: UpdateEntityInput) {
+    const existing = await prisma.entity.findUnique({ where: { id } });
+    if (!existing) {
+      throw new AppError('Entity not found', 404);
+    }
+
+    if (data.name && data.name.trim().toLowerCase() !== existing.name.toLowerCase()) {
+      const duplicate = await prisma.entity.findFirst({
+        where: {
+          organizationId: existing.organizationId,
+          name: { equals: data.name.trim(), mode: 'insensitive' },
+          id: { not: id },
+        },
+      });
+      if (duplicate) {
+        throw new AppError('An entity with this name already exists in the organization', 400);
+      }
+    }
+
+    return prisma.entity.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+        ...(data.code !== undefined ? { code: data.code?.trim() || null } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      },
+      select: { id: true, name: true, code: true, organizationId: true, isActive: true },
+    });
+  }
+
+  async softDelete(id: string) {
+    const existing = await prisma.entity.findUnique({ where: { id } });
+    if (!existing) {
+      throw new AppError('Entity not found', 404);
+    }
+
+    await prisma.entity.update({
+      where: { id },
+      data: { isActive: false },
+    });
+
+    return { message: 'Entity deleted successfully' };
   }
 }
 export const entityService = new EntityService();

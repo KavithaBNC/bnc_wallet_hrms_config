@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { departmentService } from '../services/department.service';
 import { configuratorService } from '../services/configurator.service';
 import { prisma } from '../utils/prisma';
+import { generateDepartmentExcel, processDepartmentUpload } from '../services/department-masters-bulk.service';
 
 export class DepartmentController {
   /**
@@ -181,6 +182,45 @@ export class DepartmentController {
         message: result.message,
       });
       return;
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /** Download sample Excel template. GET /api/v1/departments/download-excel */
+  async downloadExcel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId } = req.query as { organizationId: string };
+      if (!organizationId) {
+        return res.status(400).json({ status: 'fail', message: 'organizationId required' });
+      }
+      const configToken = req.headers['x-configurator-token'] as string | undefined;
+      const buffer = await generateDepartmentExcel(organizationId, req.user!.userId, configToken);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename=departments_template_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      return res.send(buffer);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /** Bulk upload departments from Excel. POST /api/v1/departments/upload-excel */
+  async uploadExcel(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ status: 'fail', message: 'Excel file is required' });
+      }
+      const organizationId = req.body.organizationId;
+      if (!organizationId) {
+        return res.status(400).json({ status: 'fail', message: 'organizationId is required' });
+      }
+      const configToken = req.headers['x-configurator-token'] as string | undefined;
+      const result = await processDepartmentUpload(req.file.buffer, organizationId, req.user!.userId, configToken);
+      return res.status(200).json({
+        status: 'success',
+        message: `Import complete: ${result.created} created, ${result.skipped} skipped, ${result.failed} failed`,
+        data: result,
+      });
     } catch (error) {
       return next(error);
     }

@@ -85,6 +85,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [availableManagers, setAvailableManagers] = useState<Employee[]>([]);
   const [entities, setEntities] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [locations, setLocations] = useState<{ id: string; name: string; code?: string }[]>([]);
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
   const [costCentres, setCostCentres] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
   const [submittingApproval, setSubmittingApproval] = useState(false);
@@ -534,10 +535,19 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         setUserRoleOptions([]);
       }
     };
+    const fetchBranches = async () => {
+      try {
+        const list = await configuratorDataService.getBranches();
+        setBranches(list.map((b) => ({ id: b.id, name: b.name })));
+      } catch {
+        setBranches([]);
+      }
+    };
     fetchEntities();
     fetchCostCentres();
     fetchSubDepartments();
     fetchUserRoles();
+    fetchBranches();
   }, [organizationId, fetchDepartments, fetchPositions, employee?.id]);
 
   // Initialize Configurator IDs and prefill dropdown names when editing an existing employee
@@ -1959,27 +1969,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Location</label>
-              <div className="flex gap-2">
-                <select name="locationId" value={formData.locationId} onChange={handleChange}
-                  disabled={!formData.entityId?.trim()}
-                  className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-                    !formData.entityId?.trim() ? 'opacity-60 cursor-not-allowed border-gray-300' : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-                  }`}>
-                  <option value="">{formData.entityId?.trim() ? 'Location' : 'Select entity first'}</option>
-                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => formData.entityId?.trim() && setShowLocationModal(true)}
-                  disabled={!formData.entityId?.trim()}
-                  className="mt-1 px-3 h-10 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={formData.entityId?.trim() ? 'Add New Location' : 'Select an entity first'}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
-              </div>
+              <select name="locationId" value={formData.locationId} onChange={handleChange}
+                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                <option value="">Location</option>
+                {branches.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
+                {locations.filter((l) => !branches.some((b) => (b.name ?? '').toLowerCase() === (l.name ?? '').toLowerCase())).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Grade</label>

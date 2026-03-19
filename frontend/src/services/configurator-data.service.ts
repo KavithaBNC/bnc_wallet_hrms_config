@@ -123,6 +123,14 @@ export interface ConfigCostCentre {
   is_active?: boolean;
 }
 
+export interface ConfigBranch {
+  id: number;
+  name: string;
+  code?: string;
+  company_id?: number;
+  is_active?: boolean;
+}
+
 export interface ConfigUserRole {
   role_id: number;
   name: string;
@@ -189,6 +197,21 @@ const configuratorDataService = {
         data: err?.response?.data,
         message: err?.message,
       });
+      throw err;
+    }
+  },
+
+  // ─── Branches ────────────────────────────────────────────────────────
+
+  async getBranches(): Promise<ConfigBranch[]> {
+    try {
+      const api = getConfiguratorApi();
+      const company_id = getCompanyId();
+      const { data } = await api.post('/api/v1/branches/list', { company_id: company_id ?? null });
+      const list = Array.isArray(data) ? data : (data?.data ?? data?.branches ?? data?.results ?? []);
+      return list.filter((item: any) => item.is_active !== false);
+    } catch (err: any) {
+      console.error('[configuratorDataService.getBranches] Error:', err?.message, err?.response?.data);
       throw err;
     }
   },

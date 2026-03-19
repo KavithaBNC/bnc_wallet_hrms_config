@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { departmentController } from '../controllers/department.controller';
 import { authenticate, authorize } from '../middlewares/auth';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
@@ -11,10 +12,47 @@ import {
 
 const router = Router();
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/\.(xlsx|xls|csv)$/i.test(file.originalname) ||
+        file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+        file.mimetype === 'application/vnd.ms-excel') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) files are allowed'));
+    }
+  },
+});
+
 // All routes require authentication
 router.use(authenticate);
 // Enforce organization access for non-SUPER_ADMIN users
 router.use(enforceOrganizationAccess);
+
+/**
+ * @route   GET /api/v1/departments/download-excel
+ * @desc    Download sample Excel template for bulk department upload
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.get(
+  '/download-excel',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  departmentController.downloadExcel.bind(departmentController)
+);
+
+/**
+ * @route   POST /api/v1/departments/upload-excel
+ * @desc    Bulk upload departments from Excel
+ * @access  Private (SUPER_ADMIN, ORG_ADMIN, HR_MANAGER)
+ */
+router.post(
+  '/upload-excel',
+  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  upload.single('file'),
+  departmentController.uploadExcel.bind(departmentController)
+);
 
 /**
  * @route   GET /api/v1/departments/hierarchy/:organizationId

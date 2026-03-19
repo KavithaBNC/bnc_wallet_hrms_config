@@ -4,6 +4,7 @@ export interface Entity {
   id: string;
   name: string;
   code?: string | null;
+  isActive?: boolean;
 }
 
 export interface EntityCreateInput {
@@ -23,6 +24,15 @@ const entityService = {
   create: async (input: EntityCreateInput): Promise<Entity> => {
     const { data } = await api.post<{ data: { entity: Entity } }>('/entities', input);
     return data.data!.entity;
+  },
+
+  update: async (id: string, input: { name?: string; code?: string | null; isActive?: boolean }): Promise<Entity> => {
+    const { data } = await api.put<{ data: { entity: Entity } }>(`/entities/${id}`, input);
+    return data.data!.entity;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await api.delete(`/entities/${id}`);
   },
 };
 
