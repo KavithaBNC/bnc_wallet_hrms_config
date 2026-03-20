@@ -2,7 +2,7 @@
  * Calls Python face microservice for encoding and matching.
  * If FACE_SERVICE_URL is not set or the service is unreachable, returns a clear error instead of throwing.
  */
-const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://bnc-ai.com:8001';
+const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'https://bnc-ai.com/ragapi';
 
 export interface GenerateEncodingResult {
   encoding: number[] | null;

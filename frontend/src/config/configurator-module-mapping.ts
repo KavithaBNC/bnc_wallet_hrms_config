@@ -69,6 +69,16 @@ export const CONFIGURATOR_CODE_TO_CARD: Record<
     icon: '🏢',
     description: 'Organize departments',
   },
+  DEPARTMENT_MASTERS: {
+    path: '/department-masters',
+    icon: '🏢',
+    description: 'Department masters management',
+  },
+  DEPARTMENTMASTERS: {
+    path: '/department-masters',
+    icon: '🏢',
+    description: 'Department masters management',
+  },
   PAYROLL: {
     path: '/payroll',
     icon: '💰',

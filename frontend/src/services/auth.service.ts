@@ -3,7 +3,7 @@ import api from './api';
 
 /**
  * Configurator API base URL.
- * Proxied through Vite dev server: /configurator-api/* → http://bnc-ai.com:8001/*
+ * Proxied through Vite dev server: /configurator-api/* → https://bnc-ai.com/ragapi/*
  */
 const CONFIGURATOR_BASE = '/configurator-api';
 
@@ -95,6 +95,10 @@ const PATH_TO_LABEL: Record<string, string> = {
   '/cost-centre-department': 'Cost Centre',
   '/master': 'Master',
   '/master/department': 'Department Masters',
+  '/department-masters': 'Department Masters',
+  '/departmentmasters': 'Department Masters',
+  '/payroll_master': 'Payroll Master',
+  '/time-attendanc': 'Time Attendance',
 };
 
 const MODULE_NAME_TO_PATH: Record<string, string> = {
@@ -162,6 +166,9 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   'master': '/master',
   'cost centre': '/cost-centre-department',
   // page_name fragments returned by /api/v1/user-role-modules/project (no leading slash)
+  'departmentmasters': '/department-masters',
+  'departmentmaster': '/department-masters',
+  'department masters': '/department-masters',
   'apply-event': '/attendance/apply-event',
   'approvals': '/leave/approvals',
   'balance-entry': '/event/balance-entry',
@@ -196,11 +203,10 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   'compound-creation': '/core-hr/compound-creation',
   'rules-engine': '/core-hr/rules-engine',
   'variable-input': '/core-hr/variable-input',
-  'overview': '/core-hr/overview',
   // page_name values returned by /api/v1/user-role-modules/project (with leading slash)
   '/employees': '/employees',
-  '/departmentmasters': '/departments',
-  '/departmentmaster': '/departments',
+  '/departmentmasters': '/department-masters',
+  '/departmentmaster': '/department-masters',
   '/departments': '/departments',
   '/department': '/departments',
   '/positions': '/positions',
@@ -432,6 +438,7 @@ class AuthService {
     // ── Step 2b: Sync with HRMS backend to get employee/organization data ──
     // Call HRMS backend configurator login — it syncs/creates the HRMS user record
     // and returns employee data with organizationId.
+    let hrmsBackendModules: any[] | undefined;
     try {
       const hrmsLoginRes = await api.post('/auth/configurator/login', {
         username: data.username,
@@ -458,12 +465,17 @@ class AuthService {
           user.organizationId = hrmsData.user.organizationId;
         }
         localStorage.setItem('user', JSON.stringify(user));
+        // Capture backend modules for fallback
+        if (Array.isArray(hrmsData.modules)) {
+          hrmsBackendModules = hrmsData.modules;
+        }
       }
     } catch (err) {
       console.warn('HRMS backend sync failed (employee data may be unavailable):', err);
     }
 
     // ── Step 2c: Fetch role modules using Configurator token ──
+    console.log('[login] hrmsProject:', hrmsProject, 'role_id:', hrmsProject?.role_id, 'id:', hrmsProject?.id);
     if (hrmsProject?.id != null && hrmsProject?.role_id != null) {
       try {
         const modules = await this.fetchRoleModules(hrmsProject.role_id, hrmsProject.id, configuratorAccessToken);
@@ -472,6 +484,37 @@ class AuthService {
         }
       } catch (err) {
         console.warn('Failed to fetch role modules after login:', err);
+      }
+    } else {
+      console.warn('[login] Skipping fetchRoleModules — hrmsProject missing role_id or id:', hrmsProject);
+      // Fallback: use modules from HRMS backend response if available
+      const hrmsModules = hrmsBackendModules;
+      if (Array.isArray(hrmsModules) && hrmsModules.length > 0) {
+        console.log('[login] Using modules from HRMS backend response:', hrmsModules.length);
+        const mapped = hrmsModules
+          .filter((m: any) => m.is_enabled)
+          .map((m: any) => {
+            const pageName = (m.page_name || m.path || '').toLowerCase().trim();
+            const moduleName = (m.name || '').toLowerCase().trim();
+            const path = MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || m.page_name || m.path || '';
+            const label = m.name || PATH_TO_LABEL[path] || path.split('/').filter(Boolean).pop() || '';
+            return {
+              id: m.module_id ?? m.id,
+              name: label,
+              code: m.code || '',
+              path,
+              page_name: m.page_name || m.path || '',
+              is_active: true,
+              is_enabled: true,
+              can_view: true,
+              project_id: m.project_id,
+              parent_module_id: m.parent_module_id ?? null,
+              parent_module: m.parent_module ?? null,
+            };
+          });
+        if (mapped.length > 0) {
+          localStorage.setItem('modules', JSON.stringify(mapped));
+        }
       }
     }
 
@@ -496,9 +539,13 @@ class AuthService {
     // Build permissions map: path → { is_enabled, can_view, can_add, can_edit, can_delete }
     const permissionsMap: Record<string, { is_enabled: boolean; can_view: boolean; can_add: boolean; can_edit: boolean; can_delete: boolean }> = {};
     for (const item of list) {
-      const pageName = (item.page_name || '').toLowerCase().trim();
+      const rawPageName = (item.page_name || '').trim();
+      const pageName = rawPageName.toLowerCase();
       const moduleName = (item.module_name || item.name || '').toLowerCase().trim();
-      const path = MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || pageName || '';
+      // Use page_name directly when it's a path; fall back to MODULE_NAME_TO_PATH for non-path values
+      const path = rawPageName.startsWith('/')
+        ? rawPageName
+        : (MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || '');
       if (path) {
         permissionsMap[path] = {
           is_enabled: item.is_enabled === true || item.is_enabled === 1,
@@ -528,13 +575,24 @@ class AuthService {
     if (list.length === 0) return [];
 
     // Build sidebar module objects — only include is_enabled entries
-    return list
+    console.log('[fetchRoleModules] Raw list from API:', list.length, 'modules, ids:', list.map((m: any) => m.module_id));
+    const result = list
       .filter((m: any) => m.is_enabled === true || m.is_enabled === 1)
       .map((m: any) => {
-        const pageName = (m.page_name || '').toLowerCase().trim();
+        const rawPageName = (m.page_name || '').trim();
+        const pageName = rawPageName.toLowerCase();
         const moduleName = (m.module_name || m.name || '').toLowerCase().trim();
-        const path = MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || m.page_name || '';
+        // If page_name starts with '/', use it directly as the route path.
+        // The path structure already encodes parent/child hierarchy:
+        //   "/event-configuration/approval-workflow" → parent="/event-configuration", child
+        //   "/master" → top-level parent
+        //   "/dashboard" → top-level
+        // Only fall back to MODULE_NAME_TO_PATH for non-path values (e.g. "Attendance Components", "cost.js").
+        const path = rawPageName.startsWith('/')
+          ? rawPageName
+          : (MODULE_NAME_TO_PATH[pageName] || MODULE_NAME_TO_PATH[moduleName] || '');
         const label = m.module_name || m.name || PATH_TO_LABEL[path] || path.split('/').filter(Boolean).pop() || '';
+        console.log(`[fetchRoleModules] module_id=${m.module_id} page_name="${m.page_name}" → path="${path}" label="${label}"`);
         return {
           id: m.module_id ?? m.id,
           name: label,
@@ -549,6 +607,8 @@ class AuthService {
           parent_module: m.parent_module ?? null,
         };
       });
+    console.log('[fetchRoleModules] Final modules:', result.length, result.map((m: any) => ({ id: m.id, path: m.path, name: m.name })));
+    return result;
   }
 
   /**
@@ -626,15 +686,19 @@ class AuthService {
       // Try to get role_id, project_id and token from stored data
       const token = localStorage.getItem('configuratorAccessToken');
       const projectsRaw = localStorage.getItem('projects');
+      console.log('[getModules] token exists:', !!token, 'projectsRaw exists:', !!projectsRaw);
       if (projectsRaw && token) {
         const projects = JSON.parse(projectsRaw);
         const hrmsProject = Array.isArray(projects)
           ? (projects.find((p: any) => p.code === 'HRMS001' || p.name === 'HRMS') || projects[0])
           : null;
+        console.log('[getModules] hrmsProject:', hrmsProject, 'role_id:', hrmsProject?.role_id, 'id:', hrmsProject?.id);
         if (hrmsProject?.role_id != null && hrmsProject?.id != null) {
           // fetchRoleModules already gates on /api/v1/user-role-modules/project
           const modules = await this.fetchRoleModules(hrmsProject.role_id, hrmsProject.id, token);
-          localStorage.setItem('modules', JSON.stringify(modules));
+          if (modules.length > 0) {
+            localStorage.setItem('modules', JSON.stringify(modules));
+          }
           return modules;
         }
       }

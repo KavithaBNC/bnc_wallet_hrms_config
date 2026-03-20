@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -97,6 +97,32 @@ import VariableInputEntryPage from './pages/VariableInputEntryPage';
 import CostCentreDepartmentPage from './pages/CostCentreDepartmentPage';
 import DepartmentMastersPage from './pages/department_masters';
 
+// Temporary error boundary to debug blank page issues
+class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[AppErrorBoundary] Caught error:', error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, color: 'red', fontFamily: 'monospace' }}>
+          <h1>App crashed</h1>
+          <pre>{this.state.error.message}</pre>
+          <pre>{this.state.error.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const { isAuthenticated, loadUser } = useAuthStore();
 
@@ -107,6 +133,7 @@ function App() {
   }, [isAuthenticated, loadUser]);
 
   return (
+    <AppErrorBoundary>
     <Router>
       <div className="flex flex-col min-h-screen w-full bg-gray-50">
         <Routes>
@@ -173,6 +200,45 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/department-masters"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <DepartmentMastersPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* Routes for API page_name paths that differ from normalised frontend paths */}
+          <Route path="/departmentmasters" element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <DepartmentMastersPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
+          <Route path="/master/department" element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <DepartmentMastersPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
+          <Route path="/payroll_master" element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <PayrollMasterPage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
+          <Route path="/time-attendanc" element={
+            <ProtectedRoute>
+              <DashboardLayout>
+                <TimeAttendancePage />
+              </DashboardLayout>
+            </ProtectedRoute>
+          } />
           <Route
             path="/cost-centre-department"
             element={
@@ -1259,6 +1325,7 @@ function App() {
         </Routes>
       </div>
     </Router>
+    </AppErrorBoundary>
   );
 }
 

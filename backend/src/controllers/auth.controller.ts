@@ -37,6 +37,8 @@ function normalizeToHrmsRole(code: string | undefined | null): HrmsRole | undefi
 const MODULE_NAME_TO_PATH: Record<string, string> = {
   'dashboard': '/dashboard',
   'department': '/departments',
+  'departmentmasters': '/department-masters',
+  'department masters': '/department-masters',
   'employees': '/employees',
   'positions': '/positions',
   'position': '/positions',

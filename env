@@ -1,5 +1,5 @@
 # Database
-DATABASE_URL=postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_db_backup
+DATABASE_URL=postgresql://postgres:Bncdb2026@bnc-db.czjz5u62pd3z.ap-south-1.rds.amazonaws.com:5432/hrms_live
 
 # JWT (CHANGE IN PRODUCTION!)
 JWT_SECRET=Nemi_tech
@@ -16,7 +16,7 @@ BASE_URL=http://localhost:5001
 CORS_ORIGIN=http://localhost:3000
 
 # Configurator API (auth, modules from Config DB)
-CONFIGURATOR_API_URL=http://localhost:8000
+CONFIGURATOR_API_URL=https://bnc-ai.com/ragapi
 CONFIGURATOR_HRMS_PROJECT_ID=2
 # Role comes from Config login (user.roles) or GET /api/v1/user-roles/{role_id}
 # Module code -> path mapping (Config DB path preferred when available)
