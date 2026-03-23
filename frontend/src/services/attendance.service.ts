@@ -433,6 +433,7 @@ export const attendanceService = {
     type?: string;
     selectedRows: { employeeId: string; date: string }[];
     remarks?: string;
+    noCorrection?: boolean;
   }): Promise<{ applied: number; errors: { employeeId: string; date: string; message: string }[]; skipped?: { employeeId: string; date: string; message: string }[] }> => {
     const { data } = await api.post<{
       data: { applied: number; errors: { employeeId: string; date: string; message: string }[]; skipped?: { employeeId: string; date: string; message: string }[] };

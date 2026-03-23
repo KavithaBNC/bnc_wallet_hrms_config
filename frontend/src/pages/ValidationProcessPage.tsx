@@ -84,6 +84,13 @@ function getMonthYearLabel(date: Date): string {
   return `${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
+function toLocalDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function getCalendarWeeks(year: number, month: number): (number | null)[][] {
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
@@ -146,8 +153,14 @@ export default function ValidationProcessPage() {
   // Process tab filters and calendar
   const [processFilter, setProcessFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    return toLocalDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
+  });
+  const [toDate, setToDate] = useState(() => {
+    const d = new Date();
+    return toLocalDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+  });
   const [calendarMonth, setCalendarMonth] = useState(() => new Date());
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set());
   const [dailySummary, setDailySummary] = useState<Record<string, ValidationDaySummary>>({});
@@ -202,14 +215,57 @@ export default function ValidationProcessPage() {
     setSelectedDateForModal(null);
   }, []);
 
+  const loadCalendarSummary = useCallback(
+    async (dateOverride?: { fromDate: string; toDate: string }) => {
+      if (!organizationId) return;
+      const effectiveFrom = dateOverride?.fromDate ?? fromDate;
+      const effectiveTo = dateOverride?.toDate ?? toDate;
+      if (!effectiveFrom || !effectiveTo) {
+        const d = new Date();
+        const fallbackFrom = toLocalDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
+        const fallbackTo = toLocalDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+        setFromDate(fallbackFrom);
+        setToDate(fallbackTo);
+        loadCalendarSummary({ fromDate: fallbackFrom, toDate: fallbackTo });
+        return;
+      }
+      setLoadingProcess(true);
+      setProcessError(null);
+      try {
+        const res = await attendanceService.getValidationProcessCalendarSummary({
+          organizationId,
+          paygroupId: paygroupFilter === 'ALL' ? undefined : paygroupFilter,
+          employeeId: associateFilter === 'ALL' ? undefined : associateFilter,
+          fromDate: effectiveFrom,
+          toDate: effectiveTo,
+        });
+        setDailySummary(res.daily ?? {});
+        setHasProcessed(true);
+        const allKeys = getDateKeysInRange(effectiveFrom, effectiveTo);
+        setSelectedDays(new Set(allKeys));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to load calendar summary';
+        setProcessError(message);
+        setDailySummary({});
+      } finally {
+        setLoadingProcess(false);
+      }
+    },
+    [organizationId, paygroupFilter, associateFilter, fromDate, toDate]
+  );
+
   const runProcess = useCallback(
     async (dateOverride?: { fromDate: string; toDate: string }) => {
       if (!organizationId) return;
       const effectiveFrom = dateOverride?.fromDate ?? fromDate;
       const effectiveTo = dateOverride?.toDate ?? toDate;
       if (!effectiveFrom || !effectiveTo) {
-        setProcessError('Select From Date and To Date, then click Process.');
-        setDailySummary({});
+        const d = new Date();
+        const fallbackFrom = toLocalDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
+        const fallbackTo = toLocalDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+        setFromDate(fallbackFrom);
+        setToDate(fallbackTo);
+        runProcess({ fromDate: fallbackFrom, toDate: fallbackTo });
         return;
       }
       setLoadingProcess(true);
@@ -224,6 +280,19 @@ export default function ValidationProcessPage() {
         });
         setDailySummary(res.daily ?? {});
         setHasProcessed(true);
+        const allKeys = getDateKeysInRange(effectiveFrom, effectiveTo);
+        setSelectedDays(new Set(allKeys));
+        if (openModalOnComplete.current) {
+          openModalOnComplete.current = false;
+          const aggregated = aggregateDailySummaries(res.daily ?? {}, allKeys);
+          const hasAnomalies =
+            aggregated.approvalPending > 0 || aggregated.late > 0 || aggregated.earlyGoing > 0 ||
+            aggregated.noOutPunch > 0 || aggregated.absent > 0 || aggregated.shortfall > 0 ||
+            aggregated.shiftChange > 0 || aggregated.overtime > 0 || (aggregated.onHold ?? 0) > 0;
+          if (hasAnomalies) {
+            setSelectedDateForModal('aggregate');
+          }
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to run validation process';
         setProcessError(message);
@@ -359,6 +428,15 @@ export default function ValidationProcessPage() {
     }
   }, [activeTab, fetchRevertHistory]);
 
+  // Auto-load current month data on mount (reads from store, does not re-run validation)
+  const hasAutoLoaded = useRef(false);
+  const openModalOnComplete = useRef(false);
+  useEffect(() => {
+    if (!organizationId || hasAutoLoaded.current) return;
+    hasAutoLoaded.current = true;
+    loadCalendarSummary();
+  }, [organizationId, loadCalendarSummary]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -390,8 +468,8 @@ export default function ValidationProcessPage() {
       next.setMonth(next.getMonth() - 1);
       const first = new Date(next.getFullYear(), next.getMonth(), 1);
       const last = new Date(next.getFullYear(), next.getMonth() + 1, 0);
-      setFromDate(first.toISOString().slice(0, 10));
-      setToDate(last.toISOString().slice(0, 10));
+      setFromDate(toLocalDateStr(first));
+      setToDate(toLocalDateStr(last));
       return next;
     });
   };
@@ -402,8 +480,8 @@ export default function ValidationProcessPage() {
       next.setMonth(next.getMonth() + 1);
       const first = new Date(next.getFullYear(), next.getMonth(), 1);
       const last = new Date(next.getFullYear(), next.getMonth() + 1, 0);
-      setFromDate(first.toISOString().slice(0, 10));
-      setToDate(last.toISOString().slice(0, 10));
+      setFromDate(toLocalDateStr(first));
+      setToDate(toLocalDateStr(last));
       return next;
     });
   };
@@ -413,8 +491,8 @@ export default function ValidationProcessPage() {
     setCalendarMonth(d);
     const first = new Date(d.getFullYear(), d.getMonth(), 1);
     const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    setFromDate(first.toISOString().slice(0, 10));
-    setToDate(last.toISOString().slice(0, 10));
+    setFromDate(toLocalDateStr(first));
+    setToDate(toLocalDateStr(last));
   };
 
   const getModalAggregationDates = (): {
@@ -422,18 +500,24 @@ export default function ValidationProcessPage() {
     dateFrom: string;
     dateTo: string;
   } => {
-    // Use the user-selected fromDate/toDate range when available.
-    // Fall back to the full visible calendar month only when no range is selected.
-    if (fromDate && toDate) {
-      const datesToAggregate = getDateKeysInRange(fromDate, toDate);
-      const sorted = [...datesToAggregate].sort();
+    // Single-date mode: user clicked a specific calendar day
+    if (selectedDateForModal && selectedDateForModal !== 'aggregate') {
       return {
-        datesToAggregate,
-        dateFrom: sorted[0] ?? fromDate,
-        dateTo: sorted[sorted.length - 1] ?? toDate,
+        datesToAggregate: [selectedDateForModal],
+        dateFrom: selectedDateForModal,
+        dateTo: selectedDateForModal,
       };
     }
-    // Fallback: full visible calendar month
+    // Aggregate mode: Process button — use checked (selectedDays) dates
+    const sorted = [...selectedDays].sort();
+    if (sorted.length > 0) {
+      return {
+        datesToAggregate: sorted,
+        dateFrom: sorted[0],
+        dateTo: sorted[sorted.length - 1],
+      };
+    }
+    // Fallback: full visible calendar month (when nothing is selected)
     const y = calendarMonth.getFullYear();
     const m = calendarMonth.getMonth();
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -441,30 +525,20 @@ export default function ValidationProcessPage() {
     const lastDay = new Date(y, m + 1, 0).getDate();
     const last = `${y}-${pad(m + 1)}-${pad(lastDay)}`;
     const datesToAggregate = getDateKeysInRange(first, last);
-    const sorted = [...datesToAggregate].sort();
+    const fallbackSorted = [...datesToAggregate].sort();
     return {
       datesToAggregate,
-      dateFrom: sorted[0] ?? '',
-      dateTo: sorted[sorted.length - 1] ?? '',
+      dateFrom: fallbackSorted[0] ?? '',
+      dateTo: fallbackSorted[fallbackSorted.length - 1] ?? '',
     };
   };
 
   const handleProcessOrView = () => {
-    if (!fromDate || !toDate) {
-      setProcessError('Select From Date and To Date, then click Process.');
-      setDailySummary({});
-      return;
-    }
     const effectiveFrom = fromDate;
     const effectiveTo = toDate;
     setCalendarMonth(new Date(effectiveFrom + 'T12:00:00'));
+    openModalOnComplete.current = true;
     runProcess({ fromDate: effectiveFrom, toDate: effectiveTo });
-    // Select checkboxes only when user explicitly chose From Date and To Date
-    if (fromDate && toDate) {
-      setSelectedDays(new Set(getDateKeysInRange(effectiveFrom, effectiveTo)));
-    } else {
-      setSelectedDays(new Set());
-    }
   };
 
   const handleFilter = () => {
@@ -725,7 +799,7 @@ export default function ValidationProcessPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={handleProcessOrView}
+                      onClick={() => loadCalendarSummary()}
                       disabled={loadingProcess || !organizationId}
                       className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -769,12 +843,6 @@ export default function ValidationProcessPage() {
                     </button>
                     <button
                       type="button"
-                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      <span className="font-semibold">×</span> All
-                    </button>
-                    <button
-                      type="button"
                       onClick={handleFilter}
                       disabled={loadingProcess || !organizationId}
                       className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -783,24 +851,6 @@ export default function ValidationProcessPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V20l-4-4v-4.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                       </svg>
                       Filter
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Reset
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Export
                     </button>
                   </div>
 
@@ -864,11 +914,11 @@ export default function ValidationProcessPage() {
                                 return (
                                   <td
                                     key={di}
-                                    role={isFutureDate ? undefined : 'button'}
-                                    tabIndex={isFutureDate ? undefined : 0}
-                                    onClick={() => !isFutureDate && setSelectedDateForModal(dateKey)}
-                                    onKeyDown={(e) => !isFutureDate && e.key === 'Enter' && setSelectedDateForModal(dateKey)}
-                                    className={`border border-gray-200 align-top p-1.5 min-w-[120px] ${isFutureDate ? 'cursor-default opacity-40' : 'cursor-pointer hover:ring-1 hover:ring-blue-300'} ${cellBg}`}
+                                    role={isFutureDate || !hasProcessed ? undefined : 'button'}
+                                    tabIndex={isFutureDate || !hasProcessed ? undefined : 0}
+                                    onClick={() => !isFutureDate && hasProcessed && setSelectedDateForModal(dateKey)}
+                                    onKeyDown={(e) => !isFutureDate && hasProcessed && e.key === 'Enter' && setSelectedDateForModal(dateKey)}
+                                    className={`border border-gray-200 align-top p-1.5 min-w-[120px] ${isFutureDate ? 'cursor-default opacity-40' : hasProcessed ? 'cursor-pointer hover:ring-1 hover:ring-blue-300' : ''} ${cellBg}`}
                                   >
                                     <div className="flex items-start gap-1 mb-1">
                                       {!isFutureDate && (
@@ -1017,7 +1067,7 @@ export default function ValidationProcessPage() {
                                         <button
                                           type="button"
                                           className="p-1.5 rounded text-gray-500 hover:bg-gray-100 focus:ring-2 focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                                          disabled={count === 0}
+                                          disabled={count === 0 || key === 'completed'}
                                           onClick={() => {
                                             const params: Record<string, string> = { type: key };
                                             if (dateFrom && dateTo) {

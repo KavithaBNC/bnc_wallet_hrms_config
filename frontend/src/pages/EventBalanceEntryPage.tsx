@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import Modal from '../components/common/Modal';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 interface LeaveTypeOption {
   id: string;
@@ -49,8 +50,8 @@ export default function EventBalanceEntryPage() {
   const navigate = useNavigate();
   const { user, loadUser, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const role = (user?.role || '').toUpperCase();
-  const isHr = role === 'HR_MANAGER';
+  const eventPerms = getModulePermissions('/event-configuration');
+  const isHr = eventPerms.can_edit;
 
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const currentYear = new Date().getFullYear();

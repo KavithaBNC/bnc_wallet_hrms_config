@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import AppHeader from '../components/layout/AppHeader';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { attendanceService, type CompOffRequestDetails, type CompOffRequestItem } from '../services/attendance.service';
 import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
@@ -29,8 +30,8 @@ function fmtDateTime(value?: string | Date | null): string {
 
 export default function ExcessTimeApprovalPage() {
   const { user, logout } = useAuthStore();
-  const role = String(user?.role || '').toUpperCase();
-  const canAccess = role === 'MANAGER' || role === 'HR_MANAGER';
+  const attendancePerms = getModulePermissions('/attendance');
+  const canAccess = attendancePerms.can_view;
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,10 +51,10 @@ export default function ExcessTimeApprovalPage() {
   const loadEmployees = useCallback(async () => {
     if (!organizationId || !canAccess) return;
     const params: any = { organizationId, page: 1, limit: 1000, employeeStatus: 'ACTIVE' };
-    if (role === 'MANAGER' && user?.employee?.id) params.reportingManagerId = user.employee.id;
+    if (!attendancePerms.can_edit && attendancePerms.can_view && user?.employee?.id) params.reportingManagerId = user.employee.id;
     const res = await employeeService.getAll(params);
     setEmployees(res.employees || []);
-  }, [organizationId, canAccess, role, user?.employee?.id]);
+  }, [organizationId, canAccess, attendancePerms.can_edit, attendancePerms.can_view, user?.employee?.id]);
 
   const loadRequests = useCallback(async () => {
     if (!organizationId || !canAccess) {

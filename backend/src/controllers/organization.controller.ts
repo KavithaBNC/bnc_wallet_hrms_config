@@ -3,6 +3,7 @@ import { organizationService } from '../services/organization.service';
 import { organizationModuleService } from '../services/organization-module.service';
 import { prisma } from '../utils/prisma';
 import { AppError } from '../middlewares/errorHandler';
+import { userHasPermission } from '../utils/permission-cache';
 
 export class OrganizationController {
   /**
@@ -155,7 +156,8 @@ export class OrganizationController {
   async getModules(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      if (req.user?.role === 'ORG_ADMIN') {
+      const hasFullOrgAccess = req.user?.userId ? userHasPermission(req.user.userId, '/organizations', 'can_edit') : false;
+      if (!hasFullOrgAccess && req.user?.userId) {
         const employee = await prisma.employee.findUnique({
           where: { userId: req.user.userId },
           select: { organizationId: true },

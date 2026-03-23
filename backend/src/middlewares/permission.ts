@@ -8,19 +8,65 @@ import { AppError } from './errorHandler';
  * returned by the Configurator API (POST /api/v1/user-role-modules/project).
  */
 const RESOURCE_TO_PATH: Record<string, string> = {
+  // Employees
   employees: '/employees',
   employee_salaries: '/employee-salaries',
-  salary_structures: '/salary-structures',
-  payroll: '/payroll',
-  departments: '/department-masters',
-  permissions: '/permissions',
-  attendance: '/attendance',
-  leaves: '/leave',
-  shifts: '/time-attendance/shift-master',
-  employee_separations: '/payroll/employee-separation',
   employee_rejoin: '/employees',
-  esop: '/esop',
+  employee_change_requests: '/employees',
+
+  // Departments & Organization structure
+  departments: '/department-masters',
+  sub_departments: '/department-masters',
+  entities: '/department-masters',
+  cost_centres: '/cost-centre-department',
+  job_positions: '/employees',
   organizations: '/organizations',
+
+  // Attendance & Time
+  attendance: '/attendance',
+  attendance_components: '/attendance',
+  monthly_attendance_summary: '/attendance',
+  validation_process: '/hr-activities/validation-process',
+  shift_assignment_rules: '/time-attendance/shift-master',
+  shifts: '/time-attendance/shift-master',
+
+  // Leave / Event
+  leaves: '/leave',
+  leave_types: '/event-configuration',
+  leave_balances: '/leave',
+  leave_policies: '/event-configuration',
+  auto_credit_settings: '/event-configuration',
+  encashment_carry_forward: '/event-configuration',
+  rights_allocations: '/event-configuration',
+
+  // Payroll
+  payroll: '/payroll',
+  salary_structures: '/salary-structures',
+  paygroups: '/payroll-master',
+  post_to_payroll: '/hr-activities/post-to-payroll',
+  compliance_reports: '/payroll',
+  statutory_config: '/payroll-master',
+  loans: '/payroll',
+
+  // Employee Lifecycle
+  employee_separations: '/payroll/employee-separation',
+  fnf_settlements: '/payroll/employee-separation',
+  transfer_promotions: '/transaction/transfer-promotions',
+  transfer_promotion_entries: '/transaction/transfer-promotions',
+
+  // HR Config
+  approval_workflows: '/others-configuration',
+  workflow_mappings: '/others-configuration',
+  rule_settings: '/attendance-policy',
+  validation_process_rules: '/attendance-policy',
+  holidays: '/others-configuration',
+
+  // ESOP
+  esop: '/esop',
+
+  // Permissions & Auth
+  permissions: '/permissions',
+  auth: '/employees',
 };
 
 /**

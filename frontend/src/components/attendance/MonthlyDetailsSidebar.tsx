@@ -46,6 +46,7 @@ interface MonthlyDetailsSidebarProps {
   employeeId: string | undefined;
   year: number;
   month: number;
+  employeeName?: string;
 }
 
 type ApplyTab = 'Leave' | 'Onduty' | 'Permission';
@@ -82,6 +83,7 @@ export default function MonthlyDetailsSidebar({
   employeeId,
   year,
   month,
+  employeeName,
 }: MonthlyDetailsSidebarProps) {
   const [data, setData] = useState<MonthlyDetailsData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -227,7 +229,7 @@ export default function MonthlyDetailsSidebar({
               onClick={() => {
                 setApplyTab(tab);
                 navigate('/attendance/apply-event', {
-                  state: { employeeId, year, month, applyTab: tab },
+                  state: { employeeId, year, month, applyTab: tab, employeeName },
                 });
               }}
               className={`px-3 py-1.5 rounded text-sm font-medium ${

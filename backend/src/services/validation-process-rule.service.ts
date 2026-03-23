@@ -295,9 +295,11 @@ export class ValidationProcessRuleService {
     shiftId?: string | null;
     attendanceDate: Date;
     validationGrouping: string;
+    /** When true, rules whose displayName is "No Correction" are excluded — used when user explicitly chose "As Per Rule" */
+    excludeNoCorrectionRules?: boolean;
   }) {
     try {
-      const baseRules = await prisma.validationProcessRule.findMany({
+      let baseRules = await prisma.validationProcessRule.findMany({
         where: {
           organizationId: params.organizationId,
           validationGrouping: params.validationGrouping,
@@ -309,6 +311,12 @@ export class ValidationProcessRuleService {
           actions: true,
         },
       });
+
+      // When user explicitly chose "As Per Rule", skip rules named "No Correction"
+      if (params.excludeNoCorrectionRules) {
+        const noCorrNames = new Set(['no correction', 'no_correction', 'nocorrection']);
+        baseRules = baseRules.filter((r) => !noCorrNames.has(r.displayName.trim().toLowerCase()));
+      }
 
       if (!baseRules.length) return null;
 
@@ -470,7 +478,14 @@ export class ValidationProcessRuleService {
         }
       }
 
-      return sorted[sorted.length - 1];
+      // Gap: no action range covers lateMinutes.
+      // Use the action with the highest maxMinutes that is still below lateMinutes (nearest lower bound).
+      const lowerBound = sorted
+        .filter((a) => a.maxMinutes != null && a.maxMinutes < lateMinutes)
+        .sort((a, b) => (b.maxMinutes ?? 0) - (a.maxMinutes ?? 0))[0];
+      if (lowerBound) return lowerBound;
+      // All actions start above lateMinutes — return the first (lowest) action.
+      return sorted[0];
     } catch {
       return null;
     }

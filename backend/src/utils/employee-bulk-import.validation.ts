@@ -34,4 +34,8 @@ export interface BulkImportResult {
     updated: number;
     failed: number;
   };
+  /** Status of Configurator sync: 'success' | 'failed' | 'skipped' */
+  configuratorSyncStatus?: 'success' | 'failed' | 'skipped';
+  /** Message about Configurator sync outcome */
+  configuratorSyncMessage?: string;
 }

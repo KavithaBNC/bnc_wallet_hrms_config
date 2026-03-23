@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { EncashmentCarryForwardController } from '../controllers/encashment-carry-forward.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -18,7 +19,7 @@ router.use(enforceOrganizationAccess);
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('encashment_carry_forward', 'create'),
   controller.create.bind(controller)
 );
 
@@ -49,7 +50,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('encashment_carry_forward', 'update'),
   controller.update.bind(controller)
 );
 
@@ -60,7 +61,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('encashment_carry_forward', 'delete'),
   controller.delete.bind(controller)
 );
 

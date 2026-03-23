@@ -131,7 +131,11 @@ export async function getLeaveTypeIdsWithBalance(
 ): Promise<Set<string>> {
   const [components, leaveTypes] = await Promise.all([
     prisma.attendanceComponent.findMany({
-      where: { organizationId, eventCategory: 'Leave', hasBalance: true },
+      where: {
+        organizationId,
+        eventCategory: 'Leave',
+        OR: [{ hasBalance: true }, { allowAutoCreditRule: true }],
+      },
       select: { eventName: true, shortName: true },
     }),
     prisma.leaveType.findMany({

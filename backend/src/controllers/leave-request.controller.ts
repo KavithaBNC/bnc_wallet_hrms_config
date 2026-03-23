@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { leaveRequestService } from '../services/leave-request.service';
 import { prisma } from '../utils/prisma';
+import { userHasPermission } from '../utils/permission-cache';
 
 export class LeaveRequestController {
   /**
@@ -49,6 +50,7 @@ export class LeaveRequestController {
   /**
    * Get leave apply hint (opening/available/fixed range)
    * GET /api/v1/leaves/requests/apply-hint
+   * HR can pass ?targetEmployeeId=<id> to see another employee's balance
    */
   async getApplyHint(req: Request, res: Response, next: NextFunction) {
     try {
@@ -60,16 +62,26 @@ export class LeaveRequestController {
         });
       }
 
-      const employee = await prisma.employee.findUnique({
-        where: { userId },
-        select: { id: true },
-      });
+      const targetEmployeeIdParam = String(req.query.targetEmployeeId || '');
+      const isHR = userHasPermission(userId, '/leave', 'can_edit');
 
-      if (!employee) {
-        return res.status(404).json({
-          status: 'fail',
-          message: 'Employee profile not found',
+      let employeeId: string;
+
+      if (isHR && targetEmployeeIdParam) {
+        // HR viewing another employee's balance hint
+        employeeId = targetEmployeeIdParam;
+      } else {
+        const employee = await prisma.employee.findUnique({
+          where: { userId },
+          select: { id: true },
         });
+        if (!employee) {
+          return res.status(404).json({
+            status: 'fail',
+            message: 'Employee profile not found',
+          });
+        }
+        employeeId = employee.id;
       }
 
       const leaveTypeId = String(req.query.leaveTypeId || '');
@@ -81,10 +93,52 @@ export class LeaveRequestController {
         });
       }
 
-      const data = await leaveRequestService.getApplyHint(employee.id, { leaveTypeId, startDate });
+      const data = await leaveRequestService.getApplyHint(employeeId, { leaveTypeId, startDate });
       return res.status(200).json({
         status: 'success',
         data,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
+   * HR direct leave assignment — auto-approved, no workflow
+   * POST /api/v1/leaves/hr-assign
+   */
+  async hrAssign(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.userId;
+      const role = req.user?.role;
+
+      if (!userId) {
+        return res.status(401).json({
+          status: 'fail',
+          message: 'Authentication required',
+        });
+      }
+
+      const { targetEmployeeId, ...leaveData } = req.body;
+
+      if (!targetEmployeeId) {
+        return res.status(400).json({
+          status: 'fail',
+          message: 'targetEmployeeId is required',
+        });
+      }
+
+      const leaveRequest = await leaveRequestService.createByHR(
+        userId,
+        targetEmployeeId,
+        leaveData,
+        role
+      );
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'Leave assigned successfully',
+        data: { leaveRequest },
       });
     } catch (error) {
       return next(error);

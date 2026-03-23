@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PostToPayrollController } from '../controllers/post-to-payroll.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -21,15 +22,15 @@ router.get('/post-status', controller.getPostStatus.bind(controller));
 router.get('/variable-input-entry', controller.getVariableInputEntry.bind(controller));
 router.post(
   '/variable-input-entry',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('post_to_payroll', 'create'),
   controller.saveVariableInputEntry.bind(controller)
 );
-router.post('/post-month', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), controller.postMonth.bind(controller));
-router.delete('/unpost-month', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), controller.unpostMonth.bind(controller));
+router.post('/post-month', checkPermission('post_to_payroll', 'create'), controller.postMonth.bind(controller));
+router.delete('/unpost-month', checkPermission('post_to_payroll', 'delete'), controller.unpostMonth.bind(controller));
 
 router.post(
   '/save',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('post_to_payroll', 'create'),
   controller.saveAll.bind(controller)
 );
 

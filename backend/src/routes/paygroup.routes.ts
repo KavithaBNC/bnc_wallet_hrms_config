@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { paygroupController } from '../controllers/paygroup.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import { queryPaygroupsSchema, createPaygroupSchema } from '../utils/paygroup.validation';
@@ -28,7 +29,7 @@ router.get(
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('paygroups', 'create'),
   validate(createPaygroupSchema),
   paygroupController.create.bind(paygroupController)
 );

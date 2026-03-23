@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { authController } from '../controllers/auth.controller';
 import { validate } from '../middlewares/validate';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import {
   registerSchema,
   configuratorLoginSchema,
@@ -148,7 +149,7 @@ router.get('/modules', authenticate, authController.getMyModules.bind(authContro
 router.post(
   '/admin/reset-password/:employeeId',
   authenticate,
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('auth', 'update'),
   authController.adminResetPassword.bind(authController)
 );
 

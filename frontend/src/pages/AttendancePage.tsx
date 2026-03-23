@@ -8,6 +8,7 @@ import AppHeader from '../components/layout/AppHeader';
 import shiftService, { Shift } from '../services/shift.service';
 import shiftAssignmentRuleService from '../services/shiftAssignmentRule.service';
 import MonthlyDetailsSidebar from '../components/attendance/MonthlyDetailsSidebar';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { startOfMonth, endOfMonth, eachDayOfInterval, format, isToday, getDay, addMonths } from 'date-fns';
 
 interface AttendanceRecord {
@@ -1138,16 +1139,17 @@ const AttendancePage = () => {
   const [lateEarlyPolicy, setLateEarlyPolicy] = useState<LateEarlyPolicy>(null);
   const [showLeaveAppliedBanner, setShowLeaveAppliedBanner] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  // Check if user is a manager
-  const isManager = user?.role === 'MANAGER';
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const canViewTeamAttendance = isManager || isHRManager || isOrgAdmin;
-  const canSyncBiometric = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
-  const canManualPunch = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN';
-  // HR-only: calendar view requires selecting one employee (no "all employees" by default)
-  const isHRForCalendar = isHRManager || isOrgAdmin;
-  const canChooseEmployeeCompOffSummary = isHRManager || isOrgAdmin || user?.role === 'SUPER_ADMIN' || isManager;
+  // Permission-based access checks
+  const attendancePerms = getModulePermissions('/attendance');
+  const canViewTeamAttendance = attendancePerms.can_view;
+  const canSyncBiometric = attendancePerms.can_edit;
+  const canManualPunch = attendancePerms.can_edit;
+  // Calendar view requires selecting one employee (no "all employees" by default)
+  // Team-level users get this dropdown but filtered to their team only
+  const isHRForCalendar = attendancePerms.can_view;
+  const canChooseEmployeeCompOffSummary = attendancePerms.can_view;
+  // Team-level only: can view but cannot edit (e.g. managers see only their direct reports)
+  const isTeamLevelOnly = attendancePerms.can_view && !attendancePerms.can_edit;
 
   // HR-only: single-employee selection for calendar/table (searchable dropdown); restore from URL on refresh
   const employeeIdFromUrl = searchParams.get('employeeId') || null;
@@ -1302,12 +1304,18 @@ const AttendancePage = () => {
     return () => clearTimeout(t);
   }, [showLeaveAppliedBanner]);
 
-  // HR-only: fetch employees for searchable dropdown when in team view
+  // Fetch employees for searchable dropdown when in team view
+  // Managers: filtered to their direct reports only (reportingManagerId)
+  // HR/Admin: all active employees in the organization
   useEffect(() => {
     if (!isHRForCalendar || viewMode !== 'team' || !orgId) return;
     let cancelled = false;
     setLoadingEmployees(true);
-    employeeService.getAll({ organizationId: orgId, limit: 500, employeeStatus: 'ACTIVE' })
+    const query: Record<string, unknown> = { organizationId: orgId, limit: 500, employeeStatus: 'ACTIVE' };
+    if (isTeamLevelOnly && user?.employee?.id) {
+      query.reportingManagerId = user.employee.id;
+    }
+    employeeService.getAll(query)
       .then((data) => {
         if (!cancelled) setEmployeeList(data.employees || []);
       })
@@ -1318,7 +1326,7 @@ const AttendancePage = () => {
         if (!cancelled) setLoadingEmployees(false);
       });
     return () => { cancelled = true; };
-  }, [isHRForCalendar, viewMode, orgId]);
+  }, [isHRForCalendar, viewMode, orgId, isTeamLevelOnly, user?.employee?.id]);
 
   // Fetch current attendance policy (Late & Others). Used for read-time shortfall/Late/Early display.
   // Call this after changing policy in UI so calendar reflects the new setting without full page reload.
@@ -1950,7 +1958,7 @@ const AttendancePage = () => {
                               const emp = employeeList.find((e) => e.id === selectedEmployeeId);
                               return emp ? `Attendance: ${emp.firstName} ${emp.lastName}` : 'Attendance';
                             })()
-                          : isManager ? 'Team Attendance' : 'All Employees Attendance')
+                          : isTeamLevelOnly ? 'Team Attendance' : 'All Employees Attendance')
                       : 'My Attendance Records')
                   : 'My Attendance Records'}
               </h2>
@@ -2005,7 +2013,7 @@ const AttendancePage = () => {
                             : 'text-gray-600 hover:text-gray-900'
                         }`}
                       >
-                        {isManager ? '👥 Team' : '👥 All Employees'}
+                        {isTeamLevelOnly ? '👥 Team' : '👥 All Employees'}
                       </button>
                       <button
                         onClick={() => setViewMode('my')}
@@ -2018,14 +2026,9 @@ const AttendancePage = () => {
                         👤 My Records
                       </button>
                     </div>
-                    {viewMode === 'team' && !isHRForCalendar && (
-                      <span className="text-sm text-gray-600 bg-blue-50 px-3 py-1 rounded-full">
-                        📊 Viewing your team members
-                      </span>
-                    )}
-                {viewMode === 'team' && isHRForCalendar && (
+                    {viewMode === 'team' && isHRForCalendar && (
                       <span className="text-sm text-gray-600 bg-amber-50 px-3 py-1 rounded-full">
-                        Select one employee below to view attendance
+                        {isTeamLevelOnly ? 'Select a team member below to view attendance' : 'Select one employee below to view attendance'}
                       </span>
                     )}
                     {viewMode === 'my' && (
@@ -2156,6 +2159,14 @@ const AttendancePage = () => {
                 employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : (selectedEmployeeId || user?.employee?.id)}
                 year={currentMonth.getFullYear()}
                 month={currentMonth.getMonth() + 1}
+                employeeName={
+                  viewMode !== 'my' && canViewTeamAttendance && selectedEmployeeId
+                    ? (() => {
+                        const emp = employeeList.find(e => e.id === selectedEmployeeId);
+                        return emp ? `${emp.firstName} ${emp.lastName}` : undefined;
+                      })()
+                    : undefined
+                }
               />
             </div>
           ) : (viewMode === 'my' ? myRecords : records).length === 0 ? (

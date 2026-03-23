@@ -5,6 +5,8 @@ import { prisma } from '../utils/prisma';
 import { emailService } from './email.service';
 import { leavePolicyService } from './leave-policy.service';
 import { logger } from '../utils/logger';
+import { userHasPermission } from '../utils/permission-cache';
+import { getDataScope } from '../utils/data-scope';
 import {
   CreateLeaveRequestInput,
   UpdateLeaveRequestInput,
@@ -155,12 +157,12 @@ export class LeaveRequestService {
   /**
    * Validate whether current reviewer can act on the leave request.
    * - Assigned approver can always act
-   * - HR_MANAGER / ORG_ADMIN can act within same organization
-   * - SUPER_ADMIN is also allowed (still requires linked employee record for audit trail)
+   * - Users with can_edit on /leave can act within same organization (HR/OrgAdmin level)
+   * - Users with can_edit on /organizations can act cross-org (Super Admin level)
    */
   private async validateReviewerAccess(
     reviewerId: string,
-    reviewerRole: string | undefined,
+    _reviewerRole: string | undefined,
     leaveRequest: {
       assignedApproverEmployeeId?: string | null;
       employee: { reportingManagerId?: string | null; organizationId: string };
@@ -178,12 +180,13 @@ export class LeaveRequestService {
     const assignedApproverId =
       leaveRequest.assignedApproverEmployeeId ?? leaveRequest.employee.reportingManagerId;
     const isAssignedApprover = assignedApproverId === reviewerEmployee.id;
+    const hasLeaveEditAccess = userHasPermission(reviewerId, '/leave', 'can_edit');
     const isOrgHrApprover =
-      (reviewerRole === 'HR_MANAGER' || reviewerRole === 'ORG_ADMIN') &&
+      hasLeaveEditAccess &&
       reviewerEmployee.organizationId === leaveRequest.employee.organizationId;
-    const isSuperAdmin = reviewerRole === 'SUPER_ADMIN';
+    const hasCrossOrgAccess = userHasPermission(reviewerId, '/organizations', 'can_edit');
 
-    if (!isAssignedApprover && !isOrgHrApprover && !isSuperAdmin) {
+    if (!isAssignedApprover && !isOrgHrApprover && !hasCrossOrgAccess) {
       throw new AppError(
         'Access denied. You are not the assigned approver for this request.',
         403
@@ -1116,6 +1119,328 @@ export class LeaveRequestService {
     return leaveRequest;
   }
 
+  /**
+   * HR direct leave assignment — creates leave as APPROVED immediately, bypassing approval workflow.
+   * Roles allowed: HR_MANAGER, ORG_ADMIN, SUPER_ADMIN.
+   */
+  async createByHR(
+    hrUserId: string,
+    targetEmployeeId: string,
+    data: CreateLeaveRequestInput,
+    _requesterRole?: string
+  ) {
+    // Dynamic permission check: user must have can_add on /leave to directly assign leave
+    if (!userHasPermission(hrUserId, '/leave', 'can_add')) {
+      throw new AppError('You do not have permission to directly assign leave.', 403);
+    }
+
+    // Fetch HR employee record for audit trail
+    const hrEmployee = await prisma.employee.findUnique({
+      where: { userId: hrUserId },
+      select: { id: true, organizationId: true, userId: true },
+    });
+    if (!hrEmployee) {
+      throw new AppError('HR employee record not found', 404);
+    }
+
+    // Fetch target employee
+    const employee = await prisma.employee.findUnique({
+      where: { id: targetEmployeeId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        organizationId: true,
+        reportingManagerId: true,
+        paygroupId: true,
+        departmentId: true,
+        employeeCode: true,
+        dateOfJoining: true,
+      },
+    });
+    if (!employee) {
+      throw new AppError('Target employee not found', 404);
+    }
+
+    // Verify same organization (users with org-level access can cross orgs)
+    if (!userHasPermission(hrUserId, '/organizations', 'can_edit') && hrEmployee.organizationId !== employee.organizationId) {
+      throw new AppError('You can only assign leave for employees in your organization.', 403);
+    }
+
+    // Verify leave type
+    const leaveType = await prisma.leaveType.findUnique({ where: { id: data.leaveTypeId } });
+    if (!leaveType) throw new AppError('Leave type not found', 404);
+    if (!leaveType.isActive) throw new AppError('Leave type is not active', 400);
+    if (leaveType.organizationId !== employee.organizationId) {
+      throw new AppError('Leave type does not belong to the employee\'s organization', 403);
+    }
+
+    // Parse and validate dates
+    const startDate = this.parseDateOnly(data.startDate);
+    const endDate = this.parseDateOnly(data.endDate);
+    if (endDate < startDate) {
+      throw new AppError('Leave end date cannot be earlier than start date', 400);
+    }
+
+    // Month lock check
+    const uniqueMonths = new Set<string>();
+    const dateCursor = new Date(startDate);
+    while (dateCursor <= endDate) {
+      uniqueMonths.add(`${dateCursor.getUTCFullYear()}-${dateCursor.getUTCMonth() + 1}`);
+      dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    }
+    for (const key of uniqueMonths) {
+      const [year, month] = key.split('-').map(Number);
+      const locked = await monthlyAttendanceSummaryService.isMonthLocked(
+        employee.organizationId,
+        year,
+        month
+      );
+      if (locked) {
+        throw new AppError(
+          `Month ${year}-${String(month).padStart(2, '0')} is locked. Unlock attendance first.`,
+          400
+        );
+      }
+    }
+
+    // Validation lock check
+    const allDatesInRange: Date[] = [];
+    const dateCursor2 = new Date(startDate);
+    while (dateCursor2 <= endDate) {
+      allDatesInRange.push(new Date(dateCursor2));
+      dateCursor2.setUTCDate(dateCursor2.getUTCDate() + 1);
+    }
+    const validationResultDates = await prisma.attendanceValidationResult.findMany({
+      where: {
+        organizationId: employee.organizationId,
+        employeeId: targetEmployeeId,
+        date: { in: allDatesInRange },
+      },
+      select: { date: true },
+    });
+    if (validationResultDates.length > 0) {
+      const blockedDateStrings = validationResultDates
+        .map(v => v.date.toISOString().split('T')[0])
+        .join(', ');
+      throw new AppError(
+        `Validation already run for date(s): ${blockedDateStrings}. Cannot apply event to closed period.`,
+        400
+      );
+    }
+
+    // Overlap check
+    const overlapCheck = await this.checkOverlap(targetEmployeeId, startDate, endDate);
+    if (overlapCheck.hasConflict && overlapCheck.conflictingRequest) {
+      const conflict = overlapCheck.conflictingRequest;
+      const leaveTypeName = conflict.leaveType?.name || 'Unknown';
+      throw new AppError(
+        `Employee already has a ${conflict.status.toLowerCase()} leave request (${leaveTypeName}) from ${conflict.startDate.toISOString().split('T')[0]} to ${conflict.endDate.toISOString().split('T')[0]}`,
+        400
+      );
+    }
+
+    // Blackout check
+    const blackoutCheck = await this.checkBlackoutPeriods(
+      employee.organizationId,
+      data.leaveTypeId,
+      startDate,
+      endDate
+    );
+    if (blackoutCheck.hasBlackout) {
+      throw new AppError(blackoutCheck.reason || 'Leave not allowed during this period', 400);
+    }
+
+    // Resolve attendance component
+    const component = await getAttendanceComponentForLeaveType(employee.organizationId, leaveType);
+
+    // Calculate totalDays
+    const computedCalendarDays = this.calculateCalendarDays(startDate, endDate);
+    const computedEligibleDays = await this.countEligibleDaysInRange(
+      targetEmployeeId,
+      employee.organizationId,
+      startDate,
+      endDate,
+      component?.allowWeekOffSelection ?? true,
+      component?.allowHolidaySelection ?? true
+    );
+    const shouldCountCalendarDays =
+      !!component && !!component.allowWeekOffSelection && !!component.allowHolidaySelection;
+    const totalDays =
+      data.totalDays != null
+        ? data.totalDays
+        : shouldCountCalendarDays
+          ? computedCalendarDays
+          : component
+            ? computedEligibleDays
+            : this.calculateTotalDays(startDate, endDate);
+
+    if (totalDays <= 0) {
+      throw new AppError('Selected date range has no eligible leave days.', 400);
+    }
+
+    // Balance check (HR can still be blocked by zero balance unless canBeNegative)
+    const year = startDate.getUTCFullYear();
+    const isOndutyMarkedRequest = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(data.reason || '');
+    const hrEntryRequiredLeave = this.isHrEntryRequiredLeaveType(leaveType);
+    const shouldCheckBalance =
+      !isOndutyMarkedRequest && (hrEntryRequiredLeave || component === null || component.hasBalance);
+    const shouldDeductBalance = shouldCheckBalance;
+
+    if (shouldCheckBalance) {
+      const balance = await this.getOrCreateLeaveBalance(targetEmployeeId, data.leaveTypeId, year);
+      const availableDays = parseFloat(balance.available.toString());
+      if (this.isFixedDurationLeaveType(leaveType) && availableDays <= 0) {
+        throw new AppError(`${leaveType.name} balance is exhausted.`, 400);
+      }
+      if (totalDays > availableDays && !leaveType.canBeNegative) {
+        throw new AppError(
+          `Insufficient leave balance. Available: ${availableDays} days, Requested: ${totalDays} days`,
+          400
+        );
+      }
+    }
+
+    // Create leave request directly as APPROVED
+    const leaveRequest = await prisma.leaveRequest.create({
+      data: {
+        employee: { connect: { id: targetEmployeeId } },
+        leaveType: { connect: { id: data.leaveTypeId } },
+        startDate,
+        endDate,
+        totalDays: new Prisma.Decimal(totalDays),
+        reason: data.reason,
+        supportingDocuments: data.supportingDocuments || undefined,
+        status: LeaveStatus.APPROVED,
+        reviewedBy: hrEmployee.userId,
+        reviewedAt: new Date(),
+        approvalHistory: [
+          {
+            level: 0,
+            approverEmployeeId: hrEmployee.id,
+            reviewedAt: new Date().toISOString(),
+            action: 'APPROVED_BY_HR',
+          },
+        ],
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            employeeCode: true,
+          },
+        },
+        leaveType: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            isPaid: true,
+          },
+        },
+      },
+    });
+
+    // Immediately deduct leave balance
+    if (shouldDeductBalance) {
+      const balance = await this.getOrCreateLeaveBalance(targetEmployeeId, data.leaveTypeId, year);
+      const usedDays = parseFloat(balance.used.toString()) + totalDays;
+      const availableDays = parseFloat(balance.available.toString()) - totalDays;
+      await prisma.employeeLeaveBalance.update({
+        where: {
+          employeeId_leaveTypeId_year: {
+            employeeId: targetEmployeeId,
+            leaveTypeId: data.leaveTypeId,
+            year,
+          },
+        },
+        data: {
+          used: new Prisma.Decimal(usedDays),
+          available: new Prisma.Decimal(Math.max(0, availableDays)),
+        },
+      });
+    }
+
+    // Create attendance records for each day
+    const leaveTypeKey = `${leaveType.name || ''} ${leaveType.code || ''}`.toLowerCase();
+    const isOndutyOrWorkFromHome =
+      leaveTypeKey.includes('on duty') ||
+      leaveTypeKey.includes('onduty') ||
+      leaveTypeKey.includes('work from home') ||
+      leaveTypeKey.includes('wfh');
+    const approvedAttendanceStatus = isOndutyOrWorkFromHome ? AttendanceStatus.PRESENT : AttendanceStatus.LEAVE;
+    const approvedAttendanceNote = isOndutyOrWorkFromHome
+      ? `Present: Full Day (${leaveType.name ?? 'On Duty'})`
+      : `Leave: ${leaveType.name ?? 'Approved leave'}`;
+    const allowWeekOffSelection = component?.allowWeekOffSelection ?? true;
+    const allowHolidaySelection = component?.allowHolidaySelection ?? true;
+
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateOnly = new Date(d);
+      dateOnly.setHours(0, 0, 0, 0);
+      let statusForDay: AttendanceStatus = approvedAttendanceStatus;
+      let notesForDay = approvedAttendanceNote;
+
+      if (!isOndutyOrWorkFromHome) {
+        const isWeekOff = !allowWeekOffSelection
+          ? await this.isWeekOffForEmployee(targetEmployeeId, employee.organizationId, dateOnly)
+          : false;
+        const isHoliday = !allowHolidaySelection
+          ? await this.isHoliday(employee.organizationId, dateOnly)
+          : false;
+
+        if (isWeekOff) {
+          statusForDay = AttendanceStatus.WEEKEND;
+          notesForDay = 'Week Off';
+        } else if (isHoliday) {
+          statusForDay = AttendanceStatus.HOLIDAY;
+          notesForDay = 'Holiday';
+        }
+      }
+
+      await prisma.attendanceRecord.upsert({
+        where: {
+          employeeId_date: { employeeId: targetEmployeeId, date: dateOnly },
+        },
+        create: {
+          employeeId: targetEmployeeId,
+          date: dateOnly,
+          status: statusForDay,
+          notes: notesForDay,
+        },
+        update: {
+          status: statusForDay,
+          notes: notesForDay,
+        },
+      });
+    }
+
+    // Rebuild attendance summaries for affected months
+    const affectedMonths = new Set<string>();
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      affectedMonths.add(`${d.getUTCFullYear()}-${d.getUTCMonth() + 1}`);
+    }
+    for (const key of affectedMonths) {
+      const [y, m] = key.split('-').map(Number);
+      await monthlyAttendanceSummaryService.tryRebuildSummaryForDate(
+        employee.organizationId,
+        targetEmployeeId,
+        new Date(y, m - 1, 15)
+      );
+    }
+
+    return leaveRequest;
+  }
+
   async getApplyHint(employeeId: string, query: { leaveTypeId: string; startDate: string }) {
     const employee = await prisma.employee.findUnique({
       where: { id: employeeId },
@@ -1184,7 +1509,7 @@ export class LeaveRequestService {
    * @param userId - User ID for role-based filtering
    * @param userRole - User role for RBAC filtering
    */
-  async getAll(query: QueryLeaveRequestsInput, userId?: string, userRole?: string) {
+  async getAll(query: QueryLeaveRequestsInput, userId?: string, _userRole?: string) {
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
     const skip = (page - 1) * limit;
@@ -1201,24 +1526,24 @@ export class LeaveRequestService {
       });
 
       if (employee) {
-        // RBAC: EMPLOYEE can only see their own requests (self-service)
-        if (userRole === 'EMPLOYEE') {
-          where.employeeId = employee.id;
-        }
-        // RBAC: MANAGER can only see requests from their team (subordinates)
-        else if (userRole === 'MANAGER') {
-          where.employee = {
-            reportingManagerId: employee.id, // Only show requests from employees who report to this manager
-            organizationId: query.organizationId,
-          };
-        }
-        // HR_MANAGER and ORG_ADMIN can see all requests in their organization
-        else if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN') {
+        // Dynamic RBAC scoping via Config API permissions
+        const scope = getDataScope(userId!, '/leave');
+        if (scope === 'org') {
+          // can_edit on /leave → org-wide access (HR/OrgAdmin level)
           if (query.organizationId) {
             where.employee = {
               organizationId: query.organizationId,
             };
           }
+        } else if (scope === 'team') {
+          // can_view on /leave → team access (Manager level)
+          where.employee = {
+            reportingManagerId: employee.id,
+            organizationId: query.organizationId,
+          };
+        } else {
+          // No special permission → self-service only (Employee level)
+          where.employeeId = employee.id;
         }
       }
     }

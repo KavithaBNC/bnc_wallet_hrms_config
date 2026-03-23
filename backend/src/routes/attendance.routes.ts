@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import { attendanceController } from '../controllers/attendance.controller';
@@ -81,7 +82,7 @@ router.post('/face-punch', attendanceController.facePunch.bind(attendanceControl
  */
 router.post(
   '/manual',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('attendance', 'create'),
   validate(manualPunchSchema),
   attendanceController.manualPunch.bind(attendanceController)
 );
@@ -93,7 +94,7 @@ router.post(
  */
 router.post(
   '/card',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('attendance', 'create'),
   validate(cardPunchSchema),
   attendanceController.cardPunch.bind(attendanceController)
 );
@@ -141,7 +142,7 @@ router.get(
  */
 router.get(
   '/validation-process/calendar-summary',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'read'),
   validateQuery(queryValidationProcessCalendarSchema),
   attendanceController.getValidationProcessCalendarSummary.bind(attendanceController)
 );
@@ -153,7 +154,7 @@ router.get(
  */
 router.post(
   '/validation-process/run',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'create'),
   validate(runValidationProcessSchema),
   attendanceController.runValidationProcess.bind(attendanceController)
 );
@@ -165,7 +166,7 @@ router.post(
  */
 router.post(
   '/validation-process/late-deductions',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'read'),
   validate(runValidationProcessSchema),
   attendanceController.getValidationLateDeductions.bind(attendanceController)
 );
@@ -177,7 +178,7 @@ router.post(
  */
 router.get(
   '/validation-process/employee-list',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'read'),
   validateQuery(queryValidationProcessEmployeeListSchema),
   attendanceController.getValidationProcessEmployeeList.bind(attendanceController)
 );
@@ -189,7 +190,7 @@ router.get(
  */
 router.post(
   '/validation-process/apply-correction',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'update'),
   validate(applyValidationCorrectionSchema),
   attendanceController.applyValidationCorrection.bind(attendanceController)
 );
@@ -201,7 +202,7 @@ router.post(
  */
 router.post(
   '/validation-process/revert',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'update'),
   validate(revertValidationCorrectionSchema),
   attendanceController.revertValidationCorrection.bind(attendanceController)
 );
@@ -213,7 +214,7 @@ router.post(
  */
 router.post(
   '/validation-process/clear',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'delete'),
   validate(clearValidationSchema),
   attendanceController.clearValidationResults.bind(attendanceController)
 );
@@ -225,7 +226,7 @@ router.post(
  */
 router.get(
   '/validation-process/revert-history',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'read'),
   validateQuery(queryValidationRevertHistorySchema),
   attendanceController.getValidationRevertHistory.bind(attendanceController)
 );
@@ -237,7 +238,7 @@ router.get(
  */
 router.get(
   '/validation-process/completed-list',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'read'),
   validateQuery(queryCompletedListSchema),
   attendanceController.getCompletedList.bind(attendanceController)
 );
@@ -249,7 +250,7 @@ router.get(
  */
 router.post(
   '/validation-process/revert-rows',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'update'),
   validate(revertByRowsSchema),
   attendanceController.revertByRows.bind(attendanceController)
 );
@@ -261,7 +262,7 @@ router.post(
  */
 router.post(
   '/validation-process/on-hold',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'update'),
   validate(onHoldSchema),
   attendanceController.putOnHold.bind(attendanceController)
 );
@@ -273,7 +274,7 @@ router.post(
  */
 router.post(
   '/validation-process/release-hold',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process', 'update'),
   validate(releaseHoldSchema),
   attendanceController.releaseHold.bind(attendanceController)
 );
@@ -319,7 +320,7 @@ router.get(
 
 router.get(
   '/comp-off/requests/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('attendance', 'read'),
   validateQuery(queryCompOffRequestDetailsSchema),
   attendanceController.getCompOffRequestDetails.bind(attendanceController)
 );
@@ -348,7 +349,7 @@ router.post(
  */
 router.put(
   '/comp-off/requests/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('attendance', 'update'),
   validate(approveCompOffRequestSchema),
   attendanceController.approveCompOffRequest.bind(attendanceController)
 );
@@ -360,7 +361,7 @@ router.put(
  */
 router.put(
   '/comp-off/requests/:id/reject',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('attendance', 'update'),
   validate(rejectCompOffRequestSchema),
   attendanceController.rejectCompOffRequest.bind(attendanceController)
 );
@@ -372,7 +373,7 @@ router.put(
  */
 router.get(
   '/reports',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('attendance', 'read'),
   validateQuery(queryAttendanceReportSchema),
   attendanceController.getReport.bind(attendanceController)
 );
@@ -384,7 +385,7 @@ router.get(
  */
 router.post(
   '/sync/biometric',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('attendance', 'update'),
   validate(syncBiometricSchema),
   attendanceController.syncBiometric.bind(attendanceController)
 );
@@ -396,7 +397,7 @@ router.post(
  */
 router.post(
   '/shift-assignments/bulk',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('shifts', 'update'),
   validate(bulkShiftAssignmentsSchema),
   attendanceController.bulkUpdateShiftAssignments.bind(attendanceController)
 );
@@ -443,7 +444,7 @@ router.get(
  */
 router.put(
   '/regularization/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('attendance', 'update'),
   validate(approveRegularizationSchema),
   attendanceRegularizationController.approve.bind(attendanceRegularizationController)
 );
@@ -455,7 +456,7 @@ router.put(
  */
 router.put(
   '/regularization/:id/reject',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('attendance', 'update'),
   validate(rejectRegularizationSchema),
   attendanceRegularizationController.reject.bind(attendanceRegularizationController)
 );

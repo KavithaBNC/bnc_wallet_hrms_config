@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import {
   esopService,
   EsopExerciseRequest,
@@ -21,8 +22,8 @@ export default function ExerciseRequestsPage() {
   const { user } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || '';
   const employeeId = user?.employee?.id || '';
-  const role = user?.role ?? '';
-  const isAdmin = ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(role);
+  const esopPerms = getModulePermissions('/esop');
+  const isAdmin = esopPerms.can_edit;
 
   const [requests, setRequests] = useState<EsopExerciseRequest[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });

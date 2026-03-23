@@ -10,7 +10,8 @@ const fmt = (v: number | string | undefined | null) =>
 
 const EsicProcessingPage = () => {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId || '';
 
   const [cycles, setCycles] = useState<PayrollCycle[]>([]);
   const [selectedCycleId, setSelectedCycleId] = useState('');
@@ -25,12 +26,13 @@ const EsicProcessingPage = () => {
     : false;
 
   useEffect(() => {
-    payrollCycleService.getAll().then((res) => {
+    if (!orgId) return;
+    payrollCycleService.getAll({ organizationId: orgId }).then((res) => {
       const list: PayrollCycle[] = res.data || [];
       setCycles(list);
       if (list.length > 0) setSelectedCycleId(list[0].id);
     }).catch(() => {});
-  }, []);
+  }, [orgId]);
 
   const fetchEsic = useCallback(async () => {
     if (!selectedCycleId) return;

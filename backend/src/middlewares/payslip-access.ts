@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
-import { UserRole } from '@prisma/client';
 import { AppError } from './errorHandler';
 import { prisma } from '../utils/prisma';
+import { userHasPermission } from '../utils/permission-cache';
 
 /**
- * Middleware to ensure employees can only access their own payslips
- * ORG_ADMIN, HR_MANAGER, and MANAGER can access all payslips in their organization
+ * Middleware to control payslip access based on Configurator permissions.
+ * Users with can_edit on /payroll can access all payslips in their org.
+ * Users with can_view on /payroll can access team members' payslips.
+ * Others can only access their own payslips.
  */
 export const payslipAccessControl = async (
   req: Request,
@@ -16,7 +18,6 @@ export const payslipAccessControl = async (
     return next(new AppError('Authentication required', 401));
   }
 
-  const userRole = req.user.role as UserRole;
   const userId = req.user.userId || (req.user as any).id;
   const payslipId = req.params.id || req.params.payslipId;
 
@@ -25,8 +26,8 @@ export const payslipAccessControl = async (
     return next();
   }
 
-  // SUPER_ADMIN, ORG_ADMIN, HR_MANAGER can access all payslips
-  if (userRole === 'SUPER_ADMIN' || userRole === 'ORG_ADMIN' || userRole === 'HR_MANAGER') {
+  // Users with edit permission on payroll can access all payslips
+  if (userHasPermission(userId, '/payroll', 'can_edit')) {
     return next();
   }
 
@@ -66,9 +67,8 @@ export const payslipAccessControl = async (
     return next(new AppError('Access denied. Payslip belongs to different organization.', 403));
   }
 
-  // MANAGER can access payslips of their team members
-  if (userRole === 'MANAGER') {
-    // Check if the payslip employee reports to this manager
+  // Users with view permission on payroll can access team members' payslips
+  if (userHasPermission(userId, '/payroll', 'can_view')) {
     const payslipEmployee = await prisma.employee.findUnique({
       where: { id: payslip.employeeId },
       select: {
@@ -81,13 +81,9 @@ export const payslipAccessControl = async (
       },
     });
 
-    // Manager can access if:
-    // 1. Payslip belongs to them (self)
-    // 2. Payslip employee reports to them directly
-    // 3. Payslip employee's department manager is them
     const isDirectReport = payslipEmployee?.reportingManagerId === employee.id;
     const isDepartmentManager = payslipEmployee?.department?.managerId === employee.id;
-    
+
     if (payslip.employeeId !== employee.id && !isDirectReport && !isDepartmentManager) {
       return next(new AppError('Access denied. You can only view payslips of your team members.', 403));
     }
@@ -95,11 +91,9 @@ export const payslipAccessControl = async (
     return next();
   }
 
-  // EMPLOYEE can only access their own payslips
-  if (userRole === 'EMPLOYEE') {
-    if (payslip.employeeId !== employee.id) {
-      return next(new AppError('Access denied. You can only view your own payslips.', 403));
-    }
+  // Default: can only access own payslips
+  if (payslip.employeeId !== employee.id) {
+    return next(new AppError('Access denied. You can only view your own payslips.', 403));
   }
 
   next();

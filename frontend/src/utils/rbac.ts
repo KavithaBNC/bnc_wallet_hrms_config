@@ -1,6 +1,8 @@
 /**
- * Role-Based Access Control (RBAC) utilities for frontend
+ * Role-Based Access Control (RBAC) utilities for frontend.
+ * Permission checks use getModulePermissions() from the Config API (populated at login).
  */
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'HR_MANAGER' | 'MANAGER' | 'EMPLOYEE';
 
@@ -87,57 +89,45 @@ export function canViewEmployeeByPermission(permissions: PermissionLike[]): bool
 }
 
 /**
- * Check if user can create employees
+ * Check if user can create employees (dynamic via Config API permissions)
  */
-export const canCreateEmployee = (role?: string): boolean => {
-  const base = resolveBaseRole(role);
-  if (!base) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
+export const canCreateEmployee = (_role?: string): boolean => {
+  return getModulePermissions('/employees').can_add;
 };
 
 /**
- * Check if user can update employees
+ * Check if user can update employees (dynamic via Config API permissions)
  */
-export const canUpdateEmployee = (role?: string): boolean => {
-  const base = resolveBaseRole(role);
-  if (!base) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
+export const canUpdateEmployee = (_role?: string): boolean => {
+  return getModulePermissions('/employees').can_edit;
 };
 
 /**
- * Check if user can delete employees
+ * Check if user can delete employees (dynamic via Config API permissions)
  */
-export const canDeleteEmployee = (role?: string): boolean => {
-  const base = resolveBaseRole(role);
-  if (!base) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN'].includes(base);
+export const canDeleteEmployee = (_role?: string): boolean => {
+  return getModulePermissions('/employees').can_delete;
 };
 
 /**
- * Check if user can view employee statistics
+ * Check if user can view employee statistics (dynamic via Config API permissions)
  */
-export const canViewStatistics = (role?: string): boolean => {
-  const base = resolveBaseRole(role);
-  if (!base) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
+export const canViewStatistics = (_role?: string): boolean => {
+  return getModulePermissions('/employees').can_view;
 };
 
 /**
- * Check if user can view employee hierarchy
+ * Check if user can view employee hierarchy (dynamic via Config API permissions)
  */
-export const canViewHierarchy = (role?: string): boolean => {
-  const base = resolveBaseRole(role);
-  if (!base) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'].includes(base);
+export const canViewHierarchy = (_role?: string): boolean => {
+  return getModulePermissions('/employees').can_view;
 };
 
 /**
- * Check if user can view sensitive employee data
+ * Check if user can view sensitive employee data (dynamic via Config API permissions)
  */
-export const canViewSensitiveData = (role?: string): boolean => {
-  const base = resolveBaseRole(role);
-  if (!base) return false;
-  return ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(base);
+export const canViewSensitiveData = (_role?: string): boolean => {
+  return getModulePermissions('/employees').can_edit;
 };
 
 /**

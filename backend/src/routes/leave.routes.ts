@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import { leaveTypeController } from '../controllers/leave-type.controller';
@@ -38,7 +39,7 @@ router.use(enforceOrganizationAccess);
  */
 router.post(
   '/types',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('leave_types', 'create'),
   validate(createLeaveTypeSchema),
   leaveTypeController.create.bind(leaveTypeController)
 );
@@ -71,7 +72,7 @@ router.get(
  */
 router.put(
   '/types/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('leave_types', 'update'),
   validate(updateLeaveTypeSchema),
   leaveTypeController.update.bind(leaveTypeController)
 );
@@ -83,13 +84,25 @@ router.put(
  */
 router.delete(
   '/types/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('leave_types', 'delete'),
   leaveTypeController.delete.bind(leaveTypeController)
 );
 
 // ============================================================================
 // LEAVE REQUESTS
 // ============================================================================
+
+/**
+ * @route   POST /api/v1/leaves/hr-assign
+ * @desc    HR directly assigns leave for an employee (auto-approved, no workflow)
+ * @access  Private (HR_MANAGER, ORG_ADMIN, SUPER_ADMIN)
+ */
+router.post(
+  '/hr-assign',
+  checkPermission('leaves', 'create'),
+  validate(createLeaveRequestSchema),
+  leaveRequestController.hrAssign.bind(leaveRequestController)
+);
 
 /**
  * @route   POST /api/v1/leaves/requests
@@ -151,7 +164,7 @@ router.put(
  */
 router.put(
   '/requests/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('leaves', 'update'),
   validate(approveLeaveRequestSchema),
   leaveRequestController.approve.bind(leaveRequestController)
 );
@@ -163,7 +176,7 @@ router.put(
  */
 router.put(
   '/requests/:id/reject',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('leaves', 'update'),
   validate(rejectLeaveRequestSchema),
   leaveRequestController.reject.bind(leaveRequestController)
 );
@@ -212,7 +225,7 @@ router.get(
  */
 router.get(
   '/balance-entry',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('leave_balances', 'read'),
   leaveBalanceController.getBalanceEntries.bind(leaveBalanceController)
 );
 
@@ -223,7 +236,7 @@ router.get(
  */
 router.put(
   '/balance-entry',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('leave_balances', 'update'),
   leaveBalanceController.upsertBalanceEntry.bind(leaveBalanceController)
 );
 
@@ -238,7 +251,7 @@ router.put(
  */
 router.post(
   '/policies',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('leave_policies', 'create'),
   leavePolicyController.create.bind(leavePolicyController)
 );
 
@@ -269,7 +282,7 @@ router.get(
  */
 router.put(
   '/policies/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('leave_policies', 'update'),
   leavePolicyController.update.bind(leavePolicyController)
 );
 
@@ -280,7 +293,7 @@ router.put(
  */
 router.delete(
   '/policies/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('leave_policies', 'delete'),
   leavePolicyController.delete.bind(leavePolicyController)
 );
 

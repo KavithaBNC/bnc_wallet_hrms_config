@@ -84,6 +84,18 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/employees/configurator/:configuratorUserId
+ * @desc    Get employee by Configurator user_id
+ * @access  Private (dynamic permission: employees.read)
+ */
+router.get(
+  '/configurator/:configuratorUserId',
+  checkPermission('employees', 'read'),
+  employeeListAccess,
+  employeeController.getByConfiguratorUserId.bind(employeeController)
+);
+
+/**
  * @route   GET /api/v1/employees/:id/hierarchy
  * @desc    Get employee hierarchy (reporting structure)
  * @access  Private (dynamic permission: employees.read)

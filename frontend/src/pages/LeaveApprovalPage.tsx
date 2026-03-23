@@ -9,6 +9,7 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import workflowMappingService from '../services/workflowMapping.service';
 import type { WorkflowMapping } from '../services/workflowMapping.service';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 interface LeaveType {
   id: string;
@@ -62,11 +63,8 @@ export default function LeaveApprovalPage() {
   const { user, logout } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const organizationName = user?.employee?.organization?.name;
-  const isManager = user?.role === 'MANAGER';
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canApprove = isManager || isHRManager || isOrgAdmin || isSuperAdmin;
+  const leavePerms = getModulePermissions('/leave');
+  const canApprove = leavePerms.can_view;
 
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });

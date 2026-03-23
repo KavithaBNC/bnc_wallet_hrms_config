@@ -37,7 +37,7 @@ function getConfiguratorApi(): AxiosInstance {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    timeout: 15000,
+    timeout: 30000,
   });
 
   // Add 401 response interceptor to refresh Configurator token

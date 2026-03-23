@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { payrollCycleService, payslipService, PayrollCycle } from '../services/payroll.service';
 
 const fmt = (v: number) =>
@@ -45,10 +46,8 @@ const PayrollDashboardPage = () => {
   const organizationName = user?.employee?.organization?.name;
   const organizationId = user?.employee?.organizationId;
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canManagePayroll = isHRManager || isOrgAdmin || isSuperAdmin;
+  const payrollPerms = getModulePermissions('/payroll');
+  const canManagePayroll = payrollPerms.can_edit;
 
   const [cycles, setCycles] = useState<PayrollCycle[]>([]);
   const [loading, setLoading] = useState(true);

@@ -51,7 +51,7 @@ export default function FnfInitiationPage() {
     try {
       setCalculating(true);
       setError('');
-      const result = await fnfSettlementService.calculate(selected.id, selected.employee.id);
+      const result = await fnfSettlementService.calculate(selected.id, selected.organizationId);
       navigate(`/payroll/fnf-settlement/${result.settlement.id}`);
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Calculation failed. Please try again.');

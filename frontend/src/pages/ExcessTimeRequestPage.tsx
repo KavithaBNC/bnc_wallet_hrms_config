@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AppHeader from '../components/layout/AppHeader';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { attendanceService, type CompOffRequestItem, type CompOffSummary } from '../services/attendance.service';
 import { useAuthStore } from '../store/authStore';
 import employeeService, { type Employee } from '../services/employee.service';
@@ -22,7 +23,8 @@ type TabMode = 'my' | 'team';
 export default function ExcessTimeRequestPage() {
   const { user, logout } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
-  const isHRScope = user?.role === 'HR_MANAGER' || user?.role === 'ORG_ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'MANAGER';
+  const attendancePerms = getModulePermissions('/attendance');
+  const isHRScope = attendancePerms.can_view;
   const selfEmployeeId = user?.employee?.id;
   const selfName = [user?.employee?.firstName, user?.employee?.lastName].filter(Boolean).join(' ') || 'Me';
 

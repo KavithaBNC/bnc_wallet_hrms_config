@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { transferPromotionController } from '../controllers/transfer-promotion.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -21,7 +22,7 @@ router.use(enforceOrganizationAccess);
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('transfer_promotions', 'create'),
   validate(createTransferPromotionSchema),
   transferPromotionController.create.bind(transferPromotionController)
 );
@@ -54,7 +55,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('transfer_promotions', 'update'),
   validate(updateTransferPromotionSchema),
   transferPromotionController.update.bind(transferPromotionController)
 );

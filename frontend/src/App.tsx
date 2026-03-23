@@ -694,6 +694,16 @@ function App() {
             }
           />
           <Route
+            path="/attendance/management"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <AttendancePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/attendance/apply-event"
             element={
               <ProtectedRoute>

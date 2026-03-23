@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { shiftController } from '../controllers/shift.controller';
 
@@ -17,7 +18,7 @@ router.use(enforceOrganizationAccess);
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('shifts', 'create'),
   shiftController.create.bind(shiftController)
 );
 
@@ -48,7 +49,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('shifts', 'update'),
   shiftController.update.bind(shiftController)
 );
 
@@ -59,7 +60,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('shifts', 'delete'),
   shiftController.delete.bind(shiftController)
 );
 

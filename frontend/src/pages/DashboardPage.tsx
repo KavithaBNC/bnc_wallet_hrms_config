@@ -48,7 +48,8 @@ const DashboardPage = () => {
   const canManagePermissions = permPerms.can_view;
   const canViewLeaveApprovals = leavePerms.can_edit;
   const isEmployee = !employeePerms.can_view && !employeePerms.can_add;
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const orgPerms = getModulePermissions('/organizations');
+  const canManageOrgs = orgPerms.can_edit;
   const organizationName = user?.employee?.organization?.name;
 
   const firstName = user?.employee?.firstName || user?.email?.split('@')[0] || 'User';
@@ -124,7 +125,7 @@ const DashboardPage = () => {
         </div>
 
         {/* Quick Access - Organization Management (SUPER_ADMIN only) */}
-        {isSuperAdmin && (
+        {canManageOrgs && (
           <div className="mb-6 animate-fadeInUp animate-delay-12">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Organization Management</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

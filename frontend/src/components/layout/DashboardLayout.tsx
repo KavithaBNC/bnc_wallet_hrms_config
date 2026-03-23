@@ -493,8 +493,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const role = (user?.role != null ? String(user.role) : '').toUpperCase();
-  const isSuperAdmin = role === 'SUPER_ADMIN';
+  const orgPerms = getModulePermissions('/organizations');
+  const canManageOrgs = orgPerms.can_edit;
 
   // Modules from Config DB (localStorage, set at login / loadUser)
   // Builds parent-child hierarchy from page_name / path structure:
@@ -790,7 +790,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-auto">
-        {visibleNavItems.length <= 1 && !isSuperAdmin && (
+        {visibleNavItems.length <= 1 && !canManageOrgs && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
             No modules assigned. Contact your admin to assign modules in Configurator (role_module_permissions).
           </div>

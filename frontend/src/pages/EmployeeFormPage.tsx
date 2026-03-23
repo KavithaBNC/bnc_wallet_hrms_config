@@ -5,7 +5,7 @@ import { Employee } from '../services/employee.service';
 import employeeService from '../services/employee.service';
 import EmployeeForm from '../components/employees/EmployeeForm';
 import PaygroupSelectionModal from '../components/employees/PaygroupSelectionModal';
-import { getEditableTabsFromPermissions, resolveBaseRole, type EmployeeFormTabKey } from '../utils/rbac';
+import { getEditableTabsFromPermissions, type EmployeeFormTabKey } from '../utils/rbac';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import permissionService from '../services/permission.service';
 
@@ -26,7 +26,8 @@ export default function EmployeeFormPage() {
 
   const { user } = useAuthStore();
 
-  const isEdit = Boolean(id);
+  const isNewFromConfigurator = id === 'new';
+  const isEdit = Boolean(id) && !isNewFromConfigurator;
   const isCreate = !isEdit;
 
   const [employee, setEmployee] = useState<Employee | null>(state.employee ?? null);
@@ -51,7 +52,6 @@ export default function EmployeeFormPage() {
     (user as any)?.organizationId ||
     '';
 
-  const baseRole = resolveBaseRole(user?.role);
   const modulePerms = getModulePermissions('/employees');
   const canUpdateByRole = modulePerms.can_edit;
 
@@ -82,11 +82,12 @@ export default function EmployeeFormPage() {
   }, [id, isEdit]);
 
   // For create mode: if no paygroup selected yet, show the paygroup modal
+  // Skip when prefilled from Configurator (state.employee already has data)
   useEffect(() => {
-    if (isCreate && !selectedPaygroupId) {
+    if (isCreate && !selectedPaygroupId && !isNewFromConfigurator) {
       setShowPaygroupModal(true);
     }
-  }, [isCreate, selectedPaygroupId]);
+  }, [isCreate, selectedPaygroupId, isNewFromConfigurator]);
 
   const handlePaygroupSubmit = (paygroupId: string, paygroupName: string) => {
     paygroupSubmittedRef.current = true;
@@ -112,18 +113,19 @@ export default function EmployeeFormPage() {
 
   const pageTitle = rejoinMode
     ? 'Employee Rejoin'
-    : isEdit
+    : (isEdit || isNewFromConfigurator)
     ? (mode === 'view' ? 'View Employee' : 'Edit Employee')
     : 'Create Employee';
 
   // Compute editable tabs (same logic as EmployeesPage)
+  // Dynamic: if user doesn't have can_edit on /employees, restrict to personal tabs (self-service)
   const computedEditableTabs = rejoinMode
     ? undefined
     : employee && mode !== 'view'
     ? canUpdateByRole
       ? undefined
       : (editableTabsFromPermissions ??
-        ((baseRole === 'EMPLOYEE' || baseRole === 'MANAGER') && user?.employee?.id === employee.id
+        (!modulePerms.can_edit && user?.employee?.id === employee.id
           ? (['personal', 'academic', 'previousEmployment', 'family'] as EmployeeFormTabKey[])
           : undefined))
     : undefined;
@@ -155,8 +157,8 @@ export default function EmployeeFormPage() {
     );
   }
 
-  // Create mode: waiting for paygroup selection
-  if (isCreate && !selectedPaygroupId) {
+  // Create mode: waiting for paygroup selection (skip when prefilled from Configurator)
+  if (isCreate && !selectedPaygroupId && !isNewFromConfigurator) {
     return (
       <div className="p-6">
         <div className="mb-6">

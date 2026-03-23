@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { loanController } from '../controllers/loan.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ router.use(authenticate);
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('loans', 'create'),
   loanController.createLoan.bind(loanController)
 );
 
@@ -39,7 +40,7 @@ router.get('/:id', loanController.getLoanById.bind(loanController));
  */
 router.put(
   '/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('loans', 'update'),
   loanController.approveLoan.bind(loanController)
 );
 
@@ -50,7 +51,7 @@ router.put(
  */
 router.put(
   '/:id/disburse',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('loans', 'update'),
   loanController.disburseLoan.bind(loanController)
 );
 
@@ -61,7 +62,7 @@ router.put(
  */
 router.put(
   '/:id/reject',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('loans', 'update'),
   loanController.rejectLoan.bind(loanController)
 );
 
@@ -72,7 +73,7 @@ router.put(
  */
 router.post(
   '/:id/repayment',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('loans', 'update'),
   loanController.recordRepayment.bind(loanController)
 );
 

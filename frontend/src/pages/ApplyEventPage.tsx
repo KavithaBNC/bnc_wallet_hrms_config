@@ -12,6 +12,7 @@ import attendanceComponentService from '../services/attendanceComponent.service'
 import type { AttendanceComponent } from '../services/attendanceComponent.service';
 import shiftService from '../services/shift.service';
 import AppHeader from '../components/layout/AppHeader';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 type DurationOption = 'FULL_DAY' | 'FIRST_HALF' | 'SECOND_HALF';
 
@@ -99,6 +100,7 @@ interface MonthlyDetailsState {
   year?: number;
   month?: number;
   applyTab?: 'Leave' | 'Permission' | 'Onduty';
+  employeeName?: string;
 }
 
 function isOndutyLikeComponent(component: AttendanceComponent | null): boolean {
@@ -171,6 +173,13 @@ export default function ApplyEventPage() {
   const contextEmployeeId = state.employeeId || user?.employee?.id;
   const contextYear = state.year ?? now.getFullYear();
   const contextMonth = state.month ?? now.getMonth() + 1;
+
+  // HR mode: when an HR/Admin applies leave on behalf of another employee
+  const leavePerms = getModulePermissions('/leave');
+  const isHR = leavePerms.can_edit;
+  const isApplyingForOther = isHR && !!state.employeeId && state.employeeId !== user?.employee?.id;
+  const targetEmployeeId = isApplyingForOther ? state.employeeId : undefined;
+  const targetEmployeeName = state.employeeName;
 
   const [componentsRaw, setComponentsRaw] = useState<AttendanceComponent[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -414,6 +423,7 @@ export default function ApplyEventPage() {
         params: {
           leaveTypeId: selectedLeaveTypeIdForHint,
           startDate: fromDate,
+          ...(isApplyingForOther && targetEmployeeId ? { targetEmployeeId } : {}),
         },
       })
       .then((res) => {
@@ -605,7 +615,11 @@ export default function ApplyEventPage() {
         ...(totalDays != null ? { totalDays } : {}),
       };
 
-      await api.post('/leaves/requests', payload);
+      if (isApplyingForOther && targetEmployeeId) {
+        await api.post('/leaves/hr-assign', { ...payload, targetEmployeeId });
+      } else {
+        await api.post('/leaves/requests', payload);
+      }
 
       // After successful submit, go back to Attendance so sidebar can refresh;
       // AttendancePage listens to leaveApplied flag to show success banner.
@@ -663,6 +677,11 @@ export default function ApplyEventPage() {
 
       <div className="flex-1 overflow-auto p-4">
         <form onSubmit={handleSave} className="mx-auto flex w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          {isApplyingForOther && (
+            <div className="mb-4 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+              Assigning on behalf of <strong>{targetEmployeeName || targetEmployeeId}</strong> — will be auto-approved (HR Direct Assignment)
+            </div>
+          )}
           {error && (
             <div className="mb-4 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
               {error}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { payrollCycleService, PayrollCycle } from '../services/payroll.service';
 
 type Step = 1 | 2 | 3;
@@ -31,10 +32,8 @@ const RunPayrollPage = () => {
   const organizationName = user?.employee?.organization?.name;
   const organizationId = user?.employee?.organizationId;
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canManagePayroll = isHRManager || isOrgAdmin || isSuperAdmin;
+  const payrollPerms = getModulePermissions('/payroll');
+  const canManagePayroll = payrollPerms.can_edit;
 
   // Step state
   const [step, setStep] = useState<Step>(1);

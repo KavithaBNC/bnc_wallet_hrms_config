@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import {
   employeeSalaryService,
@@ -19,10 +20,8 @@ const EmployeeSalaryDetailPage = () => {
   const organizationName = user?.employee?.organization?.name;
   const organizationId = user?.employee?.organizationId;
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canManage = isHRManager || isOrgAdmin || isSuperAdmin;
+  const salaryPerms = getModulePermissions('/employee-salaries');
+  const canManage = salaryPerms.can_edit;
 
   const [tab, setTab] = useState<Tab>('breakdown');
   const [employee, setEmployee] = useState<Employee | null>(null);

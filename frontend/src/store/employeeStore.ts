@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Employee } from '../services/employee.service';
 import employeeService from '../services/employee.service';
-import configuratorDataService, { ConfigUser } from '../services/configurator-data.service';
+import configuratorDataService from '../services/configurator-data.service';
 
 interface EmployeeStore {
   /** Employee list from Configurator API (ConfigUser[]) */
@@ -28,7 +28,7 @@ interface EmployeeStore {
   clearError: () => void;
 }
 
-export const useEmployeeStore = create<EmployeeStore>((set, get) => ({
+export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
   employees: [],
   currentEmployee: null,
   loading: false,

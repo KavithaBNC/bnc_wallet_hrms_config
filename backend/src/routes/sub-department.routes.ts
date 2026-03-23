@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { subDepartmentController } from '../controllers/sub-department.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -25,8 +26,8 @@ router.use(enforceOrganizationAccess);
 
 router.get('/', subDepartmentController.getByOrganization.bind(subDepartmentController));
 router.get('/list', subDepartmentController.getByOrganization.bind(subDepartmentController));
-router.get('/download-excel', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), subDepartmentController.downloadExcel.bind(subDepartmentController));
-router.post('/upload-excel', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), upload.single('file'), subDepartmentController.uploadExcel.bind(subDepartmentController));
-router.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), subDepartmentController.create.bind(subDepartmentController));
+router.get('/download-excel', checkPermission('sub_departments', 'read'), subDepartmentController.downloadExcel.bind(subDepartmentController));
+router.post('/upload-excel', checkPermission('sub_departments', 'create'), upload.single('file'), subDepartmentController.uploadExcel.bind(subDepartmentController));
+router.post('/', checkPermission('sub_departments', 'create'), subDepartmentController.create.bind(subDepartmentController));
 
 export default router;

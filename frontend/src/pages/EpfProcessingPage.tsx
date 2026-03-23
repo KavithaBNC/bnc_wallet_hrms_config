@@ -13,7 +13,8 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 const EpfProcessingPage = () => {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId || '';
 
   const [cycles, setCycles] = useState<PayrollCycle[]>([]);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
@@ -30,8 +31,9 @@ const EpfProcessingPage = () => {
   const isLocked = selectedCycle ? (selectedCycle.isLocked || ['FINALIZED', 'PAID'].includes(selectedCycle.status)) : false;
 
   useEffect(() => {
-    payrollCycleService.getAll().then((res) => setCycles(res.data || [])).catch(() => {});
-  }, []);
+    if (!orgId) return;
+    payrollCycleService.getAll({ organizationId: orgId }).then((res) => setCycles(res.data || [])).catch(() => {});
+  }, [orgId]);
 
   const fetchEpf = useCallback(async () => {
     setLoading(true);
@@ -190,7 +192,7 @@ const EpfProcessingPage = () => {
                     return (
                       <tr key={i} className="hover:bg-gray-50">
                         <td className="px-3 py-2.5 text-gray-600">{emp.employeeCode}</td>
-                        <td className="px-3 py-2.5 font-medium text-gray-900">{emp.name}</td>
+                        <td className="px-3 py-2.5 font-medium text-gray-900">{emp.employeeName}</td>
                         <td className="px-3 py-2.5 text-gray-500 font-mono">{emp.uan || <span className="text-orange-500">No UAN</span>}</td>
                         <td className="px-3 py-2.5 text-gray-700">{fmt(emp.basicWage)}</td>
                         <td className="px-3 py-2.5 text-gray-700">{fmt(emp.pfWage)}</td>

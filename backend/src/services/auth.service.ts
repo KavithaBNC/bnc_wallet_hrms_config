@@ -10,6 +10,7 @@ import {
   ForgotPasswordInput,
   ResetPasswordInput,
 } from '../utils/validation';
+import { userHasPermission } from '../utils/permission-cache';
 
 export class AuthService {
   private isDatabaseConnectivityError(error: unknown): boolean {
@@ -473,7 +474,7 @@ export class AuthService {
       throw new AppError('User not found', 404);
     }
 
-    // For ORG_ADMIN users, ensure they have an employee record
+    // Log warning if user has org admin role but no employee record
     if (user.role === 'ORG_ADMIN' && !user.employee) {
       console.warn(`⚠️  ORG_ADMIN user ${user.email} (${userId}) does not have an employee record`);
       // Don't throw error, but log warning - the frontend will handle this
@@ -484,7 +485,7 @@ export class AuthService {
 
   /**
    * Admin reset password for employee
-   * Only SUPER_ADMIN, ORG_ADMIN, and HR_MANAGER can reset passwords
+   * Requires can_edit permission on /employees
    */
   async adminResetPassword(
     adminUserId: string,
@@ -494,15 +495,15 @@ export class AuthService {
     // Get admin user
     const admin = await prisma.user.findUnique({
       where: { id: adminUserId },
-      select: { role: true },
+      select: { id: true },
     });
 
     if (!admin) {
       throw new AppError('Admin user not found', 404);
     }
 
-    // Check if admin has permission (SUPER_ADMIN, ORG_ADMIN, or HR_MANAGER)
-    if (!['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'].includes(admin.role)) {
+    // Check if admin has permission to edit employees
+    if (!userHasPermission(adminUserId, '/employees', 'can_edit')) {
       throw new AppError('You do not have permission to reset passwords', 403);
     }
 
@@ -516,8 +517,8 @@ export class AuthService {
       throw new AppError('Employee not found or has no user account', 404);
     }
 
-    // For ORG_ADMIN and HR_MANAGER, verify they belong to the same organization
-    if (admin.role !== 'SUPER_ADMIN') {
+    // Verify admin belongs to the same organization (unless they have org-wide access)
+    if (!userHasPermission(adminUserId, '/organizations', 'can_edit')) {
       const adminEmployee = await prisma.employee.findUnique({
         where: { userId: adminUserId },
       });

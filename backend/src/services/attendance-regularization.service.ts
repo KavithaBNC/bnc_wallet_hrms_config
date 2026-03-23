@@ -2,6 +2,8 @@
 import { AppError } from '../middlewares/errorHandler';
 import { RegularizationStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { userHasPermission } from '../utils/permission-cache';
+import { getDataScope } from '../utils/data-scope';
 import {
   CreateRegularizationInput,
   ApproveRegularizationInput,
@@ -134,7 +136,7 @@ export class AttendanceRegularizationService {
     page?: string;
     limit?: string;
     organizationId?: string;
-  }, userId?: string, userRole?: string) {
+  }, userId?: string, _userRole?: string) {
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
     const skip = (page - 1) * limit;
@@ -151,24 +153,24 @@ export class AttendanceRegularizationService {
       });
 
       if (employee) {
-        // RBAC: EMPLOYEE can only see their own requests (self-service)
-        if (userRole === 'EMPLOYEE') {
-          where.employeeId = employee.id;
-        }
-        // RBAC: MANAGER can only see requests from their team (subordinates)
-        else if (userRole === 'MANAGER') {
-          where.employee = {
-            reportingManagerId: employee.id, // Only show requests from employees who report to this manager
-            organizationId: query.organizationId || employee.organizationId,
-          };
-        }
-        // HR_MANAGER and ORG_ADMIN can see all requests in their organization
-        else if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN') {
+        // Dynamic RBAC scoping via Config API permissions
+        const scope = getDataScope(userId!, '/attendance');
+        if (scope === 'org') {
+          // can_edit on /attendance → org-wide access (HR/OrgAdmin level)
           if (query.organizationId || employee.organizationId) {
             where.employee = {
               organizationId: query.organizationId || employee.organizationId,
             };
           }
+        } else if (scope === 'team') {
+          // can_view on /attendance → team access (Manager level)
+          where.employee = {
+            reportingManagerId: employee.id,
+            organizationId: query.organizationId || employee.organizationId,
+          };
+        } else {
+          // No special permission → self-service only (Employee level)
+          where.employeeId = employee.id;
         }
       }
     }
@@ -269,7 +271,7 @@ export class AttendanceRegularizationService {
    * @param data - Approval data
    * @param reviewerRole - Role of the reviewer (for RBAC validation)
    */
-  async approve(id: string, reviewerId: string, data: ApproveRegularizationInput, reviewerRole?: string) {
+  async approve(id: string, reviewerId: string, data: ApproveRegularizationInput, _reviewerRole?: string) {
     const regularization = await prisma.attendanceRegularization.findUnique({
       where: { id },
       include: {
@@ -295,8 +297,8 @@ export class AttendanceRegularizationService {
       );
     }
 
-    // RBAC: MANAGER can only approve requests from their team (subordinates)
-    if (reviewerRole === 'MANAGER') {
+    // RBAC: Users without org-wide edit access can only approve requests from their team
+    if (!userHasPermission(reviewerId, '/attendance', 'can_edit')) {
       const reviewerEmployee = await prisma.employee.findUnique({
         where: { userId: reviewerId },
         select: { id: true },
@@ -306,7 +308,7 @@ export class AttendanceRegularizationService {
         throw new AppError('Reviewer employee record not found', 404);
       }
 
-      // Verify the regularization request is from an employee who reports to this manager
+      // Verify the regularization request is from an employee who reports to this reviewer
       if (regularization.employee.reportingManagerId !== reviewerEmployee.id) {
         throw new AppError(
           'Access denied. You can only approve regularization requests from employees in your team.',
@@ -376,7 +378,7 @@ export class AttendanceRegularizationService {
    * @param data - Rejection data
    * @param reviewerRole - Role of the reviewer (for RBAC validation)
    */
-  async reject(id: string, reviewerId: string, data: RejectRegularizationInput, reviewerRole?: string) {
+  async reject(id: string, reviewerId: string, data: RejectRegularizationInput, _reviewerRole?: string) {
     const regularization = await prisma.attendanceRegularization.findUnique({
       where: { id },
       include: {
@@ -401,8 +403,8 @@ export class AttendanceRegularizationService {
       );
     }
 
-    // RBAC: MANAGER can only reject requests from their team (subordinates)
-    if (reviewerRole === 'MANAGER') {
+    // RBAC: Users without org-wide edit access can only reject requests from their team
+    if (!userHasPermission(reviewerId, '/attendance', 'can_edit')) {
       const reviewerEmployee = await prisma.employee.findUnique({
         where: { userId: reviewerId },
         select: { id: true },
@@ -412,7 +414,7 @@ export class AttendanceRegularizationService {
         throw new AppError('Reviewer employee record not found', 404);
       }
 
-      // Verify the regularization request is from an employee who reports to this manager
+      // Verify the regularization request is from an employee who reports to this reviewer
       if (regularization.employee.reportingManagerId !== reviewerEmployee.id) {
         throw new AppError(
           'Access denied. You can only reject regularization requests from employees in your team.',

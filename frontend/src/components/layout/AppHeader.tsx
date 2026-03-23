@@ -19,7 +19,7 @@ export default function AppHeader({
   const fn = toDisplayName(user?.employee?.firstName);
   const ln = toDisplayName(user?.employee?.lastName);
   const userName = (fn || ln) ? `${fn} ${ln}`.trim() : (toDisplayEmail(user?.email) || user?.email || 'Admin');
-  const userRole = user?.role || 'Admin';
+  const userRole = user?.roleName || user?.role || 'Admin';
 
   const getInitials = () => {
     if (fn || ln) return `${(fn || '').charAt(0)}${(ln || '').charAt(0)}`.toUpperCase() || '';
@@ -43,7 +43,7 @@ export default function AppHeader({
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
               <p className="text-sm font-medium text-gray-700">Welcome, {userName}</p>
-              <p className="text-xs text-gray-500 capitalize">{userRole.replace('_', ' ')}</p>
+              <p className="text-xs text-gray-500 capitalize">{userRole.replace(/_/g, ' ')}</p>
             </div>
             {/* Profile Picture */}
             <Link

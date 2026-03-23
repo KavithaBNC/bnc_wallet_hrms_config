@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { fnfSettlementController } from '../controllers/fnf-settlement.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -17,7 +18,7 @@ router.use(enforceOrganizationAccess);
 // Calculate F&F settlement for a separation
 router.post(
   '/calculate',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('fnf_settlements', 'create'),
   validate(calculateFnfSettlementSchema),
   fnfSettlementController.calculate.bind(fnfSettlementController)
 );
@@ -31,7 +32,7 @@ router.get(
 // Separations without a settlement (for initiation dropdown)
 router.get(
   '/eligible-separations',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('fnf_settlements', 'read'),
   fnfSettlementController.getEligibleSeparations.bind(fnfSettlementController)
 );
 
@@ -51,7 +52,7 @@ router.get(
 // Update manual adjustments
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('fnf_settlements', 'update'),
   validate(updateFnfSettlementSchema),
   fnfSettlementController.update.bind(fnfSettlementController)
 );
@@ -59,21 +60,21 @@ router.put(
 // Approve settlement
 router.put(
   '/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('fnf_settlements', 'update'),
   fnfSettlementController.approve.bind(fnfSettlementController)
 );
 
 // Mark as paid
 router.put(
   '/:id/paid',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('fnf_settlements', 'update'),
   fnfSettlementController.markAsPaid.bind(fnfSettlementController)
 );
 
 // Delete DRAFT settlement
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('fnf_settlements', 'delete'),
   fnfSettlementController.delete.bind(fnfSettlementController)
 );
 

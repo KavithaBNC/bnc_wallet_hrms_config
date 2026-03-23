@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { jobPositionController } from '../controllers/job-position.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -38,7 +39,7 @@ router.use(enforceOrganizationAccess);
  */
 router.get(
   '/download-excel',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('job_positions', 'read'),
   jobPositionController.downloadExcel.bind(jobPositionController)
 );
 
@@ -49,7 +50,7 @@ router.get(
  */
 router.post(
   '/upload-excel',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('job_positions', 'create'),
   upload.single('file'),
   jobPositionController.uploadExcel.bind(jobPositionController)
 );
@@ -61,7 +62,7 @@ router.post(
  */
 router.get(
   '/statistics/:organizationId',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('job_positions', 'read'),
   jobPositionController.getStatistics.bind(jobPositionController)
 );
 
@@ -103,7 +104,7 @@ router.get(
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('job_positions', 'create'),
   validate(createJobPositionSchema),
   jobPositionController.create.bind(jobPositionController)
 );
@@ -115,7 +116,7 @@ router.post(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('job_positions', 'update'),
   validate(updateJobPositionSchema),
   jobPositionController.update.bind(jobPositionController)
 );
@@ -127,7 +128,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('job_positions', 'delete'),
   jobPositionController.delete.bind(jobPositionController)
 );
 

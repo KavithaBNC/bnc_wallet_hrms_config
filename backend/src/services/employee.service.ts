@@ -51,27 +51,60 @@ export class EmployeeService {
    */
   private async generateEmployeeCodeWithPrefix(organizationId: string, prefix: string): Promise<string> {
     const effectivePrefix = (prefix ?? '').trim();
-    const employees = await prisma.employee.findMany({
-      where: {
-        organizationId,
-        ...(effectivePrefix ? { employeeCode: { startsWith: effectivePrefix } } : {}),
-      },
-      select: { employeeCode: true },
-    });
-    const regex = effectivePrefix
-      ? new RegExp(`^${effectivePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`)
-      : /^(\d+)$/;
-    const numbers = employees
-      .map((emp) => {
+
+    // Use raw query to find MAX numeric suffix efficiently instead of loading ALL employees
+    const escapedPrefix = effectivePrefix.replace(/'/g, "''");
+    const prefixLen = effectivePrefix.length;
+    let maxNumber = 0;
+
+    try {
+      if (effectivePrefix) {
+        // Find max number from codes matching PREFIX + digits pattern
+        const result = await prisma.$queryRawUnsafe<{ max_num: number | null }[]>(
+          `SELECT MAX(CAST(SUBSTRING("employeeCode", ${prefixLen + 1}) AS INTEGER)) as max_num
+           FROM "Employee"
+           WHERE "organizationId" = $1
+             AND "employeeCode" LIKE $2
+             AND SUBSTRING("employeeCode", ${prefixLen + 1}) ~ '^[0-9]+$'`,
+          organizationId,
+          `${escapedPrefix}%`
+        );
+        maxNumber = result[0]?.max_num ?? 0;
+      } else {
+        // No prefix: find max from purely numeric codes
+        const result = await prisma.$queryRawUnsafe<{ max_num: number | null }[]>(
+          `SELECT MAX(CAST("employeeCode" AS INTEGER)) as max_num
+           FROM "Employee"
+           WHERE "organizationId" = $1
+             AND "employeeCode" ~ '^[0-9]+$'`,
+          organizationId
+        );
+        maxNumber = result[0]?.max_num ?? 0;
+      }
+    } catch {
+      // Fallback: if raw query fails, use a limited findMany approach
+      const employees = await prisma.employee.findMany({
+        where: {
+          organizationId,
+          ...(effectivePrefix ? { employeeCode: { startsWith: effectivePrefix } } : {}),
+        },
+        select: { employeeCode: true },
+        orderBy: { employeeCode: 'desc' },
+        take: 100,
+      });
+      const regex = effectivePrefix
+        ? new RegExp(`^${effectivePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`)
+        : /^(\d+)$/;
+      for (const emp of employees) {
         const match = emp.employeeCode.match(regex);
         if (match) {
           const num = parseInt(match[1], 10);
-          return num > 0 && num <= 999999 ? num : 0;
+          if (num > maxNumber && num <= 999999) maxNumber = num;
         }
-        return 0;
-      })
-      .filter((num) => num > 0);
-    let nextNumber = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+      }
+    }
+
+    let nextNumber = maxNumber > 0 ? maxNumber + 1 : 1;
     if (nextNumber > 999999) {
       return `${effectivePrefix || 'EMP'}${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     }
@@ -910,6 +943,54 @@ export class EmployeeService {
   }
 
   /**
+   * Find employee by Configurator user_id.
+   * Returns full employee data (same shape as getById) or null if not found.
+   */
+  async getByConfiguratorUserId(configuratorUserId: number) {
+    const employee = await prisma.employee.findFirst({
+      where: {
+        configuratorUserId,
+        deletedAt: null,
+      },
+      include: {
+        organization: { select: { id: true, name: true } },
+        paygroup: { select: { id: true, name: true, code: true } },
+        department: { select: { id: true, name: true, code: true } },
+        costCentre: { select: { id: true, name: true, code: true } },
+        position: { select: { id: true, title: true, code: true, level: true, employmentType: true } },
+        reportingManager: {
+          select: {
+            id: true, employeeCode: true, firstName: true, lastName: true, email: true,
+            position: { select: { title: true } },
+          },
+        },
+        entity: { select: { id: true, name: true, code: true } },
+        location: { select: { id: true, name: true, code: true, entityId: true } },
+        subordinates: {
+          where: { deletedAt: null },
+          select: {
+            id: true, employeeCode: true, firstName: true, lastName: true, email: true,
+            employeeStatus: true, position: { select: { title: true } },
+          },
+        },
+        user: {
+          select: { id: true, email: true, role: true, isActive: true, isEmailVerified: true, lastLoginAt: true },
+        },
+      },
+    });
+
+    if (!employee) return null;
+
+    const profileExtensions = (employee as { profileExtensions?: { academicQualifications?: unknown[]; previousEmployments?: unknown[]; familyMembers?: unknown[] } }).profileExtensions;
+    return {
+      ...employee,
+      academicQualifications: Array.isArray(profileExtensions?.academicQualifications) ? profileExtensions.academicQualifications : [],
+      previousEmployments: Array.isArray(profileExtensions?.previousEmployments) ? profileExtensions.previousEmployments : [],
+      familyMembers: Array.isArray(profileExtensions?.familyMembers) ? profileExtensions.familyMembers : [],
+    };
+  }
+
+  /**
    * Update profile extensions (academicQualifications, previousEmployments, familyMembers).
    * Used when approving employee change requests. Merges with existing so only provided arrays are replaced.
    */
@@ -1159,13 +1240,37 @@ export class EmployeeService {
       }
     }
 
-    // Extract role from data (it's for User, not Employee)
+    // Resolve HRMS role: use explicit role from request, or fetch dynamically from Configurator API
+    let resolvedRole = role;
+    if (!resolvedRole && data.configuratorRoleId && existing.userId) {
+      // Fetch role code from Configurator API to keep HRMS user.role in sync
+      const tokenUser = await prisma.user.findUnique({
+        where: { id: updatedByUserId },
+        select: { configuratorAccessToken: true },
+      });
+      if (tokenUser?.configuratorAccessToken) {
+        try {
+          const roleRes = await configuratorService.getUserRole(tokenUser.configuratorAccessToken, data.configuratorRoleId);
+          const code = roleRes?.code || roleRes?.name;
+          if (code) {
+            const upper = code.trim().toUpperCase().replace(/\s+/g, '_');
+            const { UserRole } = await import('@prisma/client');
+            const validRoles = Object.values(UserRole);
+            // Direct match or suffix match (e.g., HRMS_HR_MANAGER → HR_MANAGER)
+            const matched = validRoles.find(r => upper === r || upper.endsWith('_' + r));
+            if (matched) resolvedRole = matched as any;
+          }
+        } catch (err: any) {
+          console.warn('Failed to fetch Configurator role code:', err?.message);
+        }
+      }
+    }
 
-    // Update user role if provided (only ORG_ADMIN and HR_MANAGER can do this)
-    if (role && existing.userId) {
+    // Update user role if resolved (only ORG_ADMIN and HR_MANAGER can do this)
+    if (resolvedRole && existing.userId) {
       await prisma.user.update({
         where: { id: existing.userId },
-        data: { role },
+        data: { role: resolvedRole },
       });
     }
 
@@ -1420,7 +1525,9 @@ export class EmployeeService {
   /**
    * Check for circular reference in reporting hierarchy
    */
-  private async hasCircularReference(employeeId: string, managerId: string): Promise<boolean> {
+  private async hasCircularReference(employeeId: string, managerId: string, depth: number = 0): Promise<boolean> {
+    if (depth > 20) return false; // Prevent infinite recursion in deep hierarchies
+
     const manager = await prisma.employee.findUnique({
       where: { id: managerId },
       select: { reportingManagerId: true },
@@ -1434,7 +1541,7 @@ export class EmployeeService {
       return true;
     }
 
-    return this.hasCircularReference(employeeId, manager.reportingManagerId);
+    return this.hasCircularReference(employeeId, manager.reportingManagerId, depth + 1);
   }
 
   /**
@@ -1449,6 +1556,7 @@ export class EmployeeService {
 
     const employees = await prisma.employee.findMany({
       where,
+      take: 500,
       select: {
         id: true,
         employeeCode: true,

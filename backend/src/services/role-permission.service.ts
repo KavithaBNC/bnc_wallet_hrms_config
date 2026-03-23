@@ -3,6 +3,7 @@ import type { UserRole as UserRoleType } from '@prisma/client';
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError } from '../middlewares/errorHandler';
+import { ORG_SCOPED_ROLES } from '../utils/roles';
 
 export interface AssignPermissionInput {
   role: UserRoleType | string;
@@ -156,8 +157,7 @@ export class RolePermissionService {
       return false;
     }
 
-    const orgScopedRoles: UserRole[] = ['ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
-    const onlyOrgSpecific = orgScopedRoles.includes(role) && organizationId;
+    const onlyOrgSpecific = (ORG_SCOPED_ROLES as readonly string[]).includes(role) && organizationId;
 
     const rolePermission = await prisma.rolePermission.findFirst({
       where: {
@@ -186,9 +186,7 @@ export class RolePermissionService {
     role: UserRoleType,
     organizationId?: string
   ): Promise<any[]> {
-    const orgScopedRoles: UserRoleType[] = ['ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'];
-
-    if (orgScopedRoles.includes(role) && organizationId) {
+    if ((ORG_SCOPED_ROLES as readonly string[]).includes(role) && organizationId) {
       const orgPermissions = await prisma.rolePermission.findMany({
         where: {
           role: role as UserRole,
@@ -286,6 +284,12 @@ export class RolePermissionService {
       if (allowedResources.has('time_attendance')) {
         allowedResources.add('shifts');
       }
+      // ESOP parent implies all ESOP sub-modules
+      if (allowedResources.has('esop')) {
+        for (const r of ['esop_pools', 'esop_vesting_plans', 'esop_grants', 'esop_vesting_schedules', 'esop_exercise_requests', 'esop_ledger']) {
+          allowedResources.add(r);
+        }
+      }
       // Transaction modules: always allow so Org Admin can assign Increment, Transfer and Promotion Entry, Emp Code Transfer
       allowedResources.add('transfer_promotions');
       allowedResources.add('transfer_promotion_entry');
@@ -310,16 +314,24 @@ export class RolePermissionService {
       },
     });
 
-    // Assign new permissions
-    const result = await this.assignPermissions({
-      role,
-      permissionIds,
-      organizationId,
-    });
+    // Bulk-insert new permissions in a single DB call (avoids N×3 sequential queries)
+    let assigned = 0;
+    if (permissionIds.length > 0) {
+      const toInsert = permissionIds.map((pid) => ({
+        role: role as UserRole,
+        permissionId: pid,
+        organizationId: organizationId || null,
+      }));
+      const created = await prisma.rolePermission.createMany({
+        data: toInsert,
+        skipDuplicates: true,
+      });
+      assigned = created.count;
+    }
 
     return {
       removed: deleted.count,
-      assigned: result.assigned,
+      assigned,
     };
   }
 }

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { employeeChangeRequestController } from '../controllers/employee-change-request.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { employeeListAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -17,7 +18,7 @@ router.post(
 // List pending requests (HR Manager, Org Admin, Super Admin)
 router.get(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_change_requests', 'read'),
   employeeListAccess,
   employeeChangeRequestController.listPending.bind(employeeChangeRequestController)
 );
@@ -25,7 +26,7 @@ router.get(
 // Get single request
 router.get(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_change_requests', 'read'),
   employeeListAccess,
   employeeChangeRequestController.getById.bind(employeeChangeRequestController)
 );
@@ -33,7 +34,7 @@ router.get(
 // Approve – apply requested data to employee
 router.post(
   '/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_change_requests', 'update'),
   employeeListAccess,
   employeeChangeRequestController.approve.bind(employeeChangeRequestController)
 );
@@ -41,7 +42,7 @@ router.post(
 // Reject
 router.post(
   '/:id/reject',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_change_requests', 'update'),
   employeeListAccess,
   employeeChangeRequestController.reject.bind(employeeChangeRequestController)
 );

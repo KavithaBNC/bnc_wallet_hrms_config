@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
 import { checkPermission } from '../middlewares/permission';
 import { permissionController } from '../controllers/permission.controller';
 import { rolePermissionController } from '../controllers/role-permission.controller';
@@ -37,7 +37,7 @@ router.get(
  */
 router.post(
   '/sync-app-modules',
-  authorize('SUPER_ADMIN'),
+  checkPermission('permissions', 'create'),
   permissionController.syncAppModulePermissions.bind(permissionController)
 );
 

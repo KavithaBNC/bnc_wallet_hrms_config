@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import {
   payrollCycleService,
   payslipService,
@@ -34,11 +35,9 @@ const PayrollPage = () => {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   // Check permissions
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isManager = user?.role === 'MANAGER';
-  const canManagePayroll = isHRManager || isOrgAdmin;
-  const canViewPayroll = canManagePayroll || isManager;
+  const payrollPerms = getModulePermissions('/payroll');
+  const canManagePayroll = payrollPerms.can_edit;
+  const canViewPayroll = payrollPerms.can_view;
 
   const organizationId = user?.employee?.organizationId;
 

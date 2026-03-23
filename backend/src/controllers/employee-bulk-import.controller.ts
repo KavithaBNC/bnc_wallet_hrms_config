@@ -23,24 +23,51 @@ export class EmployeeBulkImportController {
         throw new AppError('organizationId is required', 400);
       }
 
+      if (!req.user?.userId) {
+        throw new AppError('User authentication required', 401);
+      }
+
       const createSalaryRecords = req.body.createSalaryRecords === 'true';
       const skipConfiguratorSync = req.body.skipConfiguratorSync === 'true';
+
+      console.log('[BulkImport Controller] Starting import:', {
+        fileName: file.originalname,
+        fileSize: file.size,
+        organizationId,
+        userId: req.user.userId,
+        createSalaryRecords,
+        skipConfiguratorSync,
+      });
 
       const result = await employeeBulkImportService.bulkImport(
         file.buffer,
         file.originalname,
         organizationId,
-        req.user!.userId,
+        req.user.userId,
         { createSalaryRecords, skipConfiguratorSync },
       );
+
+      console.log('[BulkImport Controller] Import completed:', {
+        total: result.total,
+        success: result.success,
+        updated: result.updated,
+        failed: result.failed,
+        configuratorSyncStatus: result.configuratorSyncStatus,
+      });
 
       res.status(200).json({
         status: 'success',
         message: `Import complete: ${result.success} created, ${result.updated} updated, ${result.skipped} skipped, ${result.failed} failed`,
         data: result,
       });
-    } catch (error) {
-      next(error);
+    } catch (error: any) {
+      console.error('[BulkImport Controller] ERROR:', error?.message, error?.stack?.split('\n').slice(0, 5).join('\n'));
+      // Ensure the error is an AppError with a proper status code
+      if (error instanceof AppError) {
+        next(error);
+      } else {
+        next(new AppError(error?.message || 'Bulk import failed with an unexpected error', 500));
+      }
     }
   }
 

@@ -53,9 +53,10 @@ export class EmployeeSeparationService {
     const insertSql = `
       INSERT INTO employee_separations (
         employee_id, organization_id, resignation_apply_date, notice_period,
-        notice_period_reason, relieving_date, reason_of_leaving, separation_type, remarks
+        notice_period_reason, relieving_date, reason_of_leaving, separation_type, remarks,
+        updated_at
       )
-      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8::"separation_type", $9)
+      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8::"separation_type", $9, NOW())
       RETURNING id, employee_id, organization_id, resignation_apply_date, notice_period,
         notice_period_reason, relieving_date, reason_of_leaving, separation_type, remarks,
         created_at, updated_at
@@ -302,10 +303,28 @@ export class EmployeeSeparationService {
 
   async delete(id: string) {
     const rows = await prisma.$queryRaw<DbRow[]>`
-      SELECT id FROM employee_separations WHERE id = ${id}::uuid
+      SELECT id, employee_id FROM employee_separations WHERE id = ${id}::uuid
     `;
     if (rows.length === 0) throw new AppError('Separation record not found', 404);
+    const employeeId = rows[0].employee_id;
+
     await prisma.$executeRaw`DELETE FROM employee_separations WHERE id = ${id}::uuid`;
+
+    // Restore employee to ACTIVE and reactivate their login
+    const emp = await prisma.employee.update({
+      where: { id: employeeId },
+      data: {
+        employeeStatus: EmployeeStatus.ACTIVE,
+        dateOfLeaving: null,
+        terminationReason: null,
+      },
+      select: { userId: true },
+    });
+    await prisma.user.update({
+      where: { id: emp.userId },
+      data: { isActive: true },
+    });
+
     return { deleted: true };
   }
 }

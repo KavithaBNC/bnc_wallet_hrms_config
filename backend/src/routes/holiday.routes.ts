@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate } from '../middlewares/validate';
 import { holidayController } from '../controllers/holiday.controller';
@@ -33,7 +34,7 @@ const updateHolidaySchema = createHolidaySchema.partial().extend({
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('holidays', 'create'),
   validate(createHolidaySchema),
   holidayController.create.bind(holidayController)
 );
@@ -65,7 +66,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('holidays', 'update'),
   validate(updateHolidaySchema),
   holidayController.update.bind(holidayController)
 );
@@ -77,7 +78,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('holidays', 'delete'),
   holidayController.delete.bind(holidayController)
 );
 

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { monthlyAttendanceSummaryController } from '../controllers/monthly-attendance-summary.controller';
 
 const router = Router();
@@ -12,7 +13,7 @@ router.use(authenticate);
  */
 router.post(
   '/build',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('monthly_attendance_summary', 'create'),
   monthlyAttendanceSummaryController.buildForEmployee.bind(monthlyAttendanceSummaryController)
 );
 
@@ -22,7 +23,7 @@ router.post(
  */
 router.post(
   '/build-month',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('monthly_attendance_summary', 'create'),
   monthlyAttendanceSummaryController.buildMonth.bind(monthlyAttendanceSummaryController)
 );
 
@@ -32,7 +33,7 @@ router.post(
  */
 router.get(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('monthly_attendance_summary', 'read'),
   monthlyAttendanceSummaryController.list.bind(monthlyAttendanceSummaryController)
 );
 
@@ -42,7 +43,7 @@ router.get(
  */
 router.get(
   '/lock',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('monthly_attendance_summary', 'read'),
   monthlyAttendanceSummaryController.getMonthLock.bind(monthlyAttendanceSummaryController)
 );
 
@@ -52,7 +53,7 @@ router.get(
  */
 router.get(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER'),
+  checkPermission('monthly_attendance_summary', 'read'),
   monthlyAttendanceSummaryController.getById.bind(monthlyAttendanceSummaryController)
 );
 
@@ -62,7 +63,7 @@ router.get(
  */
 router.put(
   '/:id/finalize',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('monthly_attendance_summary', 'update'),
   monthlyAttendanceSummaryController.finalize.bind(monthlyAttendanceSummaryController)
 );
 
@@ -72,7 +73,7 @@ router.put(
  */
 router.post(
   '/lock-month',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('monthly_attendance_summary', 'update'),
   monthlyAttendanceSummaryController.lockMonth.bind(monthlyAttendanceSummaryController)
 );
 
@@ -82,7 +83,7 @@ router.post(
  */
 router.post(
   '/unlock-month',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('monthly_attendance_summary', 'update'),
   monthlyAttendanceSummaryController.unlockMonth.bind(monthlyAttendanceSummaryController)
 );
 

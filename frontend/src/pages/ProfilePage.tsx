@@ -145,7 +145,7 @@ const ProfilePage = () => {
   const fullName = `${firstName} ${lastName}`.trim() || 'User';
   const initials = `${firstName[0] || ''}${lastName[0] || ''}`.toUpperCase() || 'U';
   const email = employee?.email || user?.email || '';
-  const role = user?.role?.replace(/_/g, ' ') || 'User';
+  const role = user?.roleName || user?.role?.replace(/_/g, ' ') || 'User';
   const empCode = employee?.employeeCode || user?.employee?.employeeCode || 'N/A';
   const department = employee?.department?.name || user?.employee?.department?.name || 'N/A';
   const position = employee?.position?.title || user?.employee?.position?.title || 'N/A';

@@ -14,7 +14,7 @@ function buildPrismaUrl(base: string): string {
   if (!hasConnectionLimit) {
     // Keep pool small — AWS RDS free/small tier has very limited max_connections (~17-66).
     // Multiple processes (ts-node restarts, multiple terminals) can exhaust the limit quickly.
-    params.push(`connection_limit=${process.env.PRISMA_CONNECTION_LIMIT ?? '3'}`);
+    params.push(`connection_limit=${process.env.PRISMA_CONNECTION_LIMIT ?? '10'}`);
   }
   if (!/[?&]pool_timeout=/.test(base)) {
     params.push(`pool_timeout=${process.env.PRISMA_POOL_TIMEOUT ?? '30'}`);
@@ -23,7 +23,7 @@ function buildPrismaUrl(base: string): string {
     params.push(`connect_timeout=${process.env.PRISMA_CONNECT_TIMEOUT ?? '15'}`);
   }
   if (!/[?&]socket_timeout=/.test(base)) {
-    params.push(`socket_timeout=${process.env.PRISMA_SOCKET_TIMEOUT ?? '30'}`);
+    params.push(`socket_timeout=${process.env.PRISMA_SOCKET_TIMEOUT ?? '60'}`);
   }
   return params.length > 0 ? `${base}${sep}${params.join('&')}` : base;
 }

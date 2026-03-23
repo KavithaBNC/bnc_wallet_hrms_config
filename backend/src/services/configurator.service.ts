@@ -698,11 +698,13 @@ export class ConfiguratorService {
   ): Promise<{ id: number; email: string; first_name?: string; last_name?: string }> {
     try {
       const body: Record<string, unknown> = {
+        user_id: userId,
         email: data.email ?? '',
         first_name: data.first_name ?? '',
         last_name: data.last_name ?? '',
         phone: data.phone ?? '',
         company_id: data.company_id ?? 0,
+        project_id: 0,
         role_id: data.role_id ?? 0,
         is_active: data.is_active ?? true,
       };
@@ -714,7 +716,7 @@ export class ConfiguratorService {
       if (data.sub_department_id != null) body.sub_department_id = data.sub_department_id;
       if (data.manager_id != null) body.manager_id = data.manager_id;
       const res = await axios.put(
-        `${CONFIGURATOR_BASE}/api/v1/users/${userId}`,
+        `${CONFIGURATOR_BASE}/api/v1/users/`,
         body,
         {
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },

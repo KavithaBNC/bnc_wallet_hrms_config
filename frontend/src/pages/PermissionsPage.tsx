@@ -51,12 +51,12 @@ const PermissionsPage = () => {
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
   const orgDropdownRef = useRef<HTMLDivElement>(null);
 
-  const roleUpper = user?.role != null ? String(user.role).toUpperCase() : '';
   // Module permissions from /api/v1/user-role-modules/project API response
   const permPerms = getModulePermissions('/permissions');
+  const orgPerms = getModulePermissions('/organizations');
   const canManagePermissions = permPerms.can_view;
-  const isSuperAdmin = roleUpper === 'SUPER_ADMIN';
-  const isOrgAdmin = roleUpper === 'ORG_ADMIN';
+  const isSuperAdmin = orgPerms.can_edit;
+  const isOrgAdmin = permPerms.can_edit && !orgPerms.can_edit;
   const userOrgId = user?.employee?.organizationId ?? user?.employee?.organization?.id;
   const effectiveOrgId = isSuperAdmin ? selectedOrgId : userOrgId;
 

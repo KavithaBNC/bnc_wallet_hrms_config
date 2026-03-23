@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { entityController } from '../controllers/entity.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -23,10 +24,10 @@ const upload = multer({
 router.use(authenticate);
 router.use(enforceOrganizationAccess);
 
-router.get('/download-excel', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), entityController.downloadExcel.bind(entityController));
-router.post('/upload-excel', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), upload.single('file'), entityController.uploadExcel.bind(entityController));
+router.get('/download-excel', checkPermission('entities', 'read'), entityController.downloadExcel.bind(entityController));
+router.post('/upload-excel', checkPermission('entities', 'create'), upload.single('file'), entityController.uploadExcel.bind(entityController));
 router.get('/', entityController.getByOrganization.bind(entityController));
-router.post('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), entityController.create.bind(entityController));
-router.put('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'), entityController.update.bind(entityController));
-router.delete('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN'), entityController.delete.bind(entityController));
+router.post('/', checkPermission('entities', 'create'), entityController.create.bind(entityController));
+router.put('/:id', checkPermission('entities', 'update'), entityController.update.bind(entityController));
+router.delete('/:id', checkPermission('entities', 'delete'), entityController.delete.bind(entityController));
 export default router;

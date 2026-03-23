@@ -19,7 +19,8 @@ const PanStatusBadge = ({ pan }: { pan: string | null | undefined }) => {
 
 const TdsIncomeTaxPage = () => {
   const navigate = useNavigate();
-  const { logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId || '';
 
   const [activeTab, setActiveTab] = useState<'monthly' | 'annual' | 'form16'>('monthly');
 
@@ -52,12 +53,13 @@ const TdsIncomeTaxPage = () => {
     : false;
 
   useEffect(() => {
-    payrollCycleService.getAll().then((res) => {
+    if (!orgId) return;
+    payrollCycleService.getAll({ organizationId: orgId }).then((res) => {
       const list: PayrollCycle[] = res.data || [];
       setCycles(list);
       if (list.length > 0) setSelectedCycleId(list[0].id);
     }).catch(() => {});
-  }, []);
+  }, [orgId]);
 
   // Monthly TDS fetch
   const fetchMonthly = useCallback(async () => {
@@ -236,7 +238,7 @@ const TdsIncomeTaxPage = () => {
                         return (
                           <tr key={i} className="hover:bg-gray-50">
                             <td className="px-3 py-2.5 text-gray-600">{emp.employeeCode}</td>
-                            <td className="px-3 py-2.5 font-medium text-gray-900">{emp.firstName} {emp.lastName}</td>
+                            <td className="px-3 py-2.5 font-medium text-gray-900">{emp.employeeName}</td>
                             <td className="px-3 py-2.5 font-mono text-gray-600">{pan || '—'}</td>
                             <td className="px-3 py-2.5">
                               <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${regime === 'OLD' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
@@ -310,7 +312,7 @@ const TdsIncomeTaxPage = () => {
                         const balance = Number(emp.ytdTax || 0) - Number(emp.ytdTaxPaid || 0);
                         return (
                           <tr key={i} className="hover:bg-gray-50">
-                            <td className="px-3 py-2.5 font-medium text-gray-900">{emp.name}</td>
+                            <td className="px-3 py-2.5 font-medium text-gray-900">{emp.employeeName}</td>
                             <td className="px-3 py-2.5 font-mono text-gray-500">{emp.pan || '—'}</td>
                             <td className="px-3 py-2.5">
                               <span className={`px-1.5 py-0.5 rounded text-xs ${emp.regime === 'OLD' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{emp.regime || 'NEW'}</span>

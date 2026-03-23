@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../utils/prisma';
 import { employeeChangeRequestService } from '../services/employee-change-request.service';
+import { userHasPermission } from '../utils/permission-cache';
 
 export class EmployeeChangeRequestController {
   async submit(req: Request, res: Response, next: NextFunction) {
@@ -16,9 +17,9 @@ export class EmployeeChangeRequestController {
           message: 'employeeId, existingData and requestedData are required.',
         });
       }
-      // EMPLOYEE and MANAGER can only submit change request for their own record
-      const role = req.user!.role as string;
-      if (role === 'EMPLOYEE' || role === 'MANAGER') {
+      // Users without employee edit permission can only submit change request for their own record
+      const canEditEmployees = userHasPermission(req.user!.userId, '/employees', 'can_edit');
+      if (!canEditEmployees) {
         const myEmployee = await prisma.employee.findUnique({
           where: { userId: req.user!.userId },
           select: { id: true },

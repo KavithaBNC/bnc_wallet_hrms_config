@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 interface LeaveRequestItem {
   id: string;
@@ -51,10 +52,8 @@ export default function EventRequestPage() {
   const [error, setError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const canCancel = useMemo(() => {
-    const role = String(user?.role || '').toUpperCase();
-    return role === 'EMPLOYEE' || role === 'MANAGER' || role === 'HR_MANAGER';
-  }, [user?.role]);
+  const leavePerms = getModulePermissions('/leave');
+  const canCancel = leavePerms.is_enabled;
 
   const fetchMyRequests = useCallback(async () => {
     if (!employeeId || !organizationId) {

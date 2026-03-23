@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { payslipService, Payslip } from '../services/payroll.service';
 
 const fmt = (v: number | string | undefined | null) =>
@@ -26,10 +27,8 @@ const EmployeePayrollDetailsPage = () => {
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const _canViewAll = isHRManager || isOrgAdmin || isSuperAdmin; void _canViewAll;
+  const payrollPerms = getModulePermissions('/payroll');
+  const _canViewAll = payrollPerms.can_edit; void _canViewAll;
 
   // Use logged-in employee's id if no param (self-service)
   const targetEmployeeId = employeeId || user?.employee?.id;

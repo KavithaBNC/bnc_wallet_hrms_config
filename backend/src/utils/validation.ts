@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UserRole } from '@prisma/client';
 
 // Registration schema
 export const registerSchema = z.object({
@@ -15,7 +16,7 @@ export const registerSchema = z.object({
     ),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
-  role: z.enum(['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE']).optional(),
+  role: z.nativeEnum(UserRole).optional(),
   organizationId: z.string().uuid('Invalid organization ID').optional(),
   // Note: createOrganization removed - only HRMS_ADMIN can create organizations
 });

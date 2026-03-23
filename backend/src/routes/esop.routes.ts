@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { esopController } from '../controllers/esop.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -15,52 +16,52 @@ router.get('/dashboard', esopController.getDashboard.bind(esopController));
 // ─── ESOP Pools ──────────────────────────────────────────────────────────────
 router.post(
   '/pools',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'create'),
   esopController.createPool.bind(esopController)
 );
 router.get('/pools', esopController.getAllPools.bind(esopController));
 router.get('/pools/:id', esopController.getPoolById.bind(esopController));
 router.put(
   '/pools/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'update'),
   esopController.updatePool.bind(esopController)
 );
 router.delete(
   '/pools/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('esop', 'delete'),
   esopController.deletePool.bind(esopController)
 );
 
 // ─── Vesting Plans ───────────────────────────────────────────────────────────
 router.post(
   '/vesting-plans',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'create'),
   esopController.createVestingPlan.bind(esopController)
 );
 router.get('/vesting-plans', esopController.getAllVestingPlans.bind(esopController));
 router.get('/vesting-plans/:id', esopController.getVestingPlanById.bind(esopController));
 router.put(
   '/vesting-plans/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'update'),
   esopController.updateVestingPlan.bind(esopController)
 );
 router.delete(
   '/vesting-plans/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('esop', 'delete'),
   esopController.deleteVestingPlan.bind(esopController)
 );
 
 // ─── ESOP Grants ─────────────────────────────────────────────────────────────
 router.post(
   '/grants',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'create'),
   esopController.createGrant.bind(esopController)
 );
 router.get('/grants', esopController.getAllGrants.bind(esopController));
 router.get('/grants/:id', esopController.getGrantById.bind(esopController));
 router.put(
   '/grants/:id/cancel',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'update'),
   esopController.cancelGrant.bind(esopController)
 );
 
@@ -69,7 +70,7 @@ router.get('/vesting-schedules', esopController.getVestingSchedules.bind(esopCon
 router.get('/vesting-schedules/:id', esopController.getVestingScheduleById.bind(esopController));
 router.post(
   '/process-vesting',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('esop', 'update'),
   esopController.processVesting.bind(esopController)
 );
 
@@ -85,17 +86,17 @@ router.get('/exercise-requests', esopController.getAllExerciseRequests.bind(esop
 router.get('/exercise-requests/:id', esopController.getExerciseRequestById.bind(esopController));
 router.put(
   '/exercise-requests/:id/approve',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'update'),
   esopController.approveExercise.bind(esopController)
 );
 router.put(
   '/exercise-requests/:id/reject',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('esop', 'update'),
   esopController.rejectExercise.bind(esopController)
 );
 router.put(
   '/exercise-requests/:id/complete',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('esop', 'update'),
   esopController.completeExercise.bind(esopController)
 );
 

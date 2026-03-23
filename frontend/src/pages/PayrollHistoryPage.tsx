@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { payrollCycleService, PayrollCycle } from '../services/payroll.service';
 
 const fmt = (v: number | string | undefined | null) =>
@@ -59,10 +60,8 @@ const PayrollHistoryPage = () => {
   const organizationName = user?.employee?.organization?.name;
   const organizationId = user?.employee?.organizationId;
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canManagePayroll = isHRManager || isOrgAdmin || isSuperAdmin;
+  const payrollPerms = getModulePermissions('/payroll');
+  const canManagePayroll = payrollPerms.can_edit;
 
   // Filters
   const [filterYear, setFilterYear] = useState<number>(CURRENT_YEAR);

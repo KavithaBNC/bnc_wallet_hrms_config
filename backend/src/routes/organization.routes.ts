@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { organizationController } from '../controllers/organization.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { validate } from '../middlewares/validate';
 import { createOrganizationSchema, updateOrganizationSchema, addDeviceSchema } from '../utils/organization.validation';
 import { createOrgAdminSchema } from '../utils/validation';
@@ -15,7 +16,7 @@ const router = Router();
 router.post(
   '/',
   authenticate,
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'create'),
   validate(createOrganizationSchema),
   organizationController.create.bind(organizationController)
 );
@@ -30,7 +31,7 @@ router.use(authenticate);
  */
 router.get(
   '/',
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'read'),
   organizationController.getAll.bind(organizationController)
 );
 
@@ -41,7 +42,7 @@ router.get(
  */
 router.post(
   '/sync-shift-module',
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'update'),
   organizationController.syncShiftModule.bind(organizationController)
 );
 
@@ -62,7 +63,7 @@ router.get(
  */
 router.put(
   '/:id/modules',
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'update'),
   organizationController.setModules.bind(organizationController)
 );
 
@@ -83,7 +84,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('organizations', 'update'),
   validate(updateOrganizationSchema),
   organizationController.update.bind(organizationController)
 );
@@ -95,7 +96,7 @@ router.put(
  */
 router.post(
   '/:id/logo',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('organizations', 'update'),
   organizationController.updateLogo.bind(organizationController)
 );
 
@@ -106,7 +107,7 @@ router.post(
  */
 router.post(
   '/:id/admins',
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'create'),
   validate(createOrgAdminSchema),
   organizationController.createAdmin.bind(organizationController)
 );
@@ -118,7 +119,7 @@ router.post(
  */
 router.get(
   '/:id/statistics',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('organizations', 'read'),
   organizationController.getStatistics.bind(organizationController)
 );
 
@@ -129,7 +130,7 @@ router.get(
  */
 router.get(
   '/:id/devices',
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'read'),
   organizationController.getDevices.bind(organizationController)
 );
 
@@ -140,7 +141,7 @@ router.get(
  */
 router.post(
   '/:id/devices',
-  authorize('SUPER_ADMIN'),
+  checkPermission('organizations', 'create'),
   validate(addDeviceSchema),
   organizationController.addDevice.bind(organizationController)
 );

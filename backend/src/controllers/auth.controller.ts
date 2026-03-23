@@ -4,28 +4,25 @@ import { configuratorService, type ConfiguratorRoleModuleWithPage } from '../ser
 import { AppError } from '../middlewares/errorHandler';
 import { generateTokenPair, JwtPayload } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
+import { UserRole } from '@prisma/client';
 import { config } from '../config/config';
 import { setUserPermissions, clearUserPermissions, type ModulePermissions } from '../utils/permission-cache';
 
 /**
- * Valid HRMS UserRole enum values (must match prisma schema enum exactly).
+ * Normalize a Configurator role code/name to a valid Prisma UserRole enum value.
+ * Valid roles are read dynamically from the Prisma-generated UserRole enum.
+ * Configurator may return codes like 'HRMS001_SUPER_ADMIN', 'HRMS_ORG_ADMIN', etc.
+ * Strategy: uppercase + strip prefix → match against Prisma UserRole values.
  */
-const VALID_HRMS_ROLES = ['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE'] as const;
-type HrmsRole = typeof VALID_HRMS_ROLES[number];
-
-/**
- * Normalize a Configurator role code to a valid HRMS UserRole enum value.
- * Configurator may return codes like 'HRMS001_SUPER_ADMIN', 'HRMS_ORG_ADMIN', 'Super Admin', etc.
- * Strategy: uppercase + strip digits/prefix → match against known roles by suffix.
- */
-function normalizeToHrmsRole(code: string | undefined | null): HrmsRole | undefined {
+function normalizeToHrmsRole(code: string | undefined | null): UserRole | undefined {
   if (!code) return undefined;
   const upper = code.trim().toUpperCase().replace(/\s+/g, '_');
-  // Direct match first
-  if ((VALID_HRMS_ROLES as readonly string[]).includes(upper)) return upper as HrmsRole;
-  // Suffix match: HRMS001_SUPER_ADMIN → SUPER_ADMIN, HRMS_ORG_ADMIN → ORG_ADMIN
-  for (const role of VALID_HRMS_ROLES) {
-    if (upper.endsWith('_' + role) || upper.endsWith(role)) return role;
+  const validRoles = Object.values(UserRole);
+  // Direct match
+  if (validRoles.includes(upper as UserRole)) return upper as UserRole;
+  // Suffix match: strip any prefix (e.g., HRMS001_HR_MANAGER → HR_MANAGER)
+  for (const role of validRoles) {
+    if (upper.endsWith('_' + role)) return role;
   }
   return undefined;
 }
@@ -301,6 +298,9 @@ export class AuthController {
       console.log('[configuratorLogin] Login OK — company_id:', resolvedCompanyId);
       const configRoles = loginRes.user?.roles ?? [];
       const primaryConfigRole = configRoles[0];
+      // Configurator puts role info in projects array, not user.roles
+      const configProjects: any[] = Array.isArray((loginRes as any).projects) ? (loginRes as any).projects : [];
+      const hrmsConfigProject = configProjects.find((p: any) => p.code === 'HRMS001' || p.name === 'HRMS') || configProjects[0];
 
       // Prefer email lookup (from token) - it's the actual logged-in user
       let hrmsUser = await prisma.user.findFirst({
@@ -328,14 +328,22 @@ export class AuthController {
         if (configuratorUserId != null && hrmsUser.configuratorUserId !== configuratorUserId) {
           updates.configuratorUserId = configuratorUserId;
         }
-        let roleCode: string | undefined = primaryConfigRole?.code;
-        if (!roleCode && typeof (loginRes as any).user_role_id === 'number') {
-          const roleRes = await configuratorService.getUserRole(loginRes.access_token, (loginRes as any).user_role_id);
-          roleCode = roleRes?.code;
+        let roleCode: string | undefined = primaryConfigRole?.code || hrmsConfigProject?.role_code;
+        if (!roleCode) {
+          const roleId = primaryConfigRole?.id ?? hrmsConfigProject?.role_id ?? (loginRes as any).user_role_id;
+          if (typeof roleId === 'number') {
+            const roleRes = await configuratorService.getUserRole(loginRes.access_token, roleId);
+            roleCode = roleRes?.code || roleRes?.name;
+          }
         }
-        const normalizedRoleCode = normalizeToHrmsRole(roleCode);
+        let normalizedRoleCode = normalizeToHrmsRole(roleCode);
+        // Fallback: try role name if code didn't match
+        if (!normalizedRoleCode) {
+          const roleName = primaryConfigRole?.name || hrmsConfigProject?.role_name;
+          if (roleName) normalizedRoleCode = normalizeToHrmsRole(roleName);
+        }
         if (normalizedRoleCode && hrmsUser.role !== normalizedRoleCode) {
-          updates.role = normalizedRoleCode as import('@prisma/client').UserRole;
+          updates.role = normalizedRoleCode;
         }
         if (Object.keys(updates).length > 0) {
           await prisma.user.update({
@@ -402,15 +410,20 @@ export class AuthController {
               500
             );
           }
-          let configRole: string | undefined = primaryConfigRole?.code;
+          let configRole: string | undefined = primaryConfigRole?.code || hrmsConfigProject?.role_code;
           if (!configRole) {
-            const roleId = primaryConfigRole?.id ?? (loginRes as any).user_role_id ?? (loginRes.user as any)?.role_id;
+            const roleId = primaryConfigRole?.id ?? hrmsConfigProject?.role_id ?? (loginRes as any).user_role_id ?? (loginRes.user as any)?.role_id;
             if (typeof roleId === 'number') {
               const roleRes = await configuratorService.getUserRole(loginRes.access_token, roleId);
-              configRole = roleRes?.code;
+              configRole = roleRes?.code || roleRes?.name;
             }
           }
-          const normalizedConfigRole = normalizeToHrmsRole(configRole);
+          let normalizedConfigRole = normalizeToHrmsRole(configRole);
+          // Fallback: try role name if code didn't match
+          if (!normalizedConfigRole) {
+            const roleName = primaryConfigRole?.name || hrmsConfigProject?.role_name;
+            if (roleName) normalizedConfigRole = normalizeToHrmsRole(roleName);
+          }
           if (!normalizedConfigRole) {
             throw new AppError(
               'User has no role assigned. Assign a role in Configurator and try again.',
@@ -520,8 +533,11 @@ export class AuthController {
           });
         } else {
           // Fallback: role-module permissions
-          const roleId =
-            loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
+          const roleId = loginRes.user?.roles?.[0]?.id
+            ?? hrmsConfigProject?.role_id
+            ?? (loginRes as any).user_role_id
+            ?? (loginRes.user as any)?.role_id
+            ?? config.configuratorRoleIds[String(hrmsUser.role)];
           if (roleId != null) {
             const roleModules = await configuratorService.getRoleModulesByProject(
               loginRes.access_token,
@@ -536,7 +552,11 @@ export class AuthController {
 
       // Build permission cache from Configurator role-module-permissions
       try {
-        const cacheRoleId = loginRes.user?.roles?.[0]?.id ?? config.configuratorRoleIds[String(hrmsUser.role)];
+        const cacheRoleId = loginRes.user?.roles?.[0]?.id
+          ?? hrmsConfigProject?.role_id
+          ?? (loginRes as any).user_role_id
+          ?? (loginRes.user as any)?.role_id
+          ?? config.configuratorRoleIds[String(hrmsUser.role)];
         if (cacheRoleId != null) {
           const roleModulesRaw = await configuratorService.getRoleModulesByProject(
             loginRes.access_token,
@@ -558,6 +578,10 @@ export class AuthController {
           }
           setUserPermissions(hrmsUser.id, permMap);
           console.log('[configuratorLogin] Permission cache set for user', hrmsUser.id, '—', Object.keys(permMap).length, 'modules');
+        } else {
+          console.warn('[configuratorLogin] Could not resolve cacheRoleId — permission cache NOT built for user', hrmsUser.id);
+          // Set empty cache so checkPermission doesn't fail with "not loaded"
+          setUserPermissions(hrmsUser.id, {});
         }
       } catch (cacheErr: any) {
         console.warn('[configuratorLogin] Permission cache build failed:', cacheErr?.message);

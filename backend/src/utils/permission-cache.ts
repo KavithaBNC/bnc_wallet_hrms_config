@@ -26,3 +26,22 @@ export function getUserPermissions(userId: string): Record<string, ModulePermiss
 export function clearUserPermissions(userId: string): void {
   permissionCache.delete(userId);
 }
+
+/**
+ * Check if a user has a specific permission on a module page path.
+ * Used by services/controllers for data scoping instead of hardcoded role checks.
+ * @param userId - HRMS user ID
+ * @param pagePath - Configurator page path (e.g. '/attendance', '/employees')
+ * @param flag - Permission flag to check ('can_view', 'can_add', 'can_edit', 'can_delete')
+ * @returns true if user has the permission, false otherwise
+ */
+export function userHasPermission(
+  userId: string,
+  pagePath: string,
+  flag: keyof ModulePermissions
+): boolean {
+  const perms = permissionCache.get(userId);
+  if (!perms) return false;
+  const modulePerm = perms[pagePath];
+  return !!(modulePerm?.is_enabled && modulePerm[flag]);
+}

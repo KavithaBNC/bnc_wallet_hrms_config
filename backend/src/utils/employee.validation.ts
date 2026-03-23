@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UserRole } from '@prisma/client';
 
 /**
  * Validation schema for creating employee
@@ -213,7 +214,7 @@ export const updateEmployeeSchema = z.object({
   faceEncoding: z.array(z.number()).length(128).optional().nullable(),
 
   // User role (for ORG_ADMIN and HR_MANAGER only)
-  role: z.enum(['SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER', 'MANAGER', 'EMPLOYEE']).optional(),
+  role: z.nativeEnum(UserRole).optional(),
 });
 
 /**

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
 import {
   salaryTemplateService,
@@ -35,10 +36,8 @@ const SalaryTemplatePage = () => {
   const organizationName = user?.employee?.organization?.name;
   const organizationId = user?.employee?.organizationId;
 
-  const isHRManager = user?.role === 'HR_MANAGER';
-  const isOrgAdmin = user?.role === 'ORG_ADMIN';
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
-  const canManage = isHRManager || isOrgAdmin || isSuperAdmin;
+  const salaryPerms = getModulePermissions('/salary-structures');
+  const canManage = salaryPerms.can_edit;
 
   const [templates, setTemplates] = useState<SalaryTemplate[]>([]);
   const [structures, setStructures] = useState<SalaryStructure[]>([]);

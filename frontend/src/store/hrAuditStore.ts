@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { EMPLOYEE_MODULES, type EmployeeModuleId } from '../constants/employeeModules';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 export interface ModulePermission {
   id: EmployeeModuleId;
@@ -39,8 +40,16 @@ const getDefaultModulesRestricted = (): ModulePermission[] =>
     approval: true,
   }));
 
-const getDefaultModulesForRole = (role: string): ModulePermission[] =>
-  ['HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN'].includes(role) ? getDefaultModulesFull() : getDefaultModulesRestricted();
+/** Dynamic: check Config API permissions to determine default modules for a role */
+const getDefaultModulesForRole = (_role: string): ModulePermission[] => {
+  const empPerms = getModulePermissions('/employees');
+  return empPerms.can_edit ? getDefaultModulesFull() : getDefaultModulesRestricted();
+};
+
+/** Dynamic: check Config API permissions to determine allowDelete default */
+const getDefaultAllowDelete = (_role: string): boolean => {
+  return getModulePermissions('/employees').can_delete;
+};
 
 /** Normalize role to uppercase so HR Audit Settings (EMPLOYEE) matches auth user (Employee/EMPLOYEE) */
 const toRoleKey = (role: string) => (role || 'USER').toUpperCase();
@@ -68,7 +77,7 @@ export const useHRAuditStore = create<HRAuditStore>()(
         if (existing) return existing;
         return {
           role: key,
-          allowDelete: key === 'HR_MANAGER' || key === 'ORG_ADMIN' || key === 'SUPER_ADMIN',
+          allowDelete: getDefaultAllowDelete(key),
           addApproval: false,
           modules: getDefaultModulesForRole(key),
         };
@@ -110,7 +119,7 @@ export const useHRAuditStore = create<HRAuditStore>()(
             ...s.byRole,
             [key]: {
               role: key,
-              allowDelete: ['HR_MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN'].includes(key),
+              allowDelete: getDefaultAllowDelete(key),
               addApproval: false,
               modules: getDefaultModulesForRole(key),
             },

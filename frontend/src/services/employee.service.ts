@@ -256,6 +256,19 @@ const employeeService = {
   },
 
   /**
+   * Find an HRMS employee by Configurator user_id.
+   * Returns full employee data or null if not found.
+   */
+  async getByConfiguratorUserId(configuratorUserId: number): Promise<Employee | null> {
+    try {
+      const response = await api.get(`/employees/configurator/${configuratorUserId}`);
+      return response.data.data.employee || null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
    * Find an HRMS employee by email (exact match via search).
    * Returns the first matching employee or null if none found.
    */
@@ -345,6 +358,8 @@ export interface BulkImportResult {
     updated: number;
     failed: number;
   };
+  configuratorSyncStatus?: 'success' | 'failed' | 'skipped';
+  configuratorSyncMessage?: string;
 }
 
 export default employeeService;

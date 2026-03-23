@@ -435,6 +435,7 @@ export class EmployeeBulkImportService {
       orgPaygroups,
       orgCostCentres,
       orgEntities,
+      orgSubDepartments,
       existingEmployees,
       existingUsers,
       organization,
@@ -444,6 +445,7 @@ export class EmployeeBulkImportService {
       prisma.paygroup.findMany({ where: { organizationId }, select: { id: true, name: true, code: true } }),
       prisma.costCentre.findMany({ where: { organizationId }, select: { id: true, name: true, code: true, configuratorCostCentreId: true } }),
       prisma.entity.findMany({ where: { organizationId }, select: { id: true, name: true, code: true } }),
+      prisma.subDepartment.findMany({ where: { organizationId }, select: { id: true, name: true } }),
       prisma.employee.findMany({
         where: { organizationId, deletedAt: null },
         select: { id: true, employeeCode: true, email: true, firstName: true, lastName: true, configuratorUserId: true },
@@ -482,18 +484,157 @@ export class EmployeeBulkImportService {
     const existingCodeMap = new Map(existingEmployees.map((e) => [e.employeeCode.toLowerCase(), e]));
     const existingUserEmailSet = new Set(existingUsers.map((u) => u.email.toLowerCase()));
 
+    // ── 2b. Fetch Configurator reference data for validation ──
+    // Department, Sub Department, Cost Centre are validated against Configurator DB
+    // Designation and Reporting Manager are optional — validated against HRMS DB only if present
+    let configDepartmentSet = new Set<string>();
+    let configSubDepartmentSet = new Set<string>();
+    let configCostCentreSet = new Set<string>();
+
+    try {
+      if (organization.configuratorCompanyId != null) {
+        const tokenUser = await prisma.user.findUnique({
+          where: { id: createdByUserId },
+          select: { configuratorAccessToken: true },
+        });
+
+        if (tokenUser?.configuratorAccessToken) {
+          const [configDepts, configSubDepts, configCostCentres] = await Promise.all([
+            configuratorService.getDepartments(tokenUser.configuratorAccessToken, { companyId: organization.configuratorCompanyId }),
+            configuratorService.getSubDepartments(tokenUser.configuratorAccessToken, { companyId: organization.configuratorCompanyId }),
+            configuratorService.getCostCentres(tokenUser.configuratorAccessToken, organization.configuratorCompanyId),
+          ]);
+
+          configDepartmentSet = new Set(configDepts.map((d: any) => (d.name || '').toLowerCase()).filter(Boolean));
+          configSubDepartmentSet = new Set(configSubDepts.map((s: any) => (s.name || '').toLowerCase()).filter(Boolean));
+          for (const c of configCostCentres) {
+            if (c.name) configCostCentreSet.add(c.name.toLowerCase());
+            if (c.code) configCostCentreSet.add(c.code.toLowerCase());
+          }
+          console.log(`[BulkImport] Configurator validation data: ${configDepartmentSet.size} depts, ${configSubDepartmentSet.size} sub-depts, ${configCostCentreSet.size} cost-centres`);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[BulkImport] Failed to fetch Configurator reference data:', err?.message);
+      // Fallback to HRMS data if Configurator is unreachable
+      configDepartmentSet = new Set(orgDepartments.map((d) => d.name.toLowerCase()));
+      configSubDepartmentSet = new Set(orgSubDepartments.map((s) => s.name.toLowerCase()));
+      for (const c of orgCostCentres) {
+        configCostCentreSet.add(c.name.toLowerCase());
+        if (c.code) configCostCentreSet.add(c.code.toLowerCase());
+      }
+    }
+
+    // Build HRMS employee lookup for Reporting Manager validation (only when value is present)
+    const hrmsEmployeeNames = new Set(
+      existingEmployees.map((e) => `${e.firstName || ''} ${e.lastName || ''}`.trim().toLowerCase()).filter(Boolean)
+    );
+    const hrmsEmployeeCodes = new Set(
+      existingEmployees.map((e) => (e.employeeCode || '').toLowerCase()).filter(Boolean)
+    );
+
+    // ── 2c. Strict validation — validate ALL rows before any DB writes ──
+    // All-or-nothing: if any row fails, the entire upload stops
+    const validationErrors: string[] = [];
+
+    for (const row of parsedRows) {
+      const rowNum = row.rowIndex + 2; // Excel row number (header=1, data starts at 2)
+      const missing: string[] = [];
+
+      // Mandatory field checks (Designation and Reporting Manager are NOT mandatory)
+      if (!row.firstName && !row.lastName) missing.push('Associate Name');
+      if (!row.dateOfBirth) missing.push('Date of Birth');
+      if (!row.gender) missing.push('Gender');
+      if (!row.dateOfJoining) missing.push('Date of Joining');
+      if (!row.placeOfTaxDeduction) missing.push('Place of Tax Deduction');
+      if (!row.costCentreName) missing.push('Cost Centre');
+      if (!row.department) missing.push('Department');
+      if (!row.subDepartment) missing.push('Sub Department');
+      if (!row.email && !row.personalEmail) missing.push('Permanent E-Mail Id');
+      if (!row.officialEmail && !row.email) missing.push('Official E-Mail Id');
+      if (!row.phone) missing.push('Permanent Phone / Current Phone / Permanent mobile');
+      if (!row.paygroupName) missing.push('Paygroup');
+
+      if (missing.length > 0) {
+        validationErrors.push(`Row ${rowNum}: Missing mandatory field(s): ${missing.join(', ')}`);
+      }
+
+      // Configurator DB existence validation for Department
+      if (row.department && configDepartmentSet.size > 0 && !configDepartmentSet.has(row.department.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Department "${row.department}" does not exist in Configurator database`);
+      }
+
+      // Configurator DB existence validation for Sub Department
+      if (row.subDepartment && configSubDepartmentSet.size > 0 && !configSubDepartmentSet.has(row.subDepartment.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Sub Department "${row.subDepartment}" does not exist in Configurator database`);
+      }
+
+      // Configurator DB existence validation for Cost Centre
+      if (row.costCentreName && configCostCentreSet.size > 0 && !configCostCentreSet.has(row.costCentreName.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Cost Centre "${row.costCentreName}" does not exist in Configurator database`);
+      }
+
+      // HRMS DB validation for Designation (optional — only if value is present)
+      if (row.designation && !positionMap.has(row.designation.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Designation "${row.designation}" does not exist in HRMS database`);
+      }
+
+      // HRMS DB validation for Reporting Manager (optional — only if value is present)
+      if (row.reportingManagerName) {
+        const rmLower = row.reportingManagerName.toLowerCase().trim();
+        const rmFound = hrmsEmployeeNames.has(rmLower) || hrmsEmployeeCodes.has(rmLower);
+        if (!rmFound) {
+          validationErrors.push(`Row ${rowNum}: Reporting Manager "${row.reportingManagerName}" does not exist in HRMS employee table`);
+        }
+      }
+
+      // Validate email format
+      if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
+        validationErrors.push(`Row ${rowNum}: Invalid email format "${row.email}"`);
+      }
+    }
+
+    // Check for duplicate emails within the batch
+    const batchEmails = new Map<string, number>();
+    for (const row of parsedRows) {
+      const email = row.email.toLowerCase();
+      if (batchEmails.has(email)) {
+        validationErrors.push(`Row ${row.rowIndex + 2}: Duplicate email "${row.email}" (same as row ${batchEmails.get(email)})`);
+      } else {
+        batchEmails.set(email, row.rowIndex + 2);
+      }
+    }
+
+    // If any validation errors, stop the entire upload
+    if (validationErrors.length > 0) {
+      throw new AppError(
+        `Validation failed for ${validationErrors.length} issue(s). Upload stopped — no data was imported.\n\n${validationErrors.join('\n')}`,
+        400,
+      );
+    }
+
     // ── 3. Configurator bulk upload (if org has Config link and not skipped) ──
     let configuratorResults: BulkImportResult['configuratorResults'] = undefined;
+    let configuratorSyncStatus: 'success' | 'failed' | 'skipped' = 'skipped';
+    let configuratorSyncMessage = '';
     const configuratorUserMap = new Map<string, { user_id: number; encrypted_password: string }>();
 
-    if (!skipConfiguratorSync && organization.configuratorCompanyId != null) {
+    if (skipConfiguratorSync) {
+      configuratorSyncMessage = 'Configurator sync was skipped (skipConfiguratorSync=true)';
+    } else if (organization.configuratorCompanyId == null) {
+      configuratorSyncMessage = 'Organization has no configuratorCompanyId — Configurator sync skipped';
+    } else {
       const tokenUser = await prisma.user.findUnique({
         where: { id: createdByUserId },
         select: { configuratorAccessToken: true },
       });
 
-      if (tokenUser?.configuratorAccessToken) {
+      if (!tokenUser?.configuratorAccessToken) {
+        configuratorSyncMessage = 'No Configurator access token available. Please logout and login again to refresh token.';
+        console.warn('[BulkImport] No configuratorAccessToken for user', createdByUserId);
+      } else {
         try {
+          console.log('[BulkImport] Uploading Excel to Configurator API (companyId:', organization.configuratorCompanyId, ')...');
           const configResult = await configuratorService.uploadExcel(
             tokenUser.configuratorAccessToken,
             fileBuffer,
@@ -508,6 +649,9 @@ export class EmployeeBulkImportService {
             updated: configResult.updated,
             failed: configResult.failed,
           };
+          configuratorSyncStatus = 'success';
+          configuratorSyncMessage = `Configurator sync OK: ${configResult.created} created, ${configResult.updated} updated, ${configResult.failed} failed`;
+          console.log('[BulkImport] Configurator upload-excel success:', configuratorSyncMessage);
           // Build email → config user mapping
           for (const r of configResult.results) {
             if (r.user?.email && r.user?.user_id) {
@@ -518,11 +662,10 @@ export class EmployeeBulkImportService {
             }
           }
         } catch (err: any) {
-          console.warn('[BulkImport] Configurator upload-excel failed:', err?.message);
-          // Continue — create HRMS records without configuratorUserId
+          configuratorSyncStatus = 'failed';
+          configuratorSyncMessage = `Configurator sync FAILED: ${err?.message || 'Unknown error'}. Employees were created in HRMS but will NOT appear in the employee list until Configurator sync succeeds.`;
+          console.error('[BulkImport] Configurator upload-excel FAILED:', err?.message);
         }
-      } else {
-        console.warn('[BulkImport] No configuratorAccessToken for user', createdByUserId);
       }
     }
 
@@ -877,6 +1020,8 @@ export class EmployeeBulkImportService {
       managersSet,
       failures,
       configuratorResults,
+      configuratorSyncStatus,
+      configuratorSyncMessage,
     };
   }
 

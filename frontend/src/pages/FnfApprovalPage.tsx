@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import fnfSettlementService, { FnfSettlement } from '../services/fnfSettlement.service';
-import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n);
@@ -17,16 +17,15 @@ type ApprovalStep = 'idle' | 'approving' | 'paid';
 export default function FnfApprovalPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
-
   const [settlement, setSettlement] = useState<FnfSettlement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionState, setActionState] = useState<ApprovalStep>('idle');
   const [actionError, setActionError] = useState('');
 
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN';
-  const isHrOrAbove = isAdmin || user?.role === 'HR_MANAGER';
+  const fnfPerms = getModulePermissions('/payroll/employee-separation');
+  const isHrOrAbove = fnfPerms.can_edit;
+  const isAdmin = fnfPerms.can_delete;
 
   const load = async () => {
     if (!id) return;

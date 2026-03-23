@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 import Modal from '../components/common/Modal';
 import { FaceCapture } from '../components/employees/FaceCapture';
 import AppHeader from '../components/layout/AppHeader';
-import { getEditableTabsFromPermissions, canEditEmployeeByPermission, resolveBaseRole } from '../utils/rbac';
+import { canEditEmployeeByPermission } from '../utils/rbac';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import { toDisplayEmail, toDisplayFullName, toDisplayName, toDisplayValue } from '../utils/display';
 import permissionService from '../services/permission.service';
@@ -41,26 +41,24 @@ export default function EmployeesPage() {
   const { user, loadUser, logout } = useAuthStore();
   const { employees, pagination, loading, error, fetchEmployees, deleteEmployee } = useEmployeeStore();
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
   const [costCentreFilter, setCostCentreFilter] = useState<string>('ALL');
   const [subDepartmentFilter, setSubDepartmentFilter] = useState<string>('ALL');
-  const [entityFilter, setEntityFilter] = useState<string>('ALL');
-  const [paygroupFilter, setPaygroupFilter] = useState<string>('ALL');
-  const [positionFilter, setPositionFilter] = useState<string>('ALL');
   // Configurator dropdown data
   const [configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
   const [configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
   const [configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
-  const [configUserRoles, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
+  const [_configUserRoles, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortBy, setSortBy] = useState<'employeeCode' | 'firstName'>('firstName');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const { positions, fetchPositions } = usePositionStore();
-  const { departments, fetchDepartments } = useDepartmentStore();
-  const [orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
-  const [orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const { positions: _positions, fetchPositions } = usePositionStore();
+  const { departments: _departments, fetchDepartments } = useDepartmentStore();
+  const [_orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [_orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // View modal state for Configurator users (fallback when no HRMS record)
   const [viewingUser, setViewingUser] = useState<any | null>(null);
@@ -84,7 +82,7 @@ export default function EmployeesPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importingEmployees, setImportingEmployees] = useState(false);
-  const [importResult, setImportResult] = useState<{ total: number; success: number; updated: number; skipped: number; failed?: number; failures: EmployeeImportFailure[]; managersSet?: number; configuratorResults?: { total: number; created: number; updated: number; failed: number } } | null>(null);
+  const [importResult, setImportResult] = useState<{ total: number; success: number; updated: number; skipped: number; failed?: number; failures: EmployeeImportFailure[]; managersSet?: number; configuratorResults?: { total: number; created: number; updated: number; failed: number }; configuratorSyncStatus?: 'success' | 'failed' | 'skipped'; configuratorSyncMessage?: string } | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [userPermissions, setUserPermissions] = useState<{ resource: string; action: string }[]>([]);
   // Super Admin: list of all orgs and selected org for Employee Directory
@@ -129,8 +127,8 @@ export default function EmployeesPage() {
     (user as any)?.organizationId;
 
   // Super Admin: can view all orgs or pick one; others use their linked org
-  const baseRole = resolveBaseRole(user?.role);
-  const isSuperAdmin = baseRole === 'SUPER_ADMIN';
+  const orgPerms = getModulePermissions('/organizations');
+  const isSuperAdmin = orgPerms.can_edit;
   const effectiveOrganizationId = isSuperAdmin
     ? (superAdminSelectedOrgId === 'ALL' ? undefined : superAdminSelectedOrgId)
     : organizationId;
@@ -165,29 +163,6 @@ export default function EmployeesPage() {
   const canUpdate = canUpdateByRole || canUpdateByPermission;
   const canDelete = modulePerms.can_delete;
   const canManageCredentials = modulePerms.can_view;
-
-  /** Editable tabs from Permissions tab: undefined = all tabs, else only those tabs user can edit */
-  const editableTabsFromPermissions = getEditableTabsFromPermissions(userPermissions);
-
-  /**
-   * Edit button visibility:
-   * - SUPER_ADMIN, ORG_ADMIN, HR_MANAGER: can edit all employees.
-   * - MANAGER: can edit only their own profile; team members are view-only (no Edit).
-   * - EMPLOYEE: can edit own row only when they have tab-level update permissions.
-   */
-  const canEditRow = (emp: Employee) => {
-    const role = user?.role != null ? String(user.role).toUpperCase() : '';
-    const myEmployeeId = user?.employee?.id != null ? String(user.employee.id) : '';
-    const rowEmployeeId = emp?.id != null ? String(emp.id) : '';
-    if (role === 'MANAGER') {
-      return myEmployeeId !== '' && myEmployeeId === rowEmployeeId; // Manager: Edit only own row; team members view-only
-    }
-    if (role === 'EMPLOYEE') {
-      return myEmployeeId !== '' && myEmployeeId === rowEmployeeId && (canUpdateByPermission || (editableTabsFromPermissions && editableTabsFromPermissions.length > 0));
-    }
-    if (canUpdate) return true; // SUPER_ADMIN, ORG_ADMIN, HR_MANAGER can edit all
-    return false;
-  };
 
   // View Credentials: filtered list by Organization, Designation, Status, Search
   const filteredCredentials = useMemo(() => {
@@ -245,12 +220,34 @@ export default function EmployeesPage() {
     }
   }, [effectiveOrganizationId, fetchPositions, fetchDepartments]);
 
+  // Debounce search term to avoid firing API on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   // Fetch Configurator dropdown data (cost centres, departments, sub-departments) on mount
   useEffect(() => {
-    configuratorDataService.getCostCentres().then(setConfigCostCentres).catch(() => setConfigCostCentres([]));
-    configuratorDataService.getDepartments().then(setConfigDepartments).catch(() => setConfigDepartments([]));
-    configuratorDataService.getSubDepartments().then(setConfigSubDepartments).catch(() => setConfigSubDepartments([]));
-    configuratorDataService.getUserRoles().then((roles) => setConfigUserRoles(roles.map((r) => ({ role_id: r.role_id, name: r.name })))).catch(() => setConfigUserRoles([]));
+    let cancelled = false;
+    Promise.allSettled([
+      configuratorDataService.getCostCentres(),
+      configuratorDataService.getDepartments(),
+      configuratorDataService.getSubDepartments(),
+      configuratorDataService.getUserRoles(),
+    ]).then(([ccResult, deptResult, subDeptResult, rolesResult]) => {
+      if (cancelled) return;
+      setConfigCostCentres(ccResult.status === 'fulfilled' ? ccResult.value : []);
+      setConfigDepartments(deptResult.status === 'fulfilled' ? deptResult.value : []);
+      setConfigSubDepartments(subDeptResult.status === 'fulfilled' ? subDeptResult.value : []);
+      setConfigUserRoles(
+        rolesResult.status === 'fulfilled'
+          ? rolesResult.value.map((r) => ({ role_id: r.role_id, name: r.name }))
+          : []
+      );
+    });
+    return () => { cancelled = true; };
   }, []);
 
   // Fetch employee list from Configurator API: POST /api/v1/users/list
@@ -263,14 +260,14 @@ export default function EmployeesPage() {
       page: currentPage,
       limit: pageSize,
     };
-    if (searchTerm) params.search = searchTerm;
+    if (debouncedSearchTerm) params.search = debouncedSearchTerm;
     params.employeeStatus = statusFilter;
     // Configurator API filters (numeric IDs)
     if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
     if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
     fetchEmployees(params);
-  }, [location.pathname, currentPage, pageSize, searchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, fetchEmployees]);
+  }, [location.pathname, currentPage, pageSize, debouncedSearchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, fetchEmployees]);
 
   // When viewing ALL status, fetch active count for accurate dashboard stats
   useEffect(() => {
@@ -416,11 +413,20 @@ export default function EmployeesPage() {
       }
       const configFields = buildConfigFields(user);
 
-      const hrmsEmployee = await employeeService.getByEmail(email);
+      let hrmsEmployee = await employeeService.getByEmail(email);
+
+      // If email search failed, try finding by configuratorUserId
       if (!hrmsEmployee) {
+        const configUserId = user.user_id || user.id;
+        if (configUserId && typeof configUserId === 'number') {
+          hrmsEmployee = await employeeService.getByConfiguratorUserId(configUserId);
+        }
+      }
+
+      if (!hrmsEmployee) {
+        // No HRMS record — open edit form prefilled with Configurator data (will create on save)
         const _fallbackFullName = user.full_name || user.name || user.fullname || '';
         const fallback: any = {
-          id: user.user_id || user.id || '',
           firstName: user.first_name || _fallbackFullName.split(' ')[0] || '',
           lastName: user.last_name || _fallbackFullName.split(' ').slice(1).join(' ') || '',
           email: user.email,
@@ -428,15 +434,16 @@ export default function EmployeesPage() {
           employeeCode: user.code || user.employee_code || '',
           ...configFields,
         };
-        navigate(`/employees/edit/${fallback.id}`, {
+        navigate('/employees/edit/new', {
           state: {
             employee: fallback,
+            organizationId: effectiveOrganizationId || '',
             mode: 'edit' as const,
           },
         });
         return;
       }
-      const full = await employeeService.getById(hrmsEmployee.id);
+      const full = hrmsEmployee.id ? await employeeService.getById(hrmsEmployee.id) : hrmsEmployee;
       const emp = full as any;
       if (!emp.configuratorUserId) emp.configuratorUserId = configFields.configuratorUserId;
       if (!emp.costCentreConfiguratorId && configFields.costCentreConfiguratorId) emp.costCentreConfiguratorId = configFields.costCentreConfiguratorId;
@@ -458,10 +465,10 @@ export default function EmployeesPage() {
       });
     } catch (err: any) {
       console.error('Failed to load employee for edit', err);
+      // Fallback — open edit form prefilled with Configurator data (will create on save)
       const configFields = buildConfigFields(user);
       const _catchFullName = user.full_name || user.name || user.fullname || '';
       const fallback: any = {
-        id: user.user_id || user.id || '',
         firstName: user.first_name || _catchFullName.split(' ')[0] || '',
         lastName: user.last_name || _catchFullName.split(' ').slice(1).join(' ') || '',
         email: user.email,
@@ -469,9 +476,10 @@ export default function EmployeesPage() {
         employeeCode: user.code || user.employee_code || '',
         ...configFields,
       };
-      navigate(`/employees/edit/${fallback.id}`, {
+      navigate('/employees/edit/new', {
         state: {
           employee: fallback,
+          organizationId: effectiveOrganizationId || '',
           mode: 'edit' as const,
         },
       });
@@ -540,30 +548,6 @@ export default function EmployeesPage() {
     });
   };
 
-  const handleView = async (employee: Employee) => {
-    setLoadingEmployee(true);
-    try {
-      const full = await employeeService.getById(employee.id);
-      navigate(`/employees/view/${employee.id}`, {
-        state: {
-          employee: full,
-          mode: 'view' as const,
-        },
-      });
-    } catch (err) {
-      console.error('Failed to load employee', err);
-      alert('Failed to load employee details');
-    } finally {
-      setLoadingEmployee(false);
-    }
-  };
-
-  const handleUpdateFaceOpen = (emp: Employee) => {
-    setUpdateFaceModal(emp);
-    setUpdateFaceEncoding(null);
-    setUpdateFaceError('');
-  };
-
   const handleUpdateFaceClose = () => {
     setUpdateFaceModal(null);
     setUpdateFaceEncoding(null);
@@ -613,25 +597,6 @@ export default function EmployeesPage() {
       setUpdateFaceSaving(false);
     }
   };
-
-  const handleEdit = async (employee: Employee) => {
-    setLoadingEmployee(true);
-    try {
-      const full = await employeeService.getById(employee.id);
-      navigate(`/employees/edit/${employee.id}`, {
-        state: {
-          employee: full,
-          mode: 'edit' as const,
-        },
-      });
-    } catch (err) {
-      console.error('Failed to load employee', err);
-      alert('Failed to load employee details');
-    } finally {
-      setLoadingEmployee(false);
-    }
-  };
-
 
   const handleLogout = async () => {
     await logout();
@@ -804,6 +769,8 @@ export default function EmployeesPage() {
           message: f.message,
         })),
         configuratorResults: result.configuratorResults,
+        configuratorSyncStatus: result.configuratorSyncStatus,
+        configuratorSyncMessage: result.configuratorSyncMessage,
       });
 
       const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
@@ -814,9 +781,34 @@ export default function EmployeesPage() {
       await fetchEmployees(params);
 
     } catch (err: any) {
+      console.error('[EmployeesPage] Import error:', err?.response?.status, err?.response?.data, err?.message);
       const msg = err?.response?.data?.message || err?.message || 'Import failed';
+      const statusCode = err?.response?.status;
       const isNetwork = !err?.response && (err?.code === 'ECONNREFUSED' || err?.message?.includes('Network'));
-      alert(isNetwork ? 'Cannot connect to server. Please ensure the backend is running (npm run dev from project root).' : msg);
+      if (isNetwork) {
+        alert('Cannot connect to server. Please ensure the backend is running (npm run dev from project root).');
+      } else {
+        // Show validation/server errors in the import result area
+        const lines = msg.split('\n').filter((l: string) => l.trim());
+        // If it's a server error (500), show the actual error message
+        if (statusCode >= 500) {
+          lines.unshift(`Server Error (${statusCode}): ${msg}`);
+        }
+        setImportResult({
+          total: 0,
+          success: 0,
+          updated: 0,
+          skipped: 0,
+          failed: lines.length,
+          failures: lines.map((line: string, idx: number) => {
+            const rowMatch = line.match(/^Row\s+(\d+):/);
+            return {
+              row: rowMatch ? parseInt(rowMatch[1], 10) : idx + 1,
+              message: line,
+            };
+          }),
+        });
+      }
     } finally {
       setImportingEmployees(false);
     }
@@ -1970,6 +1962,18 @@ export default function EmployeesPage() {
                       {f.email ? ` (${f.email})` : ''}: {f.message}
                     </div>
                   ))}
+                </div>
+              )}
+              {/* Configurator sync status */}
+              {importResult.configuratorSyncStatus && (
+                <div className={`mt-2 rounded border p-2 text-xs ${
+                  importResult.configuratorSyncStatus === 'success'
+                    ? 'border-green-200 bg-green-50 text-green-800'
+                    : importResult.configuratorSyncStatus === 'failed'
+                    ? 'border-red-200 bg-red-50 text-red-800'
+                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                }`}>
+                  <strong>Configurator Sync:</strong> {importResult.configuratorSyncMessage || importResult.configuratorSyncStatus}
                 </div>
               )}
             </div>

@@ -11,6 +11,7 @@ import {
   canPerformExcessTimeEventAction,
   resolveRightsAllocationContextForEmployee,
 } from '../utils/rights-allocation';
+import { userHasPermission } from '../utils/permission-cache';
 
 export class CompOffRequestService {
   private readonly APPROVED_ATTENDANCE_STATUSES: AttendanceStatus[] = [
@@ -543,17 +544,21 @@ export class CompOffRequestService {
       startDate?: string;
       endDate?: string;
       userRole?: string;
+      userId?: string;
     }
   ) {
     const page = parseInt(query?.page || '1', 10);
     const limit = parseInt(query?.limit || '20', 10);
     const skip = (page - 1) * limit;
     const where: Prisma.CompOffRequestWhereInput = { organizationId };
-    const role = (query?.userRole || '').toUpperCase();
     const targetEmployeeId = query?.targetEmployeeId;
+    const userId = query?.userId || '';
     if (targetEmployeeId) {
       where.employeeId = targetEmployeeId;
-    } else if (role === 'MANAGER') {
+    } else if (userId && userHasPermission(userId, '/attendance', 'can_edit')) {
+      // org-wide access (HR / Admin level)
+    } else if (userId && userHasPermission(userId, '/attendance', 'can_view')) {
+      // Team-level access (Manager level) — show direct reports
       const managerEmployee = await prisma.employee.findUnique({
         where: { id: employeeId },
         select: { id: true },
@@ -561,9 +566,8 @@ export class CompOffRequestService {
       if (managerEmployee) {
         where.employee = { reportingManagerId: managerEmployee.id };
       }
-    } else if (role === 'HR_MANAGER' || role === 'ORG_ADMIN' || role === 'SUPER_ADMIN') {
-      // org-wide
     } else {
+      // Default: own requests only
       where.employeeId = employeeId;
     }
     if (query?.status) where.status = query.status;
@@ -638,9 +642,9 @@ export class CompOffRequestService {
     requestId: string,
     organizationId: string,
     requesterEmployeeId: string,
-    userRole?: string
+    _userRole?: string,
+    userId?: string
   ) {
-    const role = (userRole || '').toUpperCase();
     const request = await prisma.compOffRequest.findUnique({
       where: { id: requestId },
       include: {
@@ -662,16 +666,16 @@ export class CompOffRequestService {
       throw new AppError('Comp Off request not found', 404);
     }
 
-    if (role === 'MANAGER' && request.employee.reportingManagerId !== requesterEmployeeId) {
+    const hasEditAccess = userId ? userHasPermission(userId, '/attendance', 'can_edit') : false;
+    const hasViewAccess = userId ? userHasPermission(userId, '/attendance', 'can_view') : false;
+
+    // Users with edit access (HR/Admin) can view any request in their org
+    // Users with view access (Manager) can only view their team's requests
+    // Everyone else can only view their own requests
+    if (hasViewAccess && !hasEditAccess && request.employee.reportingManagerId !== requesterEmployeeId) {
       throw new AppError('Access denied for this request', 403);
     }
-    if (
-      role !== 'MANAGER' &&
-      role !== 'HR_MANAGER' &&
-      role !== 'ORG_ADMIN' &&
-      role !== 'SUPER_ADMIN' &&
-      request.employeeId !== requesterEmployeeId
-    ) {
+    if (!hasViewAccess && !hasEditAccess && request.employeeId !== requesterEmployeeId) {
       throw new AppError('Access denied for this request', 403);
     }
 
@@ -711,7 +715,7 @@ export class CompOffRequestService {
     requestId: string,
     reviewerId: string,
     reviewComments?: string,
-    reviewerRole?: string
+    _reviewerRole?: string
   ) {
     let request;
     try {
@@ -736,7 +740,8 @@ export class CompOffRequestService {
       throw new AppError(`Cannot approve request. Current status: ${request.status}`, 400);
     }
 
-    if (reviewerRole === 'MANAGER') {
+    // If reviewer does not have org-wide edit access, verify they are the reporting manager
+    if (!userHasPermission(reviewerId, '/attendance', 'can_edit')) {
       const reviewerEmployee = await prisma.employee.findUnique({
         where: { userId: reviewerId },
         select: { id: true },
@@ -835,7 +840,7 @@ export class CompOffRequestService {
     return updated;
   }
 
-  async rejectRequest(requestId: string, reviewerId: string, reviewComments: string, reviewerRole?: string) {
+  async rejectRequest(requestId: string, reviewerId: string, reviewComments: string, _reviewerRole?: string) {
     let request;
     try {
       request = await prisma.compOffRequest.findUnique({
@@ -858,7 +863,8 @@ export class CompOffRequestService {
       throw new AppError(`Cannot reject request. Current status: ${request.status}`, 400);
     }
 
-    if (reviewerRole === 'MANAGER') {
+    // If reviewer does not have org-wide edit access, verify they are the reporting manager
+    if (!userHasPermission(reviewerId, '/attendance', 'can_edit')) {
       const reviewerEmployee = await prisma.employee.findUnique({
         where: { userId: reviewerId },
         select: { id: true },

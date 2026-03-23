@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { WorkflowMappingController } from '../controllers/workflow-mapping.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -18,7 +19,7 @@ router.use(enforceOrganizationAccess);
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('workflow_mappings', 'create'),
   controller.create.bind(controller)
 );
 
@@ -59,7 +60,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('workflow_mappings', 'update'),
   controller.update.bind(controller)
 );
 
@@ -70,7 +71,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('workflow_mappings', 'delete'),
   controller.delete.bind(controller)
 );
 

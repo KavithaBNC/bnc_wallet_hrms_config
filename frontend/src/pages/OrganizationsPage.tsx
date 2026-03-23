@@ -5,10 +5,11 @@ import organizationService, { Organization, CreateOrganizationData, Organization
 import Modal from '../components/common/Modal';
 import AppHeader from '../components/layout/AppHeader';
 import { APP_MODULES } from '../config/modules';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 
 export default function OrganizationsPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { logout } = useAuthStore();
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -60,14 +61,15 @@ export default function OrganizationsPage() {
     lastName: '',
   });
 
-  // Check if user is SUPER_ADMIN
-  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  // Check organization management permissions (system-level access)
+  const orgPerms = getModulePermissions('/organizations');
+  const canManageOrgs = orgPerms.can_edit;
 
   useEffect(() => {
-    if (isSuperAdmin) {
+    if (canManageOrgs) {
       fetchOrganizations();
     }
-  }, [isSuperAdmin, pagination.page, searchTerm]);
+  }, [canManageOrgs, pagination.page, searchTerm]);
 
   const fetchOrganizations = async () => {
     try {
@@ -197,7 +199,7 @@ export default function OrganizationsPage() {
     }
   };
 
-  if (!isSuperAdmin) {
+  if (!canManageOrgs) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md">

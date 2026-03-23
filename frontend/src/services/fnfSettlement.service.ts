@@ -209,6 +209,7 @@ class FnfSettlementService {
 
 export interface EligibleSeparation {
   id: string;
+  organizationId: string;
   separationType: string;
   resignationApplyDate: string;
   relievingDate: string;

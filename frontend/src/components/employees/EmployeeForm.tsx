@@ -551,8 +551,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   }, [organizationId, fetchDepartments, fetchPositions, employee?.id]);
 
   // Initialize Configurator IDs and prefill dropdown names when editing an existing employee
+  // Also runs for Configurator-only users (no HRMS id but has configuratorUserId)
   useEffect(() => {
-    if (!employee?.id) return;
+    if (!employee?.id && !(employee as any)?.configuratorUserId) return;
     let cancelled = false;
 
     // Read the Configurator IDs stored directly on the HRMS employee record
@@ -730,7 +731,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     });
   }, [employee?.id]);
 
-  // Load current salary, previous salary, and full salary history when editing an employee
+  // Load current salary, previous salary, and full salary history lazily (when salary tab is selected)
   useEffect(() => {
     if (!employee?.id) {
       setSalaryFixedGross(0);
@@ -739,6 +740,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       setSalaryHistory([]);
       return;
     }
+    if (currentTab !== 'salary') return;
     setSalaryLoading(true);
     setPreviousSalaryGross(null);
     setSalaryHistory([]);
@@ -774,7 +776,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         setSalaryHistory([]);
       })
       .finally(() => setSalaryLoading(false));
-  }, [employee?.id]);
+  }, [employee?.id, currentTab]);
 
   // When employee is loaded (e.g. from getById after approval), sync academic/previous employment/family from API
   useEffect(() => {
@@ -846,17 +848,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       const response = await employeeService.getAll({
         organizationId,
         employeeStatus: 'ACTIVE',
-        limit: 1000, // Get all active employees
+        limit: 500,
+        listView: true,
       });
-      
+
       // Filter out the current employee if editing
       const allEmployees = response.employees || [];
-      const filteredManagers = employee 
+      const filteredManagers = employee
         ? allEmployees.filter(emp => emp.id !== employee.id && emp.employeeStatus === 'ACTIVE')
         : allEmployees.filter(emp => emp.employeeStatus === 'ACTIVE');
-      
+
       setAvailableManagers(filteredManagers);
-      console.log('Fetched managers for dropdown:', filteredManagers.length);
     } catch (error) {
       console.error('Failed to fetch employees for managers dropdown:', error);
       setAvailableManagers([]);
@@ -976,7 +978,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('[EmployeeForm] handleSubmit CALLED — mode:', employee ? 'update' : 'create', 'rejoinMode:', rejoinMode);
+    console.log('[EmployeeForm] handleSubmit CALLED — mode:', employee?.id ? 'update' : 'create', 'rejoinMode:', rejoinMode);
 
     // Rejoin flow: create new employee from this (previous) record; only joining date + new login email used
     if (rejoinMode && employee) {
@@ -1219,7 +1221,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         return;
       }
 
-      if (employee) {
+      if (employee?.id) {
         // ── 1st API: Update Configurator user (PUT /api/v1/users/) ──
         const configUserId = (employee as any).configuratorUserId;
         const hasConfigToken = !!localStorage.getItem('configuratorAccessToken');

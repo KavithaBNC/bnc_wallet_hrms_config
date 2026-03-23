@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { departmentController } from '../controllers/department.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -38,7 +39,7 @@ router.use(enforceOrganizationAccess);
  */
 router.get(
   '/download-excel',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('departments', 'read'),
   departmentController.downloadExcel.bind(departmentController)
 );
 
@@ -49,7 +50,7 @@ router.get(
  */
 router.post(
   '/upload-excel',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('departments', 'create'),
   upload.single('file'),
   departmentController.uploadExcel.bind(departmentController)
 );
@@ -102,7 +103,7 @@ router.get(
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('departments', 'create'),
   validate(createDepartmentSchema),
   departmentController.create.bind(departmentController)
 );
@@ -114,7 +115,7 @@ router.post(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('departments', 'update'),
   validate(updateDepartmentSchema),
   departmentController.update.bind(departmentController)
 );
@@ -126,7 +127,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('departments', 'delete'),
   departmentController.delete.bind(departmentController)
 );
 

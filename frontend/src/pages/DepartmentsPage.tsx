@@ -101,7 +101,7 @@ export default function DepartmentsPage() {
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg">
             <p className="font-semibold">Unable to load organization data</p>
             <p className="text-sm mt-1">Please ensure you are logged in with an employee account that has an associated organization.</p>
-            {user?.role === 'ORG_ADMIN' && (
+            {canEdit && (
               <p className="text-sm mt-2 font-medium">Note: If you are an Organization Admin, please contact HRMS Administrator to ensure your employee profile is properly set up.</p>
             )}
           </div>

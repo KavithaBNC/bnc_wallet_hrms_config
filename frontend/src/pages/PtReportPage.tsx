@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { complianceService } from '../services/compliance.service';
 import { payrollCycleService } from '../services/payroll.service';
+import { useAuthStore } from '../store/authStore';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const YEAR_OPTIONS = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
@@ -19,6 +20,8 @@ const downloadBlob = (blob: Blob, filename: string) => {
 
 export default function PtReportPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId || '';
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [year, setYear] = useState(new Date().getFullYear());
   const [cycles, setCycles] = useState<any[]>([]);
@@ -29,8 +32,9 @@ export default function PtReportPage() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    payrollCycleService.getAll({}).then((r) => setCycles(r.data || [])).catch(() => {});
-  }, []);
+    if (!orgId) return;
+    payrollCycleService.getAll({ organizationId: orgId }).then((r) => setCycles(r.data || [])).catch(() => {});
+  }, [orgId]);
 
   const cycleId = useMemo(() =>
     cycles.find((c) => {

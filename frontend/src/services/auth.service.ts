@@ -15,9 +15,8 @@ const configuratorApi = axios.create({
 });
 
 /**
- * Normalize role names from the Configurator API to UPPER_SNAKE_CASE
- * expected by frontend RBAC checks.
- * e.g. "Super Admin" → "SUPER_ADMIN", "HR Manager" → "HR_MANAGER"
+ * Normalize role string to UPPER_SNAKE_CASE.
+ * The backend is the source of truth for role mapping (synced from Configurator API).
  */
 function normalizeRole(role: string): string {
   if (!role) return '';
@@ -403,6 +402,8 @@ export interface User {
   id: string;
   email: string;
   role: string;
+  /** Display-friendly role name from Configurator (e.g., "HRMS HR Admin") */
+  roleName?: string;
   fullname?: string;
   isEmailVerified: boolean;
   organizationId?: string;
@@ -505,6 +506,7 @@ class AuthService {
       id: String(apiUser.id || ''),
       email: apiUser.email || '',
       role: normalizeRole(projectRoleCode || projectRoleName || apiUser.role_name || ''),
+      roleName: projectRoleName || apiUser.role_name || '',
       fullname: apiUser.fullname || '',
       isEmailVerified: true,
     };
@@ -564,6 +566,10 @@ class AuthService {
         }
         // Merge employee and organization data into user
         user.id = hrmsData.user.id || user.id;
+        // Keep Configurator roleName for display; use backend role for authorization
+        if (!user.roleName && hrmsData.user.role) {
+          user.roleName = hrmsData.user.role;
+        }
         user.role = normalizeRole(hrmsData.user.role || user.role);
         if (hrmsData.user?.employee) {
           user.employee = hrmsData.user.employee;

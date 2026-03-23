@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { shiftAssignmentRuleController } from '../controllers/shift-assignment-rule.controller';
 
@@ -10,7 +11,7 @@ router.use(enforceOrganizationAccess);
 
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('shift_assignment_rules', 'create'),
   shiftAssignmentRuleController.create.bind(shiftAssignmentRuleController)
 );
 
@@ -26,13 +27,13 @@ router.get(
 
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('shift_assignment_rules', 'update'),
   shiftAssignmentRuleController.update.bind(shiftAssignmentRuleController)
 );
 
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('shift_assignment_rules', 'delete'),
   shiftAssignmentRuleController.delete.bind(shiftAssignmentRuleController)
 );
 

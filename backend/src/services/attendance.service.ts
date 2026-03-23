@@ -2,10 +2,10 @@
 import { AppError } from '../middlewares/errorHandler';
 import { AttendanceStatus, CheckInMethod, LeaveStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { logger } from '../utils/logger';
 import { shiftService } from './shift.service';
 import { shiftAssignmentRuleService } from './shift-assignment-rule.service';
 import { ValidationProcessRuleService } from './validation-process-rule.service';
+import { getDataScope } from '../utils/data-scope';
 import {
   CheckInInput,
   CheckOutInput,
@@ -552,7 +552,8 @@ export class AttendanceService {
                 if (action) {
                   // For now, just log the decision; Phase 5 will actually create
                   // tasks / apply events based on autoApply.
-                  logger.debug('[ValidationProcessRule] Late detected', {
+                  // eslint-disable-next-line no-console
+                  console.log('[ValidationProcessRule] Late detected', {
                     employeeId,
                     date: dayStart.toISOString().slice(0, 10),
                     lateMinutes: computed.lateMinutes,
@@ -970,7 +971,7 @@ export class AttendanceService {
         );
       } catch (error) {
         // If policy rules fetch fails, continue without them
-        logger.warn('Failed to fetch policy rules:', error);
+        console.warn('Failed to fetch policy rules:', error);
       }
     }
 
@@ -1141,7 +1142,7 @@ export class AttendanceService {
           employee.organizationId
         );
       } catch (error) {
-        logger.warn('Failed to fetch policy rules:', error);
+        console.warn('Failed to fetch policy rules:', error);
       }
     }
 
@@ -1254,7 +1255,7 @@ export class AttendanceService {
    * @param userId - User ID for role-based filtering
    * @param userRole - User role for RBAC filtering
    */
-  async getRecords(query: QueryAttendanceRecordsInput, userId?: string, userRole?: string) {
+  async getRecords(query: QueryAttendanceRecordsInput, userId?: string, _userRole?: string) {
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
     const skip = (page - 1) * limit;
@@ -1271,24 +1272,24 @@ export class AttendanceService {
       });
 
       if (employee) {
-        // RBAC: EMPLOYEE can only see their own records (self-service)
-        if (userRole === 'EMPLOYEE') {
-          where.employeeId = employee.id;
-        }
-        // RBAC: MANAGER can only see records from their team (subordinates)
-        else if (userRole === 'MANAGER') {
-          where.employee = {
-            reportingManagerId: employee.id, // Only show records from employees who report to this manager
-            organizationId: query.organizationId || employee.organizationId,
-          };
-        }
-        // HR_MANAGER and ORG_ADMIN can see all records in their organization
-        else if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN') {
+        // Dynamic RBAC scoping via Config API permissions
+        const scope = getDataScope(userId!, '/attendance');
+        if (scope === 'org') {
+          // can_edit on /attendance → org-wide access (HR/OrgAdmin level)
           if (query.organizationId || employee.organizationId) {
             where.employee = {
               organizationId: query.organizationId || employee.organizationId,
             };
           }
+        } else if (scope === 'team') {
+          // can_view on /attendance → team access (Manager level)
+          where.employee = {
+            reportingManagerId: employee.id,
+            organizationId: query.organizationId || employee.organizationId,
+          };
+        } else {
+          // No special permission → self-service only (Employee level)
+          where.employeeId = employee.id;
         }
       }
     }
@@ -1888,7 +1889,7 @@ export class AttendanceService {
         organizationId
       );
     } catch (error) {
-      logger.warn('Failed to fetch policy rules for recalculation:', error);
+      console.warn('Failed to fetch policy rules for recalculation:', error);
     }
 
     const checkIn = record.checkIn;
@@ -3063,6 +3064,22 @@ export class AttendanceService {
       pendingRegularizations.map((r) => `${r.employeeId}-${this.toDateKey(r.date)}`)
     );
 
+    // Snapshot previously-completed validation rows before we delete and rebuild.
+    // This preserves HR corrections (e.g. absent employees marked No Correction)
+    // that have no corresponding AttendanceRecord to carry the validationAction.
+    const previouslyCompleted = await prisma.attendanceValidationResult.findMany({
+      where: {
+        organizationId,
+        employeeId: { in: employeeIds },
+        date: { gte: from, lte: to },
+        isCompleted: true,
+      },
+      select: { employeeId: true, date: true },
+    });
+    const completedSet = new Set(
+      previouslyCompleted.map((r) => `${r.employeeId}_${this.toDateKey(r.date)}`)
+    );
+
     const [leaveRequests, holidays] = await Promise.all([
       prisma.leaveRequest.findMany({
         where: {
@@ -3199,9 +3216,9 @@ export class AttendanceService {
     };
 
     const logPrefix = '[ValidationProcess]';
-    logger.debug(`${logPrefix} run: fromDate=${fromDate} toDate=${toDate} employeeIds=${employeeIds.length} records=${records.length}`);
+    console.log(`${logPrefix} run: fromDate=${fromDate} toDate=${toDate} employeeIds=${employeeIds.length} records=${records.length}`);
     const recordDateKeys = [...new Set(records.map((r) => this.toDateKey(r.date)))].sort();
-    logger.debug(`${logPrefix} record dates in range: ${recordDateKeys.join(', ')}`);
+    console.log(`${logPrefix} record dates in range: ${recordDateKeys.join(', ')}`);
 
     const punchDayMap = new Map<string, { count: number; hasIn: boolean; hasOut: boolean }>();
     for (const p of punches) {
@@ -3339,7 +3356,7 @@ export class AttendanceService {
               isShortfall = computed.isDeviation;
 
               if (!policyFound && (isLate || isEarly || computed.isDeviation)) {
-                logger.debug(`${logPrefix} policy null but compute returned flags date=${dateKey} (will apply shift-only fallback)`);
+                console.log(`${logPrefix} policy null but compute returned flags date=${dateKey} (will apply shift-only fallback)`);
               }
 
               if (!policyFound) {
@@ -3358,9 +3375,9 @@ export class AttendanceService {
                   isShortfall = isShortfall || isLate || isEarly;
                 }
               }
-              logger.debug(`${logPrefix} BEFORE INSERT date=${dateKey} shiftStart=${shiftStartTime} shiftEnd=${shiftEndTime} policyFound=${policyFound} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
+              console.log(`${logPrefix} BEFORE INSERT date=${dateKey} shiftStart=${shiftStartTime} shiftEnd=${shiftEndTime} policyFound=${policyFound} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
             } catch (err) {
-              logger.warn(`${logPrefix} compute failed employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} error=${err instanceof Error ? err.message : String(err)}`);
+              console.warn(`${logPrefix} compute failed employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} error=${err instanceof Error ? err.message : String(err)}`);
               const checkInDate = new Date(r.checkIn);
               const checkOutDate = new Date(r.checkOut);
               const dayStartLocal = new Date(checkInDate.getFullYear(), checkInDate.getMonth(), checkInDate.getDate(), 0, 0, 0, 0);
@@ -3373,10 +3390,10 @@ export class AttendanceService {
               isLate = checkInDate.getTime() > shiftStart.getTime();
               isEarly = checkOutDate.getTime() < shiftEnd.getTime();
               if (isLate || isEarly) isShortfall = true;
-              logger.debug(`${logPrefix} AFTER FALLBACK date=${dateKey} shiftStart=${shiftForCompute!.startTime} shiftEnd=${shiftForCompute!.endTime} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
+              console.log(`${logPrefix} AFTER FALLBACK date=${dateKey} shiftStart=${shiftForCompute!.startTime} shiftEnd=${shiftForCompute!.endTime} isLate=${isLate} isEarlyGoing=${isEarly} isShortfall=${isShortfall}`);
             }
           } else {
-            logger.debug(`${logPrefix} skip compute employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} shiftForCompute=${!!shiftForCompute} startTime=${!!shiftForCompute?.startTime} endTime=${!!shiftForCompute?.endTime}`);
+            console.log(`${logPrefix} skip compute employeeId=${r.employeeId} date=${dateKey} status=${status} shiftId=${shiftIdForPolicy ?? 'null'} shiftForCompute=${!!shiftForCompute} startTime=${!!shiftForCompute?.startTime} endTime=${!!shiftForCompute?.endTime}`);
           }
         }
 
@@ -3474,16 +3491,23 @@ export class AttendanceService {
           isShortfall &&
           (!hasCorrectionApplied || isSinglePunchNoCorrection) &&
           !effectiveIsNoOutPunch;
+        // If a correction was applied (No Correction / Direct Component), suppress absent flag.
+        // Also check the completedSet snapshot: absent employees corrected with No Correction
+        // have no AttendanceRecord, so hasCorrectionApplied is always false for them —
+        // the snapshot is the only reliable source to know they were previously corrected.
+        const wasCompleted = completedSet.has(`${r.employeeId}_${dateKey}`);
+        const effectiveIsAbsent = isAbsent && !hasCorrectionApplied && !wasCompleted;
+        const effectiveIsCompleted = isCompleted || wasCompleted;
 
         row = {
           organizationId,
           employeeId: r.employeeId,
           date: new Date(dateKey + 'T00:00:00.000Z'),
-          isCompleted,
+          isCompleted: effectiveIsCompleted,
           isApprovalPending: hasApprovalPending,
           isLate: effectiveIsLate,
           isEarlyGoing: effectiveIsEarly,
-          isAbsent,
+          isAbsent: effectiveIsAbsent,
           isNoOutPunch: effectiveIsNoOutPunch,
           isShiftChange,
           isOvertime: hasOvertime,
@@ -3610,26 +3634,30 @@ export class AttendanceService {
           !hasSinglePunch &&
           !hasLeaveApplied;
 
+        // Preserve prior HR corrections: absent employees corrected with No Correction
+        // have no AttendanceRecord, so they always land in this second loop on every re-run.
+        // The completedSet snapshot taken before the delete is the only source of truth.
+        const wasCompleted = completedSet.has(`${employeeId}_${dateKey}`);
         const leaveCompleted = hasLeaveApplied && !hasPendingApproval;
         rows.push({
           organizationId,
           employeeId,
           date: loopDate,
-          isCompleted: leaveCompleted,
+          isCompleted: leaveCompleted || wasCompleted,
           isApprovalPending: hasPendingApproval,
           isLate: false,
           isEarlyGoing: false,
-          isAbsent,
-          isNoOutPunch: hasSinglePunch,
+          isAbsent: isAbsent && !wasCompleted,
+          isNoOutPunch: hasSinglePunch && !wasCompleted,
           isShiftChange: false,
           isOvertime: false,
-          isShortfall: hasSinglePunch,
+          isShortfall: hasSinglePunch && !wasCompleted,
         });
       }
     }
 
     const rowDateKeys = [...new Set(rows.map((r) => this.toDateKey(r.date)))].sort();
-    logger.debug(`${logPrefix} before insert: rows=${rows.length} dates=${rowDateKeys.join(', ')}`);
+    console.log(`${logPrefix} before insert: rows=${rows.length} dates=${rowDateKeys.join(', ')}`);
 
     await prisma.$transaction(async (tx) => {
       await tx.attendanceValidationResult.deleteMany({
@@ -3642,7 +3670,7 @@ export class AttendanceService {
       if (rows.length > 0) {
         await tx.attendanceValidationResult.createMany({ data: rows });
       }
-    });
+    }, { timeout: 30000 });
 
     const daily = await this.getValidationProcessAggregatedFromStore({
       organizationId,
@@ -3792,6 +3820,7 @@ export class AttendanceService {
         organizationId,
         date: { gte: from, lte: to },
         [field]: true,
+        isCompleted: false,
         ...excludeOverlap,
         ...(employeeId && { employeeId }),
         ...(paygroupId && !employeeId && { employee: { paygroupId } }),
@@ -4190,13 +4219,13 @@ export class AttendanceService {
     selectedRows: { employeeId: string; date: string }[];
     remarks?: string;
     approverUserId?: string;
+    noCorrection?: boolean;
   }): Promise<{ applied: number; errors: { employeeId: string; date: string; message: string }[]; skipped?: { employeeId: string; date: string; message: string }[] }> {
     const { organizationId, ruleId, directComponentId, selectedRows, remarks, approverUserId } = params;
 
     // --- Direct component apply (EL, SL, LOP, WFH, Permission, etc.) ---
     if (directComponentId) {
       const { getLeaveTypeIdForAttendanceComponent } = await import('../utils/event-config');
-      const { Prisma: PrismaClient } = await import('@prisma/client');
 
       // Fetch full component details including hasBalance flag
       const component = await prisma.attendanceComponent.findUnique({
@@ -4225,7 +4254,7 @@ export class AttendanceService {
       const hasBalance = component.hasBalance ?? false;
 
       if (!leaveTypeId && (component.eventCategory ?? '').toLowerCase() === 'leave') {
-        logger.warn(`[DirectComponent] No matching LeaveType found for component "${component.eventName}" (${component.shortName}). Leave request will NOT be created. Check LeaveType names in DB.`);
+        console.warn(`[DirectComponent] No matching LeaveType found for component "${component.eventName}" (${component.shortName}). Leave request will NOT be created. Check LeaveType names in DB.`);
       }
 
       // Group rows by employee
@@ -4274,7 +4303,7 @@ export class AttendanceService {
                 leaveType: { connect: { id: leaveTypeId } },
                 startDate: startDateObj,
                 endDate: endDateObj,
-                totalDays: new PrismaClient.Decimal(totalDays),
+                totalDays: new Prisma.Decimal(totalDays),
                 reason,
                 status: 'APPROVED' as any,
                 reviewedBy: approverUserId ?? null,
@@ -4293,11 +4322,11 @@ export class AttendanceService {
             if (balance) {
               const usedDays = parseFloat(balance.used.toString()) + totalDays;
               const updateData: Record<string, unknown> = {
-                used: new PrismaClient.Decimal(usedDays),
+                used: new Prisma.Decimal(usedDays),
               };
               if (hasBalance) {
                 const availableDays = parseFloat(balance.available.toString()) - totalDays;
-                updateData.available = new PrismaClient.Decimal(Math.max(0, availableDays));
+                updateData.available = new Prisma.Decimal(Math.max(0, availableDays));
               }
               await prisma.employeeLeaveBalance.update({
                 where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year } },
@@ -4310,11 +4339,11 @@ export class AttendanceService {
                   employeeId,
                   leaveTypeId,
                   year,
-                  openingBalance: new PrismaClient.Decimal(0),
-                  accrued: new PrismaClient.Decimal(0),
-                  used: new PrismaClient.Decimal(totalDays),
-                  available: new PrismaClient.Decimal(0),
-                  carriedForward: new PrismaClient.Decimal(0),
+                  openingBalance: new Prisma.Decimal(0),
+                  accrued: new Prisma.Decimal(0),
+                  used: new Prisma.Decimal(totalDays),
+                  available: new Prisma.Decimal(0),
+                  carriedForward: new Prisma.Decimal(0),
                 },
               });
             }
@@ -4456,7 +4485,6 @@ export class AttendanceService {
       isShortfall: false,
     };
 
-    const { leaveRequestService } = await import('./leave-request.service');
     const { getLeaveTypeIdForAttendanceComponent } = await import('../utils/event-config');
 
     // Group by (employeeId, year-month)
@@ -4506,9 +4534,14 @@ export class AttendanceService {
           const hasSinglePunch = !!r.checkIn && !r.checkOut;
           if (isNoOutPunchCorrection) return hasSinglePunch;
           if (isShortfallCorrection) return r.isDeviation === true || !!r.checkIn;
-          if (isEarlyGoingCorrection) return r.isEarly === true || hasSinglePunch;
+          if (isEarlyGoingCorrection) return r.isEarly === true || (r.earlyMinutes != null && r.earlyMinutes > 0) || hasSinglePunch;
           return r.isLate === true || hasSinglePunch;
         });
+        console.log(`[AsPerRule] emp=${employeeId} type=${correctionType} dates=${dates.join(',')} candidates=${candidateRecords.length} filtered=${records.length}`);
+        if (candidateRecords.length > 0) {
+          const c = candidateRecords[0];
+          console.log(`[AsPerRule] first candidate: isEarly=${c.isEarly} earlyMinutes=${c.earlyMinutes} checkIn=${!!c.checkIn} checkOut=${!!c.checkOut}`);
+        }
 
         // Punch-only days can appear in validation rows without an attendance_record row.
         // For No Out Punch correction, materialize minimal day records from attendance_punches.
@@ -4620,8 +4653,28 @@ export class AttendanceService {
         // Keep a minimum of 1 minute so No Correction / rule resolution can still proceed.
         const effectiveTotalMinutes = totalMinutes > 0 ? totalMinutes : 1;
         if (records.length === 0) {
-          errors.push({ employeeId, date: firstDate, message: `No ${typeLabel.toLowerCase()} records found for selected dates` });
-          continue;
+          // Absent employees have no attendance records by definition.
+          // "No Correction" just marks completed with no leave deduction.
+          // "As Per Rule" / direct component must fall through to rule lookup below.
+          if (correctionType === 'absent' && params.noCorrection) {
+            for (const dateKey of dates) {
+              await prisma.attendanceValidationResult.updateMany({
+                where: {
+                  organizationId,
+                  employeeId,
+                  date: new Date(dateKey + 'T00:00:00.000Z'),
+                },
+                data: { isCompleted: true, isAbsent: false },
+              });
+            }
+            applied++;
+            continue;
+          }
+          if (correctionType !== 'absent') {
+            errors.push({ employeeId, date: firstDate, message: `No ${typeLabel.toLowerCase()} records found for selected dates` });
+            continue;
+          }
+          // absent + As Per Rule: fall through to rule lookup below
         }
 
         // For No Out Punch, business rule is "No Correction" completion.
@@ -4700,14 +4753,18 @@ export class AttendanceService {
             shiftId: emp?.shiftId ?? undefined,
             attendanceDate: monthStart,
           };
+          // When user explicitly chose "As Per Rule" (noCorrection=false/undefined), skip "No Correction" named rules
+          const excludeNoCorrectionRules = !params.noCorrection;
           rule = await validationProcessRuleService.getApplicableRule({
             ...ruleParams,
             validationGrouping,
+            excludeNoCorrectionRules,
           });
           if (!rule && validationGrouping !== 'Late') {
             rule = await validationProcessRuleService.getApplicableRule({
               ...ruleParams,
               validationGrouping: 'Late',
+              excludeNoCorrectionRules,
             });
           }
         }
@@ -4723,22 +4780,36 @@ export class AttendanceService {
           normalizedRuleName === 'no_correction' ||
           normalizedRuleName === 'nocorrection';
         if (forceNoCorrectionByRuleName) {
-          for (const rec of records) {
-            await prisma.attendanceRecord.update({
-              where: { id: rec.id },
-              data: {
-                validationAction: 'No Correction',
-                validationMethod: isFinalNoCorrectionStage ? 'NO_CORRECTION_FINAL' : 'NO_CORRECTION',
-              },
-            });
-            await prisma.attendanceValidationResult.updateMany({
-              where: {
-                organizationId,
-                employeeId,
-                date: new Date(this.toDateKey(rec.date) + 'T00:00:00.000Z'),
-              },
-              data: completedValidationUpdate,
-            });
+          if (records.length > 0) {
+            for (const rec of records) {
+              await prisma.attendanceRecord.update({
+                where: { id: rec.id },
+                data: {
+                  validationAction: 'No Correction',
+                  validationMethod: isFinalNoCorrectionStage ? 'NO_CORRECTION_FINAL' : 'NO_CORRECTION',
+                },
+              });
+              await prisma.attendanceValidationResult.updateMany({
+                where: {
+                  organizationId,
+                  employeeId,
+                  date: new Date(this.toDateKey(rec.date) + 'T00:00:00.000Z'),
+                },
+                data: completedValidationUpdate,
+              });
+            }
+          } else {
+            // Absent employees — no AttendanceRecord exists, just mark ValidationResult completed
+            for (const dateKey of dates) {
+              await prisma.attendanceValidationResult.updateMany({
+                where: {
+                  organizationId,
+                  employeeId,
+                  date: new Date(dateKey + 'T00:00:00.000Z'),
+                },
+                data: completedValidationUpdate,
+              });
+            }
           }
           applied++;
           continue;
@@ -4759,6 +4830,7 @@ export class AttendanceService {
           continue;
         }
 
+        console.log(`[AsPerRule] action=${action.name} method=${action.correctionMethod} daysValue=${action.daysValue} effectiveMins=${effectiveTotalMinutes}`);
         const totalDays = this.computeDeductionDays(action.daysValue, effectiveTotalMinutes);
         const isNoCorrectionMethod =
           action.correctionMethod === 'No Correction' ||
@@ -4802,86 +4874,31 @@ export class AttendanceService {
           const durM = String(totalMinutes % 60).padStart(2, '0');
           const permReason = `[${typeLabel}-correction ${durH}h${durM}m permission] ${reason}`;
 
-          let permissionApplied = false;
-          try {
-            const lr = await leaveRequestService.create(employeeId, {
-              leaveTypeId: permLeaveType.id,
-              startDate: firstDate,
-              endDate: firstDate,
-              totalDays: Math.min(totalDays, 1),
+          // Create permission leave request directly (bypass leaveRequestService.create which blocks
+          // creation when validation results exist for the date — which is always true from VP page).
+          const permFirstDateObj = new Date(firstDate + 'T00:00:00.000Z');
+          const permTotalDays = Math.min(totalDays, 1);
+          await prisma.leaveRequest.create({
+            data: {
+              employee: { connect: { id: employeeId } },
+              leaveType: { connect: { id: permLeaveType.id } },
+              startDate: permFirstDateObj,
+              endDate: permFirstDateObj,
+              totalDays: new Prisma.Decimal(permTotalDays),
               reason: permReason,
-            });
-            if (approverUserId && lr.status === 'PENDING') {
-              try {
-                await leaveRequestService.approve(lr.id, approverUserId, undefined, 'HR_MANAGER');
-              } catch {
-                // Leave created; approval may require workflow
-              }
-            }
-            permissionApplied = true;
-          } catch (permErr: unknown) {
-            // Permission limit exhausted — fall back to the next action in the rule (e.g. Half Day Leave)
-            const errMsg = permErr instanceof Error ? permErr.message : String(permErr);
-            const isLimitError = errMsg.toLowerCase().includes('permission') && errMsg.toLowerCase().includes('limit');
-            if (!isLimitError) {
-              errors.push({ employeeId, date: firstDate, message: errMsg });
-              continue;
-            }
-            // Find the fallback action: next action after Permission in sorted order
-            const sortedActions = [...(rule?.actions ?? [])].sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-            const permIdx = sortedActions.findIndex((a: any) => a.correctionMethod === 'Permission');
-            const fallbackAction = sortedActions.slice(permIdx + 1).find(
-              (a: any) => a.correctionMethod !== 'Permission' && a.correctionMethod !== 'No Correction'
-            );
-            if (!fallbackAction) {
-              errors.push({ employeeId, date: firstDate, message: `Permission limit reached and no fallback leave action configured in rule. ${errMsg}` });
-              continue;
-            }
-            // Apply fallback leave action
-            const fallbackDays = this.computeDeductionDays((fallbackAction as any).daysValue, effectiveTotalMinutes);
-            const fallbackCompId = (fallbackAction as any).attendanceComponentId ? String((fallbackAction as any).attendanceComponentId) : null;
-            const fallbackComp = fallbackCompId
-              ? await prisma.attendanceComponent.findUnique({ where: { id: fallbackCompId }, select: { eventName: true, shortName: true } })
-              : null;
-            const fallbackLeaveTypeId = fallbackComp
-              ? await getLeaveTypeIdForAttendanceComponent(organizationId, fallbackComp)
-              : null;
-            if (!fallbackLeaveTypeId) {
-              errors.push({ employeeId, date: firstDate, message: `Permission limit reached. Fallback action "${(fallbackAction as any).name}" has no leave type configured.` });
-              continue;
-            }
-            const fallbackReason = `[Permission limit reached — fallback to ${(fallbackAction as any).name}] ${reason}`;
-            const flr = await leaveRequestService.create(employeeId, {
-              leaveTypeId: fallbackLeaveTypeId,
-              startDate: firstDate,
-              endDate: firstDate,
-              totalDays: fallbackDays,
-              reason: fallbackReason,
-            });
-            if (approverUserId && flr.status === 'PENDING') {
-              try {
-                await leaveRequestService.approve(flr.id, approverUserId, undefined, 'HR_MANAGER');
-              } catch { /* workflow pending */ }
-            }
-            for (const rec of records) {
-              await prisma.attendanceRecord.update({
-                where: { id: rec.id },
-                data: { validationAction: (fallbackAction as any).name },
-              });
-              await prisma.attendanceValidationResult.updateMany({
-                where: { organizationId, employeeId, date: new Date(this.toDateKey(rec.date) + 'T00:00:00.000Z') },
-                data: completedValidationUpdate,
-              });
-            }
-            applied++;
-            continue;
-          }
+              status: 'APPROVED' as any,
+              reviewedBy: approverUserId ?? null,
+              reviewedAt: approverUserId ? new Date() : null,
+              reviewComments: 'Auto-approved by validation correction (As Per Rule - Permission)',
+            },
+          });
+          const permissionApplied = true;
 
           if (permissionApplied) {
             for (const rec of records) {
               await prisma.attendanceRecord.update({
                 where: { id: rec.id },
-                data: { validationAction: action.name },
+                data: { validationAction: action.name, validationMethod: 'AS_PER_RULE' },
               });
               await prisma.attendanceValidationResult.updateMany({
                 where: {
@@ -4902,7 +4919,7 @@ export class AttendanceService {
           const compId = String(action.attendanceComponentId);
           const comp = await prisma.attendanceComponent.findUnique({
             where: { id: compId },
-            select: { eventName: true, shortName: true },
+            select: { eventName: true, shortName: true, hasBalance: true },
           });
           const leaveTypeId = comp
             ? await getLeaveTypeIdForAttendanceComponent(organizationId, comp)
@@ -4911,33 +4928,110 @@ export class AttendanceService {
             errors.push({ employeeId, date: firstDate, message: 'Leave type not linked to attendance component' });
             continue;
           }
-          const lr = await leaveRequestService.create(employeeId, {
-            leaveTypeId,
-            startDate: firstDate,
-            endDate: firstDate,
-            totalDays,
-            reason,
-          });
-          if (approverUserId && lr.status === 'PENDING') {
-            try {
-              await leaveRequestService.approve(lr.id, approverUserId, undefined, 'HR_MANAGER');
-            } catch {
-              // Leave created; approval may require workflow
+          const ruleLeaveHasBalance = comp?.hasBalance ?? false;
+          console.log(`[AsPerRule-Leave] compId=${compId} eventName=${comp?.eventName} leaveTypeId=${leaveTypeId} hasBalance=${ruleLeaveHasBalance}`);
+          const firstDateObj = new Date(firstDate + 'T00:00:00.000Z');
+          const leaveYear = firstDateObj.getUTCFullYear();
+          // Check balance when hasBalance=true
+          if (ruleLeaveHasBalance) {
+            const balChk = await prisma.employeeLeaveBalance.findUnique({
+              where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year: leaveYear } },
+            });
+            const avail = balChk ? parseFloat(balChk.available.toString()) : 0;
+            if (avail < totalDays) {
+              errors.push({ employeeId, date: firstDate, message: `Insufficient leave balance. Available: ${avail}, Requested: ${totalDays}` });
+              continue;
             }
           }
-          for (const rec of records) {
-            await prisma.attendanceRecord.update({
-              where: { id: rec.id },
-              data: { validationAction: action.name },
-            });
-            await prisma.attendanceValidationResult.updateMany({
-              where: {
-                organizationId,
-                employeeId,
-                date: new Date(this.toDateKey(rec.date) + 'T00:00:00.000Z'),
+          // Create leave directly with APPROVED status — bypasses leaveRequestService.create()
+          // which blocks creation when validation results already exist for the date.
+          console.log(`[AsPerRule-Leave] creating leaveRequest totalDays=${totalDays} leaveYear=${leaveYear} leaveTypeId=${leaveTypeId}`);
+          await prisma.leaveRequest.create({
+            data: {
+              employee: { connect: { id: employeeId } },
+              leaveType: { connect: { id: leaveTypeId } },
+              startDate: firstDateObj,
+              endDate: firstDateObj,
+              totalDays: new Prisma.Decimal(totalDays),
+              reason,
+              status: 'APPROVED' as any,
+              reviewedBy: approverUserId ?? null,
+              reviewedAt: approverUserId ? new Date() : null,
+              reviewComments: 'Auto-approved by validation correction (As Per Rule)',
+            },
+          });
+          console.log(`[AsPerRule-Leave] leaveRequest created OK`);
+          // Update leave balance
+          const ruleBal = await prisma.employeeLeaveBalance.findUnique({
+            where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year: leaveYear } },
+          });
+          console.log(`[AsPerRule-Leave] ruleBal=${ruleBal ? `used=${ruleBal.used} available=${ruleBal.available}` : 'NULL'}`);
+          if (ruleBal) {
+            const newUsed = parseFloat(ruleBal.used.toString()) + totalDays;
+            const newAvail = Math.max(0, parseFloat(ruleBal.available.toString()) - totalDays);
+            await prisma.employeeLeaveBalance.update({
+              where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId, year: leaveYear } },
+              data: {
+                used: new Prisma.Decimal(newUsed),
+                available: new Prisma.Decimal(newAvail),
               },
-              data: completedValidationUpdate,
             });
+          } else {
+            await prisma.employeeLeaveBalance.create({
+              data: {
+                employeeId, leaveTypeId, year: leaveYear,
+                openingBalance: new Prisma.Decimal(0),
+                accrued: new Prisma.Decimal(0),
+                used: new Prisma.Decimal(totalDays),
+                available: new Prisma.Decimal(0),
+                carriedForward: new Prisma.Decimal(0),
+              },
+            });
+          }
+          console.log(`[AsPerRule-Leave] balance update done`);
+          if (records.length > 0) {
+            for (const rec of records) {
+              await prisma.attendanceRecord.update({
+                where: { id: rec.id },
+                data: { validationAction: action.name, validationMethod: 'AS_PER_RULE' },
+              });
+              await prisma.attendanceValidationResult.updateMany({
+                where: {
+                  organizationId,
+                  employeeId,
+                  date: new Date(this.toDateKey(rec.date) + 'T00:00:00.000Z'),
+                },
+                data: completedValidationUpdate,
+              });
+            }
+          } else {
+            // Absent employees: no AttendanceRecord exists.
+            // Create one as LEAVE so the day is properly recorded and corrections survive re-runs.
+            for (const dateKey of dates) {
+              const dayDate = new Date(dateKey + 'T00:00:00.000Z');
+              await prisma.attendanceRecord.upsert({
+                where: { employeeId_date: { employeeId, date: dayDate } },
+                create: {
+                  employeeId,
+                  date: dayDate,
+                  status: AttendanceStatus.LEAVE,
+                  checkIn: null,
+                  checkOut: null,
+                  checkInMethod: CheckInMethod.MANUAL,
+                  validationAction: action.name,
+                  validationMethod: 'AS_PER_RULE',
+                },
+                update: {
+                  status: AttendanceStatus.LEAVE,
+                  validationAction: action.name,
+                  validationMethod: 'AS_PER_RULE',
+                },
+              });
+              await prisma.attendanceValidationResult.updateMany({
+                where: { organizationId, employeeId, date: dayDate },
+                data: completedValidationUpdate,
+              });
+            }
           }
           applied++;
         } else if (action.correctionMethod === 'LOP') {
@@ -4956,19 +5050,42 @@ export class AttendanceService {
             errors.push({ employeeId, date: firstDate, message: 'LOP leave type not configured' });
             continue;
           }
-          const lr = await leaveRequestService.create(employeeId, {
-            leaveTypeId: lopLeaveType.id,
-            startDate: firstDate,
-            endDate: firstDate,
-            totalDays,
-            reason,
+          // LOP has hasBalance=false — no balance check, just increment used
+          const lopFirstDateObj = new Date(firstDate + 'T00:00:00.000Z');
+          const lopYear = lopFirstDateObj.getUTCFullYear();
+          await prisma.leaveRequest.create({
+            data: {
+              employee: { connect: { id: employeeId } },
+              leaveType: { connect: { id: lopLeaveType.id } },
+              startDate: lopFirstDateObj,
+              endDate: lopFirstDateObj,
+              totalDays: new Prisma.Decimal(totalDays),
+              reason,
+              status: 'APPROVED' as any,
+              reviewedBy: approverUserId ?? null,
+              reviewedAt: approverUserId ? new Date() : null,
+              reviewComments: 'Auto-approved by validation correction (As Per Rule - LOP)',
+            },
           });
-          if (approverUserId && lr.status === 'PENDING') {
-            try {
-              await leaveRequestService.approve(lr.id, approverUserId, undefined, 'HR_MANAGER');
-            } catch {
-              // Leave created; approval may require workflow
-            }
+          const lopBal = await prisma.employeeLeaveBalance.findUnique({
+            where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: lopLeaveType.id, year: lopYear } },
+          });
+          if (lopBal) {
+            await prisma.employeeLeaveBalance.update({
+              where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: lopLeaveType.id, year: lopYear } },
+              data: { used: new Prisma.Decimal(parseFloat(lopBal.used.toString()) + totalDays) },
+            });
+          } else {
+            await prisma.employeeLeaveBalance.create({
+              data: {
+                employeeId, leaveTypeId: lopLeaveType.id, year: lopYear,
+                openingBalance: new Prisma.Decimal(0),
+                accrued: new Prisma.Decimal(0),
+                used: new Prisma.Decimal(totalDays),
+                available: new Prisma.Decimal(0),
+                carriedForward: new Prisma.Decimal(0),
+              },
+            });
           }
           for (const rec of records) {
             await prisma.attendanceRecord.update({
@@ -5075,7 +5192,7 @@ export class AttendanceService {
     if (employeeIds.length === 0) return { reverted: 0, leaveRequestsDeleted: 0, balancesRestored: 0, errors: [] };
 
     // Find validation records that were HR-corrected (have a validationMethod set by HR)
-    const hrCorrectionMethods = ['DIRECT_COMPONENT', 'NO_CORRECTION', 'NO_CORRECTION_FINAL'];
+    const hrCorrectionMethods = ['DIRECT_COMPONENT', 'NO_CORRECTION', 'NO_CORRECTION_FINAL', 'AS_PER_RULE'];
     const correctedRecords = await prisma.attendanceRecord.findMany({
       where: {
         employeeId: { in: employeeIds },
@@ -5101,8 +5218,6 @@ export class AttendanceService {
       arr.push(rec);
       byEmployee.set(rec.employeeId, arr);
     }
-
-    const { Prisma: PrismaClient } = await import('@prisma/client');
 
     for (const [empId, recs] of byEmployee) {
       try {
@@ -5156,10 +5271,10 @@ export class AttendanceService {
               const availableNow = parseFloat(balance.available.toString());
               const hasPositiveOpening = parseFloat(balance.openingBalance.toString()) > 0 || parseFloat(balance.accrued.toString()) > 0;
               const updateData: Record<string, unknown> = {
-                used: new PrismaClient.Decimal(restoredUsed),
+                used: new Prisma.Decimal(restoredUsed),
               };
               if (hasPositiveOpening) {
-                updateData.available = new PrismaClient.Decimal(availableNow + days);
+                updateData.available = new Prisma.Decimal(availableNow + days);
               }
               await tx.employeeLeaveBalance.update({
                 where: { employeeId_leaveTypeId_year: { employeeId: empId, leaveTypeId: lr.leaveTypeId, year } },
@@ -5416,8 +5531,7 @@ export class AttendanceService {
     let leaveRequestsDeleted = 0;
     let balancesRestored = 0;
 
-    const hrCorrectionMethods = ['DIRECT_COMPONENT', 'NO_CORRECTION', 'NO_CORRECTION_FINAL'];
-    const { Prisma: PrismaClient } = await import('@prisma/client');
+    const hrCorrectionMethods = ['DIRECT_COMPONENT', 'NO_CORRECTION', 'NO_CORRECTION_FINAL', 'AS_PER_RULE'];
 
     for (const row of selectedRows) {
       try {
@@ -5466,9 +5580,9 @@ export class AttendanceService {
               const restoredUsed = Math.max(0, usedNow - days);
               const availableNow = parseFloat(balance.available.toString());
               const hasPositiveOpening = parseFloat(balance.openingBalance.toString()) > 0 || parseFloat(balance.accrued.toString()) > 0;
-              const updateData: Record<string, unknown> = { used: new PrismaClient.Decimal(restoredUsed) };
+              const updateData: Record<string, unknown> = { used: new Prisma.Decimal(restoredUsed) };
               if (hasPositiveOpening) {
-                updateData.available = new PrismaClient.Decimal(availableNow + days);
+                updateData.available = new Prisma.Decimal(availableNow + days);
               }
               await tx.employeeLeaveBalance.update({
                 where: { employeeId_leaveTypeId_year: { employeeId: row.employeeId, leaveTypeId: lr.leaveTypeId, year } },

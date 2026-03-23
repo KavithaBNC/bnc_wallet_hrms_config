@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { attendanceComponentController } from '../controllers/attendance-component.controller';
 
@@ -17,7 +18,7 @@ router.use(enforceOrganizationAccess);
  */
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('attendance_components', 'create'),
   attendanceComponentController.create.bind(attendanceComponentController)
 );
 
@@ -68,7 +69,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('attendance_components', 'update'),
   attendanceComponentController.update.bind(attendanceComponentController)
 );
 
@@ -79,7 +80,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('attendance_components', 'delete'),
   attendanceComponentController.delete.bind(attendanceComponentController)
 );
 

@@ -443,6 +443,7 @@ export default function ValidationProcessEmployeeGridPage() {
                         type: correctionType,
                         selectedRows,
                         remarks: remarks.trim() || undefined,
+                        noCorrection: isNoCorrection,
                       });
                       const errText = result.errors.length > 0
                         ? ` ${result.errors.length} failed: ${result.errors.map((e) => e.message).join('; ')}`

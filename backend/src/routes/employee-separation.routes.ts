@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { employeeSeparationController } from '../controllers/employee-separation.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 import { validate, validateQuery } from '../middlewares/validate';
 import {
@@ -27,21 +28,21 @@ router.get(
 
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_separations', 'create'),
   validate(createEmployeeSeparationSchema),
   employeeSeparationController.create.bind(employeeSeparationController)
 );
 
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_separations', 'update'),
   validate(updateEmployeeSeparationSchema),
   employeeSeparationController.update.bind(employeeSeparationController)
 );
 
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('employee_separations', 'delete'),
   employeeSeparationController.delete.bind(employeeSeparationController)
 );
 

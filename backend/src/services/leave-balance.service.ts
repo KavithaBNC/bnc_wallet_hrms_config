@@ -135,10 +135,22 @@ export class LeaveBalanceService {
         const accrued = Number(bal.accrued ?? 0);
         const used = Number(bal.used ?? 0);
         const forceZeroOpening = this.isForcedZeroOpeningLeaveType(bal.leaveType);
-        const normalizedOpening = forceZeroOpening ? 0 : opening;
-        const normalizedAccrued = forceZeroOpening ? 0 : accrued;
+        let normalizedOpening = forceZeroOpening ? 0 : opening;
+        let normalizedAccrued = forceZeroOpening ? 0 : accrued;
 
         if (!leaveTypeIdsWithAutoCreditAllowed.has(bal.leaveTypeId)) {
+          // Re-read defaultDaysPerYear so changes to leave type config are reflected
+          const defaultDays = bal.leaveType.defaultDaysPerYear
+            ? Number(bal.leaveType.defaultDaysPerYear)
+            : 0;
+          const expectedEntitlement = forceZeroOpening ? 0 : defaultDays;
+
+          // If accrued differs from defaultDaysPerYear, update to match
+          if (expectedEntitlement > 0 && Math.abs(accrued - expectedEntitlement) > 0.0001) {
+            normalizedOpening = expectedEntitlement;
+            normalizedAccrued = expectedEntitlement;
+          }
+
           const hasNoChange =
             Math.abs(carry - normalizedCarry) <= 0.0001 &&
             Math.abs(opening - normalizedOpening) <= 0.0001 &&
@@ -183,7 +195,17 @@ export class LeaveBalanceService {
             break;
           }
         }
-        if (entitlement == null && !forceZeroOpening) return bal;
+        if (entitlement == null) {
+          // Fallback to defaultDaysPerYear when auto-credit match fails
+          const defaultDays = bal.leaveType.defaultDaysPerYear
+            ? Number(bal.leaveType.defaultDaysPerYear)
+            : 0;
+          if (defaultDays > 0 && !forceZeroOpening) {
+            entitlement = defaultDays;
+          } else if (!forceZeroOpening) {
+            return bal;
+          }
+        }
         const effectiveEntitlement = forceZeroOpening ? 0 : (entitlement ?? opening);
 
         const changed =

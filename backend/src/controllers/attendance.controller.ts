@@ -5,6 +5,7 @@ import { biometricSyncService } from '../services/biometric-sync.service';
 import { compOffRequestService } from '../services/comp-off-request.service';
 import { matchFace } from '../services/face.service';
 import { prisma } from '../utils/prisma';
+import { userHasPermission } from '../utils/permission-cache';
 import { BulkShiftAssignmentsInput } from '../utils/attendance.validation';
 
 export class AttendanceController {
@@ -113,7 +114,6 @@ export class AttendanceController {
   async getPunches(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.userId;
-      const userRole = req.user?.role;
       const { startDate, endDate, employeeId: queryEmployeeId } = req.query as {
         startDate: string;
         endDate: string;
@@ -136,15 +136,19 @@ export class AttendanceController {
 
       let employeeId: string | undefined;
       if (queryEmployeeId) {
-        if (userRole === 'EMPLOYEE') employeeId = employee?.id; // EMPLOYEE can only see own
-        else if (userRole === 'MANAGER' && employee) {
+        const canEdit = userId ? userHasPermission(userId, '/attendance', 'can_edit') : false;
+        const canView = userId ? userHasPermission(userId, '/attendance', 'can_view') : false;
+        if (canEdit) {
+          employeeId = queryEmployeeId; // org-wide access
+        } else if (canView && employee) {
+          // team-level: verify the target is a direct report
           const sub = await prisma.employee.findFirst({
             where: { id: queryEmployeeId, reportingManagerId: employee.id },
             select: { id: true },
           });
           if (sub) employeeId = queryEmployeeId;
-        } else if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
-          employeeId = queryEmployeeId;
+        } else {
+          employeeId = employee?.id; // own only
         }
       }
       if (!employeeId && employee) employeeId = employee.id;
@@ -252,7 +256,6 @@ export class AttendanceController {
   async getCompOffSummary(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.userId;
-      const userRole = req.user?.role;
       if (!userId) {
         return res.status(401).json({ status: 'fail', message: 'Authentication required' });
       }
@@ -284,7 +287,9 @@ export class AttendanceController {
       let targetEmployeeId = employee.id;
 
       if (queryEmployeeId && queryEmployeeId !== employee.id) {
-        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+        const canEdit = userHasPermission(userId, '/attendance', 'can_edit');
+        const canView = userHasPermission(userId, '/attendance', 'can_view');
+        if (canEdit) {
           const targetEmployee = await prisma.employee.findUnique({
             where: { id: queryEmployeeId },
             select: { id: true, organizationId: true },
@@ -293,7 +298,7 @@ export class AttendanceController {
             return res.status(403).json({ status: 'fail', message: 'Employee organization mismatch' });
           }
           targetEmployeeId = queryEmployeeId;
-        } else if (userRole === 'MANAGER') {
+        } else if (canView) {
           const subordinate = await prisma.employee.findFirst({
             where: { id: queryEmployeeId, reportingManagerId: employee.id },
             select: { id: true },
@@ -303,7 +308,7 @@ export class AttendanceController {
           }
           targetEmployeeId = queryEmployeeId;
         } else {
-          // EMPLOYEE (or unknown role) can only view own summary
+          // own only
           targetEmployeeId = employee.id;
         }
       }
@@ -321,7 +326,6 @@ export class AttendanceController {
   async getCompOffRequests(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.user?.userId;
-      const userRole = req.user?.role;
       if (!userId) {
         return res.status(401).json({ status: 'fail', message: 'Authentication required' });
       }
@@ -338,10 +342,13 @@ export class AttendanceController {
         return res.status(403).json({ status: 'fail', message: 'Organization mismatch' });
       }
 
+      const canEdit = userHasPermission(userId, '/attendance', 'can_edit');
+      const canView = userHasPermission(userId, '/attendance', 'can_view');
+
       const queryEmployeeId = req.query.employeeId as string | undefined;
       let targetEmployeeId: string | undefined = undefined;
       if (queryEmployeeId && queryEmployeeId !== employee.id) {
-        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+        if (canEdit) {
           const target = await prisma.employee.findUnique({
             where: { id: queryEmployeeId },
             select: { id: true, organizationId: true },
@@ -350,7 +357,7 @@ export class AttendanceController {
             return res.status(403).json({ status: 'fail', message: 'Employee organization mismatch' });
           }
           targetEmployeeId = queryEmployeeId;
-        } else if (userRole === 'MANAGER') {
+        } else if (canView) {
           const subordinate = await prisma.employee.findFirst({
             where: { id: queryEmployeeId, reportingManagerId: employee.id },
             select: { id: true },
@@ -362,8 +369,8 @@ export class AttendanceController {
         }
       } else if (queryEmployeeId === employee.id) {
         targetEmployeeId = employee.id;
-      } else if (userRole !== 'HR_MANAGER' && userRole !== 'ORG_ADMIN' && userRole !== 'SUPER_ADMIN' && userRole !== 'MANAGER') {
-        // Employee/default roles can only view own requests.
+      } else if (!canEdit && !canView) {
+        // own only: user has neither org-wide nor team-level access
         targetEmployeeId = employee.id;
       }
 
@@ -375,7 +382,7 @@ export class AttendanceController {
         targetEmployeeId,
         startDate: req.query.startDate as string | undefined,
         endDate: req.query.endDate as string | undefined,
-        userRole,
+        userId,
       });
       return res.status(200).json({ status: 'success', data: result });
     } catch (error) {
@@ -405,7 +412,8 @@ export class AttendanceController {
         req.params.id,
         organizationId,
         requester.id,
-        userRole
+        userRole,
+        userId
       );
       return res.status(200).json({ status: 'success', data });
     } catch (error) {
@@ -483,8 +491,9 @@ export class AttendanceController {
       const queryEmployeeId = req.body.employeeId as string | undefined;
       let targetEmployeeId = employee.id;
       if (queryEmployeeId && queryEmployeeId !== employee.id) {
-        const userRole = req.user?.role;
-        if (userRole === 'HR_MANAGER' || userRole === 'ORG_ADMIN' || userRole === 'SUPER_ADMIN') {
+        const canEdit = userHasPermission(userId, '/attendance', 'can_edit');
+        const canView = userHasPermission(userId, '/attendance', 'can_view');
+        if (canEdit) {
           const targetEmployee = await prisma.employee.findUnique({
             where: { id: queryEmployeeId },
             select: { id: true, organizationId: true },
@@ -493,7 +502,7 @@ export class AttendanceController {
             return res.status(403).json({ status: 'fail', message: 'Employee organization mismatch' });
           }
           targetEmployeeId = queryEmployeeId;
-        } else if (userRole === 'MANAGER') {
+        } else if (canView) {
           const subordinate = await prisma.employee.findFirst({
             where: { id: queryEmployeeId, reportingManagerId: employee.id },
             select: { id: true },

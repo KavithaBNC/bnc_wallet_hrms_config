@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ValidationProcessRuleController } from '../controllers/validation-process-rule.controller';
-import { authenticate, authorize } from '../middlewares/auth';
+import { authenticate } from '../middlewares/auth';
+import { checkPermission } from '../middlewares/permission';
 import { enforceOrganizationAccess } from '../middlewares/rbac';
 
 const router = Router();
@@ -11,7 +12,7 @@ router.use(enforceOrganizationAccess);
 
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process_rules', 'create'),
   controller.create.bind(controller)
 );
 
@@ -21,13 +22,13 @@ router.get('/:id', controller.getById.bind(controller));
 
 router.put(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN', 'HR_MANAGER'),
+  checkPermission('validation_process_rules', 'update'),
   controller.update.bind(controller)
 );
 
 router.delete(
   '/:id',
-  authorize('SUPER_ADMIN', 'ORG_ADMIN'),
+  checkPermission('validation_process_rules', 'delete'),
   controller.delete.bind(controller)
 );
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
 import { useAuthStore } from '../store/authStore';
+import { getModulePermissions } from '../config/configurator-module-mapping';
 import { payrollCycleService, PayrollCycle } from '../services/payroll.service';
 import { complianceService, statutoryConfigService, StatutoryRateConfig } from '../services/compliance.service';
 
@@ -11,7 +12,9 @@ const fmt = (v: number | string | undefined | null) =>
 const ProfessionalTaxPage = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const isAdmin = user?.role === 'SUPER_ADMIN' || user?.role === 'ORG_ADMIN';
+  const ptPerms = getModulePermissions('/payroll-master');
+  const isAdmin = ptPerms.can_edit;
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId || '';
 
   const [activeTab, setActiveTab] = useState<'config' | 'report'>('config');
 
@@ -43,12 +46,13 @@ const ProfessionalTaxPage = () => {
 
   // Load cycles
   useEffect(() => {
-    payrollCycleService.getAll().then((res) => {
+    if (!orgId) return;
+    payrollCycleService.getAll({ organizationId: orgId }).then((res) => {
       const list: PayrollCycle[] = res.data || [];
       setCycles(list);
       if (list.length > 0) setSelectedCycleId(list[0].id);
     }).catch(() => {});
-  }, []);
+  }, [orgId]);
 
   const fetchReport = useCallback(async () => {
     if (!selectedCycleId) return;
