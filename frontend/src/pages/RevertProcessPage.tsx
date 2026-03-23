@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import { useAuthStore } from '../store/authStore';
 import { attendanceService, type CompletedListRow } from '../services/attendance.service';
 
@@ -145,6 +146,7 @@ export default function RevertProcessPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <BackNavigation to="/hr-activities/validation-process" label="Validation Process" />
       <AppHeader
         title="Revert / Validation On Hold"
         subtitle={organizationName ? organizationName : undefined}

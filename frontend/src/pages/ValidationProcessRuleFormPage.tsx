@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import employeeService, { type Employee } from '../services/employee.service';
 import shiftService from '../services/shift.service';
 import paygroupService from '../services/paygroup.service';
@@ -665,6 +666,7 @@ export default function ValidationProcessRuleFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/others-configuration/validation-process-rule" label="Validation Process Rule" />
       <AppHeader
         title={parentLabel}
         subtitle={

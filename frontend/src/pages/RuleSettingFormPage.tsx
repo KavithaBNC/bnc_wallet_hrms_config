@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import paygroupService from '../services/paygroup.service';
 import departmentService from '../services/department.service';
 import employeeService, { Employee } from '../services/employee.service';
@@ -404,6 +405,7 @@ export default function RuleSettingFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/event-configuration/rule-setting" label="Rule Setting" />
       <AppHeader
         title="Event Configuration"
         subtitle={organizationName ? organizationName : undefined}

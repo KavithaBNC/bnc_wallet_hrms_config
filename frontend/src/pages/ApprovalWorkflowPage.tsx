@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import approvalWorkflowService, { ApprovalWorkflow } from '../services/approvalWorkflow.service';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 
@@ -108,6 +109,7 @@ export default function ApprovalWorkflowPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/event-configuration" label="Event Configuration" />
       <AppHeader
         title="Event Configuration"
         subtitle={organizationName ? organizationName : undefined}

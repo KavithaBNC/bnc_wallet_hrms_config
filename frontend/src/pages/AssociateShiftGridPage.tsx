@@ -7,6 +7,7 @@ import shiftService, { Shift } from '../services/shift.service';
 import departmentService, { Department } from '../services/department.service';
 import { attendanceService } from '../services/attendance.service';
 import { format, eachDayOfInterval, parseISO, startOfMonth, endOfMonth } from 'date-fns';
+import BackNavigation from '../components/common/BackNavigation';
 
 function fullName(e: Employee): string {
   const parts = [e.firstName, e.middleName, e.lastName].filter(Boolean);
@@ -447,6 +448,7 @@ export default function AssociateShiftGridPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/time-attendance" label="Time & Attendance" />
       <AppHeader
         title="Time attendance"
         subtitle={organizationName ? organizationName : undefined}

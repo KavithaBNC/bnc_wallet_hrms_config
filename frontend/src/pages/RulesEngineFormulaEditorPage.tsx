@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import rulesEngineService, { type RulesEngineRow } from '../services/rules-engine.service';
 import paygroupService from '../services/paygroup.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 const INPUT_TYPE_OPTIONS = ['Input', 'Derived', 'System Derived'];
 const ROUNDING_TYPE_OPTIONS = ['Nearest', 'Up', 'Down'];
@@ -140,7 +141,9 @@ export default function RulesEngineFormulaEditorPage() {
         <AppHeader title="Formula Editor" onLogout={handleLogout} />
         <main className="flex-1 p-6">
           <p className="text-red-600">Invalid URL. Missing paygroup or component.</p>
-          <Link to="/core-hr/rules-engine" className="text-blue-600 hover:underline mt-2 inline-block">Back to Rules Engine</Link>
+          <div className="mt-2">
+            <BackNavigation to="/core-hr/rules-engine" label="Rules Engine" />
+          </div>
         </main>
       </div>
     );
@@ -176,7 +179,7 @@ export default function RulesEngineFormulaEditorPage() {
             {error && !loading && (
               <div className="mx-6 mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
                 {error}
-                <Link to="/core-hr/rules-engine" className="ml-2 text-blue-600 hover:underline">Back to list</Link>
+                <span className="ml-2"><BackNavigation to="/core-hr/rules-engine" label="Rules Engine" /></span>
               </div>
             )}
 

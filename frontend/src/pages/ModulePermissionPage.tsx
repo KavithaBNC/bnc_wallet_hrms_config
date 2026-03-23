@@ -3,6 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import userRoleModuleService, { RoleModule } from '../services/userRoleModule.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 interface GroupedModule {
   parentSlug: string;
@@ -273,15 +274,7 @@ export default function ModulePermissionPage() {
         <div className="max-w-5xl mx-auto">
           {/* Back Button & Save */}
           <div className="mb-6 flex items-center justify-between">
-            <button
-              onClick={() => navigate('/user-module')}
-              className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Back to Roles
-            </button>
+            <BackNavigation to="/user-module" label="Roles" />
             <button
               onClick={handleSave}
               disabled={saving || loading}

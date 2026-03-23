@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import compoundService, { type Compound } from '../services/compound.service';
 
 const COMPONENT_TYPES = ['MASTER', 'TRANSACTION', 'PAYROLL', 'EARNING', 'DEDUCTION', 'ATTENDANCE', 'LEAVE', 'REIMBURSEMENT'];
@@ -172,6 +173,7 @@ export default function CompoundCreationFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/core-hr/compound-creation" label="Compound Creation" />
       <AppHeader
         title="Component Creation"
         subtitle={organizationName ? organizationName : undefined}

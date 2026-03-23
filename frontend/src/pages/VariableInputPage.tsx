@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import { useAuthStore } from '../store/authStore';
 import paygroupService, { type Paygroup } from '../services/paygroup.service';
 
@@ -107,6 +108,7 @@ export default function VariableInputPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/core-hr" label="Core HR" />
       <AppHeader
         title="Variable Input"
         subtitle={organizationName ? organizationName : undefined}

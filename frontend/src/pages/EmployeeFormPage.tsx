@@ -8,6 +8,7 @@ import PaygroupSelectionModal from '../components/employees/PaygroupSelectionMod
 import { getEditableTabsFromPermissions, resolveBaseRole, type EmployeeFormTabKey } from '../utils/rbac';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import permissionService from '../services/permission.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 interface LocationState {
   employee?: Employee | null;
@@ -144,12 +145,7 @@ export default function EmployeeFormPage() {
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error}</p>
-          <button
-            onClick={() => navigate('/employees')}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
-          >
-            Back to Employees
-          </button>
+          <BackNavigation to="/employees" label="Employees" />
         </div>
       </div>
     );
@@ -160,15 +156,7 @@ export default function EmployeeFormPage() {
     return (
       <div className="p-6">
         <div className="mb-6">
-          <button
-            onClick={() => navigate('/employees')}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition mb-4"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Employees
-          </button>
+          <BackNavigation to="/employees" label="Employees" />
           <h1 className="text-2xl font-bold text-gray-900">Employee Management</h1>
           <p className="text-gray-500 mt-1">Create Employee</p>
         </div>
@@ -188,15 +176,7 @@ export default function EmployeeFormPage() {
     <div className="p-6 min-w-0 max-w-full">
       {/* Header */}
       <div className="mb-6">
-        <button
-          onClick={() => navigate('/employees')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition mb-4"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Employees
-        </button>
+        <BackNavigation to="/employees" label="Employees" />
         <h1 className="text-2xl font-bold text-gray-900">Employee Management</h1>
         <p className="text-gray-500 mt-1">{pageTitle}</p>
       </div>

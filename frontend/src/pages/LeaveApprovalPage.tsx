@@ -8,6 +8,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import workflowMappingService from '../services/workflowMapping.service';
 import type { WorkflowMapping } from '../services/workflowMapping.service';
 
@@ -289,6 +290,7 @@ export default function LeaveApprovalPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/attendance" label="Attendance" />
       <AppHeader
         title="Leave Approval"
         subtitle={organizationName ? organizationName : undefined}

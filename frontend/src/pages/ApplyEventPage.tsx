@@ -12,6 +12,7 @@ import attendanceComponentService from '../services/attendanceComponent.service'
 import type { AttendanceComponent } from '../services/attendanceComponent.service';
 import shiftService from '../services/shift.service';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 
 type DurationOption = 'FULL_DAY' | 'FIRST_HALF' | 'SECOND_HALF';
 
@@ -645,9 +646,7 @@ export default function ApplyEventPage() {
         />
         <div className="flex-1 p-4">
           <p className="text-sm text-gray-600">Organization not found. Please go back to Attendance.</p>
-          <button type="button" onClick={() => navigate('/attendance')} className="mt-2 text-blue-600 hover:underline">
-            Back to Attendance
-          </button>
+          <BackNavigation to="/attendance" label="Attendance" />
         </div>
       </div>
     );

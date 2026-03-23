@@ -12,6 +12,7 @@ import {
   BankAccount,
 } from '../services/payroll.service';
 import employeeService from '../services/employee.service';
+import BackNavigation from '../components/common/BackNavigation';
 import { Employee } from '../services/employee.service';
 
 const EmployeeSalariesPage = () => {
@@ -255,6 +256,7 @@ const EmployeeSalariesPage = () => {
   if (!canManage) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <BackNavigation to="/payroll" label="Payroll" />
         <AppHeader
           title="Employee Salaries"
           subtitle={organizationName ? organizationName : undefined}
@@ -272,6 +274,7 @@ const EmployeeSalariesPage = () => {
   if (loading) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <BackNavigation to="/payroll" label="Payroll" />
         <AppHeader
           title="Employee Salaries"
           subtitle={organizationName ? organizationName : undefined}
@@ -289,6 +292,7 @@ const EmployeeSalariesPage = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/payroll" label="Payroll" />
       <AppHeader
         title="Employee Salaries"
         subtitle={organizationName ? organizationName : undefined}

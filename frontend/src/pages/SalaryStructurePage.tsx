@@ -9,6 +9,7 @@ import {
   SalaryComponent,
   PredefinedComponent,
 } from '../services/payroll.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 const SalaryStructurePage = () => {
   const navigate = useNavigate();
@@ -166,6 +167,7 @@ const SalaryStructurePage = () => {
   if (!canManage) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <BackNavigation to="/payroll" label="Payroll" />
         <AppHeader
           title="Salary Structure Management"
           subtitle={organizationName ? organizationName : undefined}
@@ -182,6 +184,7 @@ const SalaryStructurePage = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/payroll" label="Payroll" />
       <AppHeader
         title="Salary Structure Management"
         subtitle={organizationName ? organizationName : undefined}

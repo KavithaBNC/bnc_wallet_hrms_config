@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import shiftAssignmentRuleService from '../services/shiftAssignmentRule.service';
 import employeeService, { Employee } from '../services/employee.service';
 import shiftService from '../services/shift.service';
@@ -342,6 +343,7 @@ export default function LateAndOthersFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/attendance-policy/late-and-others" label="Late and Others" />
       <AppHeader
         title="Attendance Policy"
         subtitle={organizationName ? organizationName : undefined}

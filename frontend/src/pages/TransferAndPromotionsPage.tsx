@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import transferPromotionService, { TransferPromotionRecord as ApiRecord } from '../services/transfer-promotion.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 export type SortKey = 'associateCode' | 'associateName' | 'effectiveDate' | 'appliedFrom' | 'details';
 export type SortOrder = 'asc' | 'desc';
@@ -270,6 +271,7 @@ export default function TransferAndPromotionsPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction" label="Transaction" />
       <AppHeader
         title="Increment"
         subtitle={organizationName ? organizationName : undefined}

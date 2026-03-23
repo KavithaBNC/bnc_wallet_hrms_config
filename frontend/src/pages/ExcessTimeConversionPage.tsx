@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import shiftAssignmentRuleService, {
   ShiftAssignmentRule,
 } from '../services/shiftAssignmentRule.service';
@@ -324,6 +325,7 @@ export default function ExcessTimeConversionPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/attendance-policy" label="Attendance Policy" />
       <AppHeader
         title="Attendance Policy"
         subtitle={organizationName ? organizationName : undefined}

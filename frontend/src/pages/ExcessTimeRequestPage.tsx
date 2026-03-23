@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import { attendanceService, type CompOffRequestItem, type CompOffSummary } from '../services/attendance.service';
 import { useAuthStore } from '../store/authStore';
 import employeeService, { type Employee } from '../services/employee.service';
@@ -166,6 +167,7 @@ export default function ExcessTimeRequestPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/attendance" label="Attendance" />
       <AppHeader
         title="Excess Time Request"
         subtitle="Attendance → My Requests → Excess Time Request"

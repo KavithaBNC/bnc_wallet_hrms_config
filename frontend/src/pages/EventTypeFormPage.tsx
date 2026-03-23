@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 
 export default function EventTypeFormPage() {
   const navigate = useNavigate();
@@ -46,6 +47,7 @@ export default function EventTypeFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/event-configuration/event-type" label="Event Type" />
       <AppHeader
         title="Event Configuration"
         subtitle={organizationName ? organizationName : undefined}

@@ -8,6 +8,7 @@ import transferPromotionService from '../services/transfer-promotion.service';
 import { employeeSalaryService } from '../services/payroll.service';
 import type { Paygroup } from '../services/paygroup.service';
 import type { Employee } from '../services/employee.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -226,6 +227,7 @@ export default function AddTransferPromotionPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction/transfer-promotions" label="Transfer & Promotions" />
       <AppHeader
         title="Transaction"
         subtitle={organizationName ? organizationName : undefined}

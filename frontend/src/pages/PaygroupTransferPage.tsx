@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import employeeService, { Employee } from '../services/employee.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 type SortKey = 'associateCode' | 'associateName' | 'payGroup';
 type SortOrder = 'asc' | 'desc';
@@ -138,6 +139,7 @@ export default function PaygroupTransferPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction" label="Transaction" />
       <AppHeader
         title="Transaction"
         subtitle={organizationName ? organizationName : undefined}

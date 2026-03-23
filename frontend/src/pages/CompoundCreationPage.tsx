@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { getModulePermissions } from '../config/configurator-module-mapping';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import compoundService, { type Compound } from '../services/compound.service';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -122,6 +123,7 @@ export default function CompoundCreationPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/core-hr" label="Core HR" />
       <AppHeader
         title="Component Creation"
         subtitle={organizationName ? organizationName : undefined}

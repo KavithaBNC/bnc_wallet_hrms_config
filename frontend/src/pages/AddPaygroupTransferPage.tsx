@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import employeeService, { Employee } from '../services/employee.service';
 import paygroupService, { Paygroup } from '../services/paygroup.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 function fullName(e: Employee): string {
   const parts = [e.firstName, e.middleName, e.lastName].filter(Boolean);
@@ -119,6 +120,7 @@ export default function AddPaygroupTransferPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction/paygroup-transfer" label="Paygroup Transfer" />
       <AppHeader
         title="Pay Group Transfer"
         subtitle={organizationName ? organizationName : undefined}

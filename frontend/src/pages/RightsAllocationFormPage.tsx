@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import shiftService from '../services/shift.service';
 import rightsAllocationService from '../services/rightsAllocation.service';
 import attendanceComponentService, { type AttendanceComponent } from '../services/attendanceComponent.service';
@@ -384,6 +385,7 @@ export default function RightsAllocationFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/event-configuration/rights-allocation" label="Rights Allocation" />
       <AppHeader
         title="Event Configuration"
         subtitle={organizationName ? organizationName : undefined}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import { useAuthStore } from '../store/authStore';
 import validationProcessRuleService from '../services/validationProcessRule.service';
 import attendanceComponentService from '../services/attendanceComponent.service';
@@ -223,6 +224,7 @@ export default function ValidationProcessEmployeeGridPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/hr-activities/validation-process" label="Validation Process" />
       <AppHeader
         title="HR Activities"
         subtitle={organizationName ? organizationName : undefined}

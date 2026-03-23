@@ -4,6 +4,7 @@ import Webcam, { WebcamRef } from 'react-webcam';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 
 const videoConstraints = { width: 640, height: 480, facingMode: 'user' };
 const AUTO_PUNCH_INTERVAL_MS = 2000;
@@ -213,13 +214,7 @@ const FaceAttendancePage = () => {
             {autoMode && punching && (
               <span className="text-sm text-gray-600">Verifying...</span>
             )}
-            <button
-              type="button"
-              onClick={() => navigate('/attendance')}
-              className="px-6 py-3 bg-gray-200 text-gray-800 font-medium rounded-lg hover:bg-gray-300 transition"
-            >
-              Back to Attendance
-            </button>
+            <BackNavigation to="/attendance" label="Attendance" />
           </div>
           {message && !punchSuccess && (
             <div

@@ -5,6 +5,7 @@ import AppHeader from '../components/layout/AppHeader';
 import transferPromotionEntryService, {
   TransferPromotionEntryRecord as ApiRecord,
 } from '../services/transfer-promotion-entry.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 type SortKey = 'associateCode' | 'associateName' | 'effectiveDate';
 type SortOrder = 'asc' | 'desc';
@@ -187,6 +188,7 @@ export default function TransferPromotionEntryPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction" label="Transaction" />
       <AppHeader
         title="Transaction"
         subtitle={organizationName ? organizationName : undefined}

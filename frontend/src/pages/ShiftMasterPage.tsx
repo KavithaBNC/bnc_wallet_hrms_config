@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import shiftService, { Shift } from '../services/shift.service';
 import { getModulePermissions } from '../config/configurator-module-mapping';
+import BackNavigation from '../components/common/BackNavigation';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
@@ -135,6 +136,7 @@ export default function ShiftMasterPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/time-attendance" label="Time & Attendance" />
       <AppHeader
         title="Shift Master"
         subtitle={organizationName ? organizationName : undefined}

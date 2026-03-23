@@ -13,6 +13,7 @@ import type { Employee } from '../services/employee.service';
 import type { Position } from '../services/position.service';
 import type { Department } from '../services/department.service';
 import type { Location } from '../services/location.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 const TRANSFER_COMPONENTS = [
   { value: 'Reporting Manager', label: 'Reporting Manager' },
@@ -268,6 +269,7 @@ export default function AddTransferPromotionEntryPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction/transfer-promotion-entry" label="Transfer Promotion Entry" />
       <AppHeader
         title="Transaction"
         subtitle={organizationName ? organizationName : undefined}

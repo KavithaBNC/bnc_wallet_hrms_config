@@ -4,6 +4,7 @@ import AppHeader from '../components/layout/AppHeader';
 import EmployeeForm from '../components/employees/EmployeeForm';
 import employeeService, { Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
+import BackNavigation from '../components/common/BackNavigation';
 
 /**
  * Full-page Employee Edit form for Rejoin flow.
@@ -54,10 +55,6 @@ export default function EmployeeRejoinEditPage() {
     navigate('/login');
   };
 
-  const handleBack = () => {
-    navigate('/payroll/employee-rejoin');
-  };
-
   const handleSuccess = () => {
     navigate('/payroll/employee-rejoin');
   };
@@ -92,13 +89,9 @@ export default function EmployeeRejoinEditPage() {
         <main className="flex-1 p-6">
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
             <p className="font-medium">{error || 'Employee not found'}</p>
-            <button
-              type="button"
-              onClick={handleBack}
-              className="mt-3 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700"
-            >
-              Back to Rejoin List
-            </button>
+            <div className="mt-3">
+              <BackNavigation to="/payroll/employee-rejoin" label="Rejoin List" />
+            </div>
           </div>
         </main>
       </div>
@@ -116,16 +109,7 @@ export default function EmployeeRejoinEditPage() {
       />
       <main className="flex-1 min-h-0 overflow-auto w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="mb-4">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Rejoin List
-          </button>
+          <BackNavigation to="/payroll/employee-rejoin" label="Rejoin List" />
         </div>
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
           <EmployeeForm

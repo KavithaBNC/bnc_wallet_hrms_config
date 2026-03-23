@@ -7,6 +7,7 @@ import shiftAssignmentRuleService, {
   ShiftAssignmentRule,
 } from '../services/shiftAssignmentRule.service';
 import employeeService, { Employee } from '../services/employee.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
@@ -184,6 +185,7 @@ export default function ShiftAssignPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/time-attendance" label="Time & Attendance" />
       <AppHeader
         title="Shift Assign"
         subtitle={organizationName ? organizationName : undefined}

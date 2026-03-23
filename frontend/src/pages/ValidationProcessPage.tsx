@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import paygroupService from '../services/paygroup.service';
 import employeeService from '../services/employee.service';
 import { attendanceService, type ValidationDaySummary, type LateDeductionEmployee, type LateDeductionResult, type ValidationRevertHistoryEntry } from '../services/attendance.service';
@@ -497,6 +498,7 @@ export default function ValidationProcessPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/hr-activities" label="HR Activities" />
       <AppHeader
         title="HR Activities"
         subtitle={organizationName ? organizationName : undefined}

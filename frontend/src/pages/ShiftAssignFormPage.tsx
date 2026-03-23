@@ -7,6 +7,7 @@ import employeeService, { Employee } from '../services/employee.service';
 import shiftService from '../services/shift.service';
 import paygroupService from '../services/paygroup.service';
 import departmentService from '../services/department.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 function fullName(e: Employee): string {
   const parts = [e.firstName, e.middleName, e.lastName].filter(Boolean);
@@ -182,6 +183,7 @@ export default function ShiftAssignFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/time-attendance/shift-assign" label="Shift Assign" />
       <AppHeader
         title="Time attendance"
         subtitle={organizationName ? organizationName : undefined}

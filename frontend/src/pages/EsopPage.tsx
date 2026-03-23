@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import employeeService, { Employee } from '../services/employee.service';
 import { esopService } from '../services/esop.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 function fullName(e: Employee): string {
   const parts = [e.firstName, e.middleName, e.lastName].filter(Boolean);
@@ -151,9 +152,7 @@ export default function EsopPage() {
             <h2 className="text-xl font-semibold text-gray-900">Add ESOP</h2>
             <p className="mt-0.5 text-sm text-gray-600">Allocate ESOP for joiners by financial year.</p>
           </div>
-          <Link to="/esop" className="text-sm text-blue-600 hover:underline">
-            ← Back to List
-          </Link>
+          <BackNavigation to="/esop" label="ESOP List" />
         </div>
 
         <div className="flex-1 min-h-0 w-full min-w-0 bg-white rounded-lg shadow border border-gray-200 flex flex-col overflow-hidden">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import attendanceLockService, {
   MonthlyAttendanceLock,
   type BuildMonthResult,
@@ -147,6 +148,7 @@ export default function AttendanceLockPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/others-configuration" label="Others Configuration" />
       <AppHeader
         title="Others Configuration"
         subtitle={organizationName ? organizationName : undefined}

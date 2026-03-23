@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import { attendanceService, type CompOffRequestDetails, type CompOffRequestItem } from '../services/attendance.service';
 import employeeService, { type Employee } from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
@@ -186,7 +187,8 @@ export default function ExcessTimeApprovalPage() {
   if (!canAccess) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
-        <AppHeader title="Excess Time Approval" subtitle="Attendance → Excess Time Approval" onLogout={handleLogout} />
+        <BackNavigation to="/attendance" label="Attendance" />
+      <AppHeader title="Excess Time Approval" subtitle="Attendance → Excess Time Approval" onLogout={handleLogout} />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-white rounded-lg shadow p-6 text-sm text-red-700">Access denied. Only Manager/HR can view this page.</div>
         </main>
@@ -196,6 +198,7 @@ export default function ExcessTimeApprovalPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/attendance" label="Attendance" />
       <AppHeader title="Excess Time Approval" subtitle="Attendance → Excess Time Approval" onLogout={handleLogout} />
       <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}

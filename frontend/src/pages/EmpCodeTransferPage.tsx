@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import employeeService, { Employee } from '../services/employee.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 type SortKey = 'associateName' | 'associateCode';
 type SortOrder = 'asc' | 'desc';
@@ -199,6 +200,7 @@ export default function EmpCodeTransferPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/transaction" label="Transaction" />
       <AppHeader
         title="Emp Code Transfer"
         subtitle={organizationName ? organizationName : undefined}

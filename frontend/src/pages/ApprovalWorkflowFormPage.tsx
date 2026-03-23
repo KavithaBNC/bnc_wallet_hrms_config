@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import approvalWorkflowService from '../services/approvalWorkflow.service';
 
 interface AttendanceEventRow {
@@ -277,6 +278,7 @@ export default function ApprovalWorkflowFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/event-configuration/approval-workflow" label="Approval Workflow" />
       <AppHeader
         title="Event Configuration"
         subtitle={organizationName ? organizationName : undefined}

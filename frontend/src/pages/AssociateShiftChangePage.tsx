@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import employeeService, { Employee } from '../services/employee.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 function fullName(e: Employee): string {
   const parts = [e.firstName, e.middleName, e.lastName].filter(Boolean);
@@ -86,6 +87,7 @@ export default function AssociateShiftChangePage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
+      <BackNavigation to="/time-attendance" label="Time & Attendance" />
       <AppHeader
         title="Time attendance"
         subtitle={organizationName ? organizationName : undefined}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import Modal from '../components/common/Modal';
 
 interface LeaveTypeOption {
@@ -280,6 +281,7 @@ export default function EventBalanceEntryPage() {
   if (!organizationId && !loadingUser) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <BackNavigation to="/attendance" label="Attendance" />
         <AppHeader title="Event Balance Entry" onLogout={handleLogout} />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg">
@@ -293,6 +295,7 @@ export default function EventBalanceEntryPage() {
   if (!isHr) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <BackNavigation to="/attendance" label="Attendance" />
         <AppHeader title="Event Balance Entry" onLogout={handleLogout} />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
@@ -305,6 +308,7 @@ export default function EventBalanceEntryPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/attendance" label="Attendance" />
       <AppHeader
         title="Event Balance Entry"
         subtitle={organizationName ? organizationName : undefined}

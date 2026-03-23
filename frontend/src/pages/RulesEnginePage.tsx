@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
+import BackNavigation from '../components/common/BackNavigation';
 import paygroupService, { type Paygroup } from '../services/paygroup.service';
 import rulesEngineService, { type RulesEngineRow } from '../services/rules-engine.service';
 
@@ -159,6 +160,7 @@ export default function RulesEnginePage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/core-hr" label="Core HR" />
       <AppHeader
         title="Rules Engine"
         subtitle={organizationName ? organizationName : undefined}

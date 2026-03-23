@@ -9,6 +9,7 @@ import employeeSeparationService, {
 } from '../services/employeeSeparation.service';
 import employeeService from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
+import BackNavigation from '../components/common/BackNavigation';
 
 const SEPARATION_TYPES: { value: SeparationType; label: string }[] = [
   { value: 'RESIGNATION', label: 'Resignation' },
@@ -230,6 +231,7 @@ export default function EmployeeSeparationPage() {
   if (!organizationId) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+        <BackNavigation to="/payroll" label="Payroll" />
         <AppHeader title="Employee Separation" onLogout={handleLogout} />
         <main className="flex-1 min-h-0 overflow-auto w-full px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-yellow-50 border border-yellow-200 text-yellow-700 px-4 py-3 rounded-lg">
@@ -283,6 +285,7 @@ export default function EmployeeSeparationPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0 w-full bg-gray-100">
+      <BackNavigation to="/payroll" label="Payroll" />
       <AppHeader
         title="Employee Separation"
         subtitle={organizationName ? organizationName : undefined}

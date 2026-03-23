@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import AppHeader from '../components/layout/AppHeader';
 import shiftService from '../services/shift.service';
+import BackNavigation from '../components/common/BackNavigation';
 
 const FLEXI_TYPE_OPTIONS = [
   { value: '', label: '-- Select --' },
@@ -308,6 +309,7 @@ export default function ShiftMasterFormPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-100">
+      <BackNavigation to="/time-attendance/shift-master" label="Shift Master" />
       <AppHeader
         title="Time attendance"
         subtitle={organizationName ? organizationName : undefined}

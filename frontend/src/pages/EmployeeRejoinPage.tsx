@@ -4,6 +4,7 @@ import AppHeader from '../components/layout/AppHeader';
 import Modal from '../components/common/Modal';
 import employeeSeparationService, { EmployeeSeparation } from '../services/employeeSeparation.service';
 import { useAuthStore } from '../store/authStore';
+import BackNavigation from '../components/common/BackNavigation';
 
 const SEPARATION_TYPES: { value: string; label: string }[] = [
   { value: 'RESIGNATION', label: 'Resignation' },
@@ -161,6 +162,7 @@ export default function EmployeeRejoinPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-gray-50">
+      <BackNavigation to="/payroll" label="Payroll" />
       <AppHeader
         title="Employee Rejoin"
         subtitle={organizationName ? organizationName : 'Separation list'}
