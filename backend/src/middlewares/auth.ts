@@ -52,6 +52,11 @@ export const authenticate = async (
     // Verify token
     const decoded = verifyToken(token);
 
+    // Guard: if userId is missing this is a Configurator token, not an HRMS token — fall through to fallback
+    if (!decoded.userId) {
+      throw new Error('Not an HRMS token');
+    }
+
     // Check if user exists and is active
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
@@ -107,13 +112,40 @@ export const authenticate = async (
         throw new Error('No identifiers in token');
       }
 
-      // Look up HRMS user by email (primary) or configuratorUserId (fallback)
-      let user = await prisma.user.findFirst({
-        where: email
-          ? { email: { equals: email, mode: 'insensitive' } }
-          : { configuratorUserId: configuratorUserId! },
-        select: { id: true, email: true, role: true, isActive: true },
-      });
+      // Look up HRMS user by email (primary) or configuratorUserId (fallback).
+      // Use raw SQL to bypass Prisma enum validation — the DB may contain legacy role
+      // values (e.g. 'ADMIN') that are not in the current UserRole enum, which causes
+      // Prisma ORM to throw even on unrelated rows returned by findFirst.
+      type RawUser = { id: string; email: string; role: string; is_active: boolean };
+      let rawUser: RawUser | null = null;
+      if (email) {
+        const rows = await prisma.$queryRaw<RawUser[]>`
+          SELECT id, email, role, is_active FROM users
+          WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
+        rawUser = rows[0] ?? null;
+      } else if (configuratorUserId) {
+        const rows = await prisma.$queryRaw<RawUser[]>`
+          SELECT id, email, role, is_active FROM users
+          WHERE configurator_user_id = ${configuratorUserId} LIMIT 1`;
+        rawUser = rows[0] ?? null;
+      }
+      // Normalize raw role to a valid UserRole (fixes legacy 'ADMIN', 'HR_ADMIN', etc.)
+      const ROLE_MAP: Record<string, string> = {
+        ADMIN: 'HR_MANAGER', ORG_ADMIN: 'ORG_ADMIN', SUPER_ADMIN: 'SUPER_ADMIN',
+        HR_MANAGER: 'HR_MANAGER', MANAGER: 'MANAGER', EMPLOYEE: 'EMPLOYEE',
+      };
+      const normalizeDbRole = (r: string): string => {
+        if (ROLE_MAP[r]) return ROLE_MAP[r];
+        const up = (r || '').toUpperCase();
+        if (up.includes('SUPER_ADMIN')) return 'SUPER_ADMIN';
+        if (up.includes('HR_ADMIN') || up.includes('HR_MANAGER')) return 'HR_MANAGER';
+        if (up.includes('ORG_ADMIN')) return 'ORG_ADMIN';
+        if (up.includes('MANAGER')) return 'MANAGER';
+        return 'EMPLOYEE';
+      };
+      let user: { id: string; email: string; role: any; isActive: boolean } | null = rawUser
+        ? { id: rawUser.id, email: rawUser.email, role: normalizeDbRole(rawUser.role) as any, isActive: rawUser.is_active }
+        : null;
 
       // Auto-create HRMS user from Configurator token if not found
       if (!user && email) {
@@ -185,21 +217,21 @@ export const authenticate = async (
               console.log('[auth] Auto-created HRMS user from Configurator token:', email);
             } catch {
               // Another concurrent request may have created the user — retry lookup
-              user = await prisma.user.findFirst({
-                where: { email: { equals: email, mode: 'insensitive' } },
-                select: { id: true, email: true, role: true, isActive: true },
-              });
+              const retryRows = await prisma.$queryRaw<RawUser[]>`
+                SELECT id, email, role, is_active FROM users
+                WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
+              const r = retryRows[0];
+              user = r ? { id: r.id, email: r.email, role: normalizeDbRole(r.role) as any, isActive: r.is_active } : null;
             }
           }
         } catch (autoCreateErr) {
           console.warn('[auth] Failed to auto-create HRMS user:', (autoCreateErr as any)?.message);
           // Retry user lookup — another concurrent request may have created it
-          user = await prisma.user.findFirst({
-            where: email
-              ? { email: { equals: email, mode: 'insensitive' } }
-              : { configuratorUserId: configuratorUserId! },
-            select: { id: true, email: true, role: true, isActive: true },
-          });
+          const retryRows2 = email
+            ? await prisma.$queryRaw<RawUser[]>`SELECT id, email, role, is_active FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`
+            : await prisma.$queryRaw<RawUser[]>`SELECT id, email, role, is_active FROM users WHERE configurator_user_id = ${configuratorUserId!} LIMIT 1`;
+          const r2 = retryRows2[0];
+          user = r2 ? { id: r2.id, email: r2.email, role: normalizeDbRole(r2.role) as any, isActive: r2.is_active } : null;
         }
       }
 
@@ -302,6 +334,7 @@ export const optionalAuth = async (
       // Try HRMS token first
       try {
         const decoded = verifyToken(token);
+        if (!decoded.userId) throw new Error('Not an HRMS token');
         user = await prisma.user.findUnique({
           where: { id: decoded.userId },
           select: { id: true, email: true, role: true, isActive: true },

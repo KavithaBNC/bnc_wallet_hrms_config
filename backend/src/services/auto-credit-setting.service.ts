@@ -2,6 +2,8 @@ import { AppError } from '../middlewares/errorHandler';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { parsePagination, parseString } from '../utils/queryParser';
+import { leaveBalanceService } from './leave-balance.service';
+import { logger } from '../utils/logger';
 
 export class AutoCreditSettingService {
   async create(data: {
@@ -106,6 +108,13 @@ export class AutoCreditSettingService {
         department: { select: { id: true, name: true } },
       },
     });
+
+    // Trigger background sync so all active employees immediately get updated balances
+    setImmediate(() => {
+      leaveBalanceService.syncOrgLeaveBalances(data.organizationId)
+        .catch((err) => logger.error('Post-create auto-credit sync failed:', err));
+    });
+
     return autoCreditSetting;
   }
 
@@ -289,6 +298,13 @@ export class AutoCreditSettingService {
         department: { select: { id: true, name: true } },
       },
     });
+
+    // Trigger background sync so all active employees immediately get updated balances
+    setImmediate(() => {
+      leaveBalanceService.syncOrgLeaveBalances(existing.organizationId)
+        .catch((err) => logger.error('Post-update auto-credit sync failed:', err));
+    });
+
     return autoCreditSetting;
   }
 

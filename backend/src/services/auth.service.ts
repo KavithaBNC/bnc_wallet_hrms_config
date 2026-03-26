@@ -249,6 +249,10 @@ export class AuthService {
       // Verify refresh token
       const decoded = verifyToken(refreshToken);
 
+      if (!decoded.userId) {
+        throw new AppError('Invalid refresh token', 401);
+      }
+
       // Find user and verify refresh token matches
       const user = await prisma.user.findUnique({
         where: { id: decoded.userId },

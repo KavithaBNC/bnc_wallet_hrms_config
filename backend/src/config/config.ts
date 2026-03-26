@@ -97,7 +97,7 @@ export const config: AppConfig = {
   configuratorApiUrl:
     process.env.CONFIGURATOR_API_URL ||
     process.env.RAG_API_URL ||
-    'http://bnc-ai.com:8001',
+    'https://bnc-ai.com/ragapi',
   // Fallback URL when primary is unreachable (e.g. LAN IP from outside office)
   configuratorApiFallbackUrl: process.env.CONFIGURATOR_API_FALLBACK_URL || '',
   configuratorHrmsProjectId: process.env.CONFIGURATOR_HRMS_PROJECT_ID ? parseInt(process.env.CONFIGURATOR_HRMS_PROJECT_ID, 10) : 0,

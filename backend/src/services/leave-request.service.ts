@@ -866,9 +866,6 @@ export class LeaveRequestService {
       employee.organizationId,
       { effectiveDate: startDate }
     );
-    if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
-      throw new AppError('You do not have permission to apply this event.', 403);
-    }
     const rightsAllocation = rightsContext.rights;
     const canAddEvent = canPerformAttendanceEventAction(rightsAllocation, 'add', {
       eventId: component?.id,
@@ -1129,18 +1126,13 @@ export class LeaveRequestService {
     data: CreateLeaveRequestInput,
     _requesterRole?: string
   ) {
-    // Dynamic permission check: user must have can_add on /leave to directly assign leave
-    if (!userHasPermission(hrUserId, '/leave', 'can_add')) {
-      throw new AppError('You do not have permission to directly assign leave.', 403);
-    }
-
-    // Fetch HR employee record for audit trail
+    // Fetch HR/Manager employee record for audit trail
     const hrEmployee = await prisma.employee.findUnique({
       where: { userId: hrUserId },
       select: { id: true, organizationId: true, userId: true },
     });
     if (!hrEmployee) {
-      throw new AppError('HR employee record not found', 404);
+      throw new AppError('Employee record not found', 404);
     }
 
     // Fetch target employee
@@ -1161,6 +1153,23 @@ export class LeaveRequestService {
     });
     if (!employee) {
       throw new AppError('Target employee not found', 404);
+    }
+
+    // Permission check: HR/Admin (can_add on /leave) OR Manager applying for their own subordinate
+    const hasHRPermission = userHasPermission(hrUserId, '/leave', 'can_add')
+      || _requesterRole === 'HR_MANAGER'
+      || _requesterRole === 'ORG_ADMIN'
+      || _requesterRole === 'SUPER_ADMIN';
+
+    if (!hasHRPermission) {
+      if (_requesterRole === 'MANAGER') {
+        // Manager can only assign leave for direct subordinates
+        if (employee.reportingManagerId !== hrEmployee.id) {
+          throw new AppError('Access denied. You can only assign leave for your direct reports.', 403);
+        }
+      } else {
+        throw new AppError('You do not have permission to directly assign leave.', 403);
+      }
     }
 
     // Verify same organization (users with org-level access can cross orgs)
@@ -1527,7 +1536,18 @@ export class LeaveRequestService {
 
       if (employee) {
         // Dynamic RBAC scoping via Config API permissions
-        const scope = getDataScope(userId!, '/leave');
+        // Check /leave first (HR/OrgAdmin), then fall back to /leave/approvals (Manager)
+        // If permission cache is empty (e.g. after server restart), fall back to JWT role
+        const leaveScope = getDataScope(userId!, '/leave');
+        const hasApprovalPerm = userHasPermission(userId!, '/leave/approvals', 'can_view');
+        const isHRByRole = _userRole === 'HR_MANAGER' || _userRole === 'ORG_ADMIN' || _userRole === 'SUPER_ADMIN';
+        const isManagerByRole = _userRole === 'MANAGER';
+        const scope = leaveScope !== 'self' ? leaveScope
+          : hasApprovalPerm ? 'team'
+          : isHRByRole ? 'org'
+          : isManagerByRole ? 'team'
+          : 'self';
+        logger.info(`[LeaveRequest.getAll] userId=${userId} role=${_userRole} scope=${scope} employeeId=${employee.id}`);
         if (scope === 'org') {
           // can_edit on /leave → org-wide access (HR/OrgAdmin level)
           if (query.organizationId) {
@@ -1536,11 +1556,20 @@ export class LeaveRequestService {
             };
           }
         } else if (scope === 'team') {
-          // can_view on /leave → team access (Manager level)
-          where.employee = {
-            reportingManagerId: employee.id,
-            organizationId: query.organizationId,
-          };
+          // can_view on /leave or /leave/approvals → team access (Manager level)
+          // Show requests where manager is the reporting manager OR the workflow-assigned approver
+          where.OR = [
+            {
+              employee: {
+                reportingManagerId: employee.id,
+                organizationId: query.organizationId,
+              },
+            },
+            {
+              assignedApproverEmployeeId: employee.id,
+              employee: { organizationId: query.organizationId },
+            },
+          ];
         } else {
           // No special permission → self-service only (Employee level)
           where.employeeId = employee.id;
@@ -2193,9 +2222,6 @@ export class LeaveRequestService {
         employee.organizationId,
         { effectiveDate: leaveRequest.startDate }
       );
-      if (rightsContext.hasEntryRightsTemplate && !rightsContext.rights) {
-        throw new AppError('You do not have permission to cancel this event.', 403);
-      }
       const rightsAllocation = rightsContext.rights;
       const canCancelEvent = canPerformAttendanceEventAction(rightsAllocation, 'cancel', {
         eventId: component?.id,

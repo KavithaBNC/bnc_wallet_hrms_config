@@ -174,10 +174,11 @@ export default function ApplyEventPage() {
   const contextYear = state.year ?? now.getFullYear();
   const contextMonth = state.month ?? now.getMonth() + 1;
 
-  // HR mode: when an HR/Admin applies leave on behalf of another employee
+  // HR/Manager mode: when HR/Admin/Manager applies leave on behalf of another employee
   const leavePerms = getModulePermissions('/leave');
   const isHR = leavePerms.can_edit;
-  const isApplyingForOther = isHR && !!state.employeeId && state.employeeId !== user?.employee?.id;
+  const isManager = !isHR && getModulePermissions('/leave/approvals').can_view;
+  const isApplyingForOther = (isHR || isManager) && !!state.employeeId && state.employeeId !== user?.employee?.id;
   const targetEmployeeId = isApplyingForOther ? state.employeeId : undefined;
   const targetEmployeeName = state.employeeName;
 
@@ -679,7 +680,7 @@ export default function ApplyEventPage() {
         <form onSubmit={handleSave} className="mx-auto flex w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           {isApplyingForOther && (
             <div className="mb-4 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
-              Assigning on behalf of <strong>{targetEmployeeName || targetEmployeeId}</strong> — will be auto-approved (HR Direct Assignment)
+              Assigning on behalf of <strong>{targetEmployeeName || targetEmployeeId}</strong> — will be auto-approved ({isHR ? 'HR Direct Assignment' : 'Manager Direct Assignment'})
             </div>
           )}
           {error && (

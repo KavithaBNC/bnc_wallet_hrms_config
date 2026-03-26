@@ -603,9 +603,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       const inAssigned = assignedPaths.has(path) ||
         Array.from(assignedPaths).some((p) => p && path.startsWith(p + '/'));
       if (!inAssigned) return false;
-      // Also check can_view permission for the page
-      const perms = getModulePermissions(path);
-      return perms.can_view;
+      // Check can_view using exact path match only — prefix matching would incorrectly
+      // block sub-pages when a parent path (e.g. /leave) has can_view: false.
+      // If there is no exact entry in modulePermissions, the path IS in assignedPaths so allow it.
+      try {
+        const raw = localStorage.getItem('modulePermissions');
+        if (!raw) return true;
+        const map: Record<string, { can_view: boolean }> = JSON.parse(raw);
+        if (map[path] !== undefined) return map[path].can_view !== false;
+        return true;
+      } catch {
+        return true;
+      }
     };
   }, [assignedPaths]);
   const allowed = isDashboardOrProfile || hasPathAccess(location.pathname);

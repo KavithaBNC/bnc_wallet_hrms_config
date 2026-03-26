@@ -26,12 +26,12 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/configurator-api': {
-        target: 'http://localhost:8000',
+        target: 'https://bnc-ai.com/ragapi',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/configurator-api/, ''),
         configure: (proxy) => {
           proxy.on('error', (_err, _req, _res) => {
-            console.error('\n[vite] Configurator API proxy error: cannot connect to http://localhost:8000\n');
+            console.error('\n[vite] Configurator API proxy error: cannot connect to https://bnc-ai.com/ragapi\n');
           });
         },
       },
@@ -40,7 +40,7 @@ export default defineConfig({
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on('error', (_err, _req, _res) => {
-            const port = process.env.VITE_API_PORT || '(set VITE_API_PORT in frontend/.env)';
+            const port = process.env.VITE_API_PORT || '5001';
             console.error(`\n[vite] API proxy error: cannot connect to backend at http://localhost:${port}`);
             console.error('       Set VITE_API_PORT in frontend/.env to match backend PORT\n');
           });

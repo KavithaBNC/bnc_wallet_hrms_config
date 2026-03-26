@@ -18,11 +18,26 @@ export const employeeListAccess = async (
   }
 
   const userId = req.user.userId;
+  const role = req.user?.role;
 
-  // Check permissions from Configurator cache
-  const canEditOrgs = userHasPermission(userId, '/organizations', 'can_edit');
-  const canEditEmployees = userHasPermission(userId, '/employees', 'can_edit');
-  const canViewEmployees = userHasPermission(userId, '/employees', 'can_view');
+  // Role is the primary authority for data-scoping access level.
+  // Configurator permission cache controls field visibility (sensitive fields),
+  // but data scoping (which employees are visible) is always determined by JWT role.
+  let canEditOrgs = false;
+  let canEditEmployees = false;
+  let canViewEmployees = false;
+
+  if (role === 'SUPER_ADMIN' || role?.includes('SUPER_ADMIN')) {
+    canEditOrgs = true;
+  } else if (role === 'ORG_ADMIN' || role === 'HR_MANAGER' || role?.includes('HR_ADMIN') || role?.includes('ORG_ADMIN')) {
+    // Full org access — sees all employees in their organization
+    canEditEmployees = true;
+    canViewEmployees = true;
+  } else if (role === 'MANAGER') {
+    // Team-level access — sees only direct reports (and self)
+    canViewEmployees = true;
+  }
+  // EMPLOYEE: canViewAll=false, restrictToReports=false → self only (handled in controller)
 
   // Get user's organization ID for data isolation
   let userOrganizationId: string | null = null;
@@ -110,7 +125,9 @@ export const enforceOrganizationAccess = async (
   const userId = req.user.userId;
 
   // Users with org-level edit access can access all organizations
-  if (userHasPermission(userId, '/organizations', 'can_edit')) {
+  // Fall back to JWT role when permission cache is empty (e.g. after server restart)
+  const hasOrgEdit = userHasPermission(userId, '/organizations', 'can_edit') || req.user.role === 'SUPER_ADMIN';
+  if (hasOrgEdit) {
     return next();
   }
 

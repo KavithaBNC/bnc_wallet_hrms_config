@@ -20,8 +20,12 @@ const configuratorApi = axios.create({
  */
 function normalizeRole(role: string): string {
   if (!role) return '';
-  if (/^[A-Z_]+$/.test(role)) return role;
-  return role.trim().toUpperCase().replace(/\s+/g, '_');
+  const upper = /^[A-Z_0-9]+$/.test(role) ? role : role.trim().toUpperCase().replace(/\s+/g, '_');
+  // Keyword alias mapping for Configurator role code variants (e.g. RL004_HR_ADMIN → HR_MANAGER)
+  if (upper.includes('HR_ADMIN')) return 'HR_MANAGER';
+  if (upper.includes('ORG_ADMIN')) return 'ORG_ADMIN';
+  if (upper.includes('SUPER_ADMIN')) return 'SUPER_ADMIN';
+  return upper;
 }
 
 /**

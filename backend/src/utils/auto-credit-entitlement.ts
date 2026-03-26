@@ -201,7 +201,7 @@ export async function getEntitlementForEmployeeAndLeaveType(
   }
 
   return {
-    entitlement: hasAutoCreditInOrg ? 0 : defaultDays,
+    entitlement: defaultDays,
     hasAutoCreditInOrg,
   };
 }

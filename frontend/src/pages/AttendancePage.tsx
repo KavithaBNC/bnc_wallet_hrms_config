@@ -1148,7 +1148,10 @@ const AttendancePage = () => {
   // Team-level users get this dropdown but filtered to their team only
   const isHRForCalendar = attendancePerms.can_view;
   const canChooseEmployeeCompOffSummary = attendancePerms.can_view;
-  // Team-level only: can view but cannot edit (e.g. managers see only their direct reports)
+  // Managers (can_view only) → team-level dropdown scoped to direct reports.
+  // HR/Admin (can_edit) → all org employees.
+  // Employee (no permission) → no dropdown, self calendar only.
+  // Backend (employeeListAccess middleware) auto-scopes GET /employees per JWT role.
   const isTeamLevelOnly = attendancePerms.can_view && !attendancePerms.can_edit;
 
   // HR-only: single-employee selection for calendar/table (searchable dropdown); restore from URL on refresh
@@ -1296,7 +1299,7 @@ const AttendancePage = () => {
     }
   }, [location.state, user]);
 
-  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId;
   // Auto-hide leave-applied success banner after 6 seconds
   useEffect(() => {
     if (!showLeaveAppliedBanner) return;
@@ -1305,16 +1308,14 @@ const AttendancePage = () => {
   }, [showLeaveAppliedBanner]);
 
   // Fetch employees for searchable dropdown when in team view
-  // Managers: filtered to their direct reports only (reportingManagerId)
-  // HR/Admin: all active employees in the organization
+  // All roles (SUPER_ADMIN, HR_MANAGER, ORG_ADMIN, MANAGER) see all active employees in their org.
+  // SUPER_ADMIN may have no employee record — orgId falls back to user.organizationId (set at login).
   useEffect(() => {
-    if (!isHRForCalendar || viewMode !== 'team' || !orgId) return;
+    if (!isHRForCalendar || viewMode !== 'team') return;
     let cancelled = false;
     setLoadingEmployees(true);
-    const query: Record<string, unknown> = { organizationId: orgId, limit: 500, employeeStatus: 'ACTIVE' };
-    if (isTeamLevelOnly && user?.employee?.id) {
-      query.reportingManagerId = user.employee.id;
-    }
+    const query: Record<string, unknown> = { limit: 500, employeeStatus: 'ACTIVE' };
+    if (orgId) query.organizationId = orgId;
     employeeService.getAll(query)
       .then((data) => {
         if (!cancelled) setEmployeeList(data.employees || []);
@@ -1331,7 +1332,7 @@ const AttendancePage = () => {
   // Fetch current attendance policy (Late & Others). Used for read-time shortfall/Late/Early display.
   // Call this after changing policy in UI so calendar reflects the new setting without full page reload.
   const fetchLateEarlyPolicy = useCallback(async () => {
-    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId;
     if (!orgId) {
       setLateEarlyPolicy(null);
       return;
@@ -1394,7 +1395,7 @@ const AttendancePage = () => {
   useEffect(() => {
     if (!canManualPunch) return;
     let cancelled = false;
-    employeeService.getAll({ limit: 500, employeeStatus: 'ACTIVE' })
+    employeeService.getAll({ ...(orgId ? { organizationId: orgId } : {}), limit: 500, employeeStatus: 'ACTIVE' })
       .then((data) => { if (!cancelled) setManualPunchEmployeeList(data.employees || []); })
       .catch(() => { if (!cancelled) setManualPunchEmployeeList([]); });
     return () => { cancelled = true; };
@@ -1403,7 +1404,7 @@ const AttendancePage = () => {
   const fetchRecords = async (options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
     try {
-      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId;
       if (!organizationId) {
         console.warn('Organization ID not available, skipping fetchRecords');
         setRecords([]);
@@ -1604,7 +1605,7 @@ const AttendancePage = () => {
   };
 
   const handleSyncBiometric = async () => {
-    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId;
     if (!orgId) {
       setError('Organization not found.');
       return;
@@ -2147,7 +2148,7 @@ const AttendancePage = () => {
                   currentMonth={currentMonth}
                   onMonthChange={setCurrentMonth}
                   employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : (selectedEmployeeId || user?.employee?.id)}
-                  organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
+                  organizationId={user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId}
                   hideEmployeeName={viewMode === 'my' || !canViewTeamAttendance}
                   lateEarlyPolicy={lateEarlyPolicy}
                   approvedCompOffs={approvedCompOffs}
@@ -2155,7 +2156,7 @@ const AttendancePage = () => {
                 />
               </div>
               <MonthlyDetailsSidebar
-                organizationId={user?.employee?.organizationId || user?.employee?.organization?.id}
+                organizationId={user?.employee?.organizationId || user?.employee?.organization?.id || user?.organizationId}
                 employeeId={viewMode === 'my' || !canViewTeamAttendance ? user?.employee?.id : (selectedEmployeeId || user?.employee?.id)}
                 year={currentMonth.getFullYear()}
                 month={currentMonth.getMonth() + 1}

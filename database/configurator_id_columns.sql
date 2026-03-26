@@ -1,5 +1,5 @@
 -- Configurator ID columns for HRMS ↔ Configurator mapping
--- Run against hrms_db_backup (or hrms_db)
+-- Run against hrms_live_v2 (or hrms_db)
 --
 -- Table | configurator_id Column | Purpose
 -- ------|------------------------|---------
@@ -8,8 +8,8 @@
 -- employees     | configurator_user_id INT   | Links to configurator users.id
 -- employees     | department_configurator_id, sub_department_configurator_id, etc. | Reference configurator entities (all INT)
 
--- Connect to hrms_db_backup if running via psql:
--- \c hrms_db_backup;
+-- Connect to hrms_live_v2 if running via psql:
+-- \c hrms_live_v2;
 
 -- Organizations: link to Configurator companies.id
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS configurator_company_id INTEGER UNIQUE;

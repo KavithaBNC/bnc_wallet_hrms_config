@@ -11,6 +11,7 @@ import {
   getLeaveTypeIdsWithBalance,
   getLeaveTypeIdsWithAutoCreditAllowed,
 } from '../utils/event-config';
+import { logger } from '../utils/logger';
 
 export class LeaveBalanceService {
   private readonly hrEntryRequiredLeaveNameKeys = [
@@ -245,6 +246,79 @@ export class LeaveBalanceService {
   }
 
   /**
+   * Auto-create LeaveType records for any AttendanceComponent (Leave category) that doesn't
+   * have a matching LeaveType yet. Called at the start of getBalance() so new components
+   * are handled without manual DB intervention.
+   */
+  private async ensureLeaveTypesExist(organizationId: string): Promise<void> {
+    const [components, existingLeaveTypes] = await Promise.all([
+      prisma.attendanceComponent.findMany({
+        where: {
+          organizationId,
+          eventCategory: 'Leave',
+          OR: [{ hasBalance: true }, { allowAutoCreditRule: true }],
+        },
+        select: { eventName: true, shortName: true },
+      }),
+      prisma.leaveType.findMany({
+        where: { organizationId, isActive: true },
+        select: { name: true, code: true },
+      }),
+    ]);
+
+    const existingNames = new Set(existingLeaveTypes.map((lt) => lt.name.toLowerCase().trim()));
+    const existingCodes = new Set(
+      existingLeaveTypes.map((lt) => (lt.code ?? '').toLowerCase().trim()).filter(Boolean)
+    );
+
+    for (const comp of components) {
+      const nameKey = (comp.eventName ?? '').toLowerCase().trim();
+      const codeKey = (comp.shortName ?? '').toLowerCase().trim();
+      const alreadyExists = existingNames.has(nameKey) || (codeKey !== '' && existingCodes.has(codeKey));
+      if (!alreadyExists && comp.eventName) {
+        try {
+          await prisma.leaveType.create({
+            data: {
+              organizationId,
+              name: comp.eventName,
+              code: null, // code is globally @unique; null avoids cross-org conflicts
+              isPaid: true,
+              isActive: true,
+            },
+          });
+          logger.info(`Auto-created LeaveType "${comp.eventName}" for org ${organizationId}`);
+        } catch (err: unknown) {
+          if ((err as { code?: string }).code !== 'P2002') {
+            logger.error(`Failed to auto-create LeaveType "${comp.eventName}":`, err);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Sync leave balances for ALL active employees in an org.
+   * Safe to call fire-and-forget (each employee error is caught independently).
+   */
+  async syncOrgLeaveBalances(organizationId: string, year?: number): Promise<void> {
+    const currentYear = year ?? new Date().getFullYear();
+    const employees = await prisma.employee.findMany({
+      where: { organizationId, employeeStatus: 'ACTIVE' },
+      select: { id: true },
+    });
+    logger.info(
+      `Syncing leave balances for ${employees.length} employees in org ${organizationId} year ${currentYear}`
+    );
+    for (const emp of employees) {
+      try {
+        await this.getBalance({ employeeId: emp.id, year: String(currentYear) });
+      } catch (err) {
+        logger.error(`Leave balance sync failed for employee ${emp.id}: ${String(err)}`);
+      }
+    }
+  }
+
+  /**
    * Get leave balance for employee. When creating new balances, entitlement is taken only from
    * Auto Credit / Rule settings that match the employee's department and paygroup.
    */
@@ -267,6 +341,9 @@ export class LeaveBalanceService {
     if (!employee) {
       throw new AppError('Employee not found', 404);
     }
+
+    // Auto-create missing LeaveType records from AttendanceComponents (idempotent)
+    await this.ensureLeaveTypesExist(employee.organizationId);
 
     const where: Prisma.EmployeeLeaveBalanceWhereInput = {
       employeeId,
@@ -333,15 +410,6 @@ export class LeaveBalanceService {
         isAutoCreditApplicableToEmployee(s, employee)
       );
 
-      const leaveTypeIdsWithAutoCreditInOrg = new Set<string>();
-      for (const s of autoCreditSettings) {
-        for (const lt of leaveTypes) {
-          if (doesAutoCreditSettingMatchLeaveType(s, lt)) {
-            leaveTypeIdsWithAutoCreditInOrg.add(lt.id);
-          }
-        }
-      }
-
       // Only use auto credit entitlement for leave types whose event config has allowAutoCreditRule = true
       const entitlementByLeaveTypeId = new Map<string, number>();
       for (const lt of missingLeaveTypes) {
@@ -351,23 +419,21 @@ export class LeaveBalanceService {
           continue;
         }
         for (const s of applicableSettings) {
+          if (!doesAutoCreditSettingMatchLeaveType(s, lt)) continue;
           const n = readEntitlementDaysForEmployeeYear(
             s.autoCreditRule,
             employee.dateOfJoining,
             currentYear
           );
           if (n == null) continue;
-          if (doesAutoCreditSettingMatchLeaveType(s, lt)) {
-            entitlementByLeaveTypeId.set(lt.id, n);
-            break;
-          }
+          entitlementByLeaveTypeId.set(lt.id, n);
+          break;
         }
       }
 
       await Promise.all(
         missingLeaveTypes.map(async (leaveType) => {
           const entitlement = entitlementByLeaveTypeId.get(leaveType.id);
-          const hasAutoCreditInOrg = leaveTypeIdsWithAutoCreditInOrg.has(leaveType.id);
           const forceZeroOpening = this.isForcedZeroOpeningLeaveType(leaveType);
           const hrEntryRequired = this.isHrEntryRequiredLeaveType(leaveType);
           const days =
@@ -375,11 +441,9 @@ export class LeaveBalanceService {
               ? 0
               : entitlement != null
               ? entitlement
-              : hasAutoCreditInOrg
-                ? 0
-                : leaveType.defaultDaysPerYear
-                  ? Number(leaveType.defaultDaysPerYear)
-                  : 0;
+              : leaveType.defaultDaysPerYear
+                ? Number(leaveType.defaultDaysPerYear)
+                : 0;
           const previousYearBalance = await prisma.employeeLeaveBalance.findUnique({
             where: {
               employeeId_leaveTypeId_year: {

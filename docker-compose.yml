@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: hrms_db_backup
+      POSTGRES_DB: hrms_live_v2
     ports:
       - '5432:5432'
     volumes:

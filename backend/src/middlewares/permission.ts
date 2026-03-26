@@ -3,6 +3,38 @@ import { getUserPermissions, type ModulePermissions } from '../utils/permission-
 import { AppError } from './errorHandler';
 
 /**
+ * JWT role fallback permissions when the Configurator cache is empty (e.g. after server restart).
+ * Format: role → set of "resource.action" strings that are allowed.
+ */
+const ROLE_FALLBACK_PERMISSIONS: Record<string, Set<string>> = {
+  ORG_ADMIN: new Set([
+    'leaves.read', 'leaves.create', 'leaves.update', 'leaves.delete',
+    'leave_types.read', 'leave_types.create', 'leave_types.update', 'leave_types.delete',
+    'leave_balances.read', 'leave_balances.update',
+    'leave_policies.read', 'leave_policies.create', 'leave_policies.update', 'leave_policies.delete',
+    'employees.read', 'employees.create', 'employees.update',
+    'attendance.read', 'attendance.update',
+  ]),
+  HR_MANAGER: new Set([
+    'leaves.read', 'leaves.create', 'leaves.update',
+    'leave_types.read', 'leave_types.create', 'leave_types.update',
+    'leave_balances.read', 'leave_balances.update',
+    'leave_policies.read', 'leave_policies.create', 'leave_policies.update',
+    'employees.read', 'employees.update',
+    'attendance.read', 'attendance.update',
+  ]),
+  MANAGER: new Set([
+    'leaves.read', 'leaves.create', 'leaves.update',
+    'attendance.read', 'attendance.update',
+    'employees.read',
+  ]),
+  EMPLOYEE: new Set([
+    'leaves.read',
+    'attendance.read',
+  ]),
+};
+
+/**
  * Resource name → Configurator page path mapping.
  * Maps the resource names used in route files to the page_name paths
  * returned by the Configurator API (POST /api/v1/user-role-modules/project).
@@ -97,6 +129,11 @@ export const checkPermission = (resource: string, action: string) => {
 
     const modulePerms = getUserPermissions(req.user.userId);
     if (!modulePerms) {
+      // Cache empty (e.g. after server restart) — fall back to JWT role
+      const roleFallback = ROLE_FALLBACK_PERMISSIONS[req.user.role];
+      if (roleFallback?.has(`${resource}.${action}`)) {
+        return next();
+      }
       return next(
         new AppError('Module permissions not loaded. Please re-login.', 403)
       );
@@ -141,6 +178,10 @@ export const checkAnyPermission = (
 
     const modulePerms = getUserPermissions(req.user.userId);
     if (!modulePerms) {
+      const roleFallback = ROLE_FALLBACK_PERMISSIONS[req.user.role];
+      if (roleFallback && permissions.some(p => roleFallback.has(`${p.resource}.${p.action}`))) {
+        return next();
+      }
       return next(new AppError('Module permissions not loaded. Please re-login.', 403));
     }
 

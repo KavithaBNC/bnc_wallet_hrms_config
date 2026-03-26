@@ -63,7 +63,7 @@ export default function LeaveApprovalPage() {
   const { user, logout } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const organizationName = user?.employee?.organization?.name;
-  const leavePerms = getModulePermissions('/leave');
+  const leavePerms = getModulePermissions('/leave/approvals');
   const canApprove = leavePerms.can_view;
 
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
@@ -566,30 +566,10 @@ export default function LeaveApprovalPage() {
                             </div>
                           </td>
                         )}
-                        {visibleColumns.has('approval') && req.status === 'PENDING' && (
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleApprove(req.id)}
-                                disabled={!!approvingId}
-                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 hover:bg-green-200 disabled:opacity-50"
-                              >
-                                {approvingId === req.id ? '...' : 'Approve'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setRejectModal({ id: req.id, comments: '' })}
-                                disabled={!!rejectingId}
-                                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200 disabled:opacity-50"
-                              >
-                                Reject
-                              </button>
-                            </div>
+                        {visibleColumns.has('approval') && (
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                            {req.workflowMapping?.displayName ?? '—'}
                           </td>
-                        )}
-                        {visibleColumns.has('approval') && req.status !== 'PENDING' && (
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-400">—</td>
                         )}
                         {visibleColumns.has('remarks') && req.status === 'PENDING' && (
                           <td className="px-4 py-3">

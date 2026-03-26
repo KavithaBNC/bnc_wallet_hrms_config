@@ -1,4 +1,5 @@
 import express, { Application, Request, Response } from 'express';
+import { execSync } from 'child_process';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -189,11 +190,9 @@ app.use('/iclock', iclockRoutes);
 
 // iClock at root for devices with no path field (device sends to IP:port/ only)
 app.get('/', iclockController.getCdata);
-app.post('/', express.text({ type: 'text/plain', limit: '1mb' }), iclockController.postCdata);
+app.post('/', express.text({ type: () => true, limit: '1mb' }), iclockController.postCdata);
 app.use('/api/v1/auth', authLimiter, authRoutes);
 app.use('/api/v1', apiLimiter); // Apply general rate limit to all remaining API routes
-app.post('/', express.text({ type: () => true, limit: '1mb' }), iclockController.postCdata);
-app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/organizations', organizationRoutes);
 app.use('/api/v1/departments', departmentRoutes);
 app.use('/api/v1/positions', jobPositionRoutes);
@@ -252,20 +251,32 @@ app.use(errorHandler);
 
 const PORT = config.port || 5000;
 
+// Auto-kill any stale process on the port before starting
+function freePort(port: number): void {
+  try {
+    const result = execSync(
+      `powershell -Command "Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess"`,
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    ).trim();
+    if (result) {
+      result.split(/\r?\n/).filter(Boolean).forEach((pid) => {
+        try {
+          execSync(`powershell -Command "Stop-Process -Id ${pid.trim()} -Force -ErrorAction SilentlyContinue"`);
+          logger.info(`🔪 Killed stale process PID ${pid.trim()} holding port ${port}`);
+        } catch { /* ignore */ }
+      });
+    }
+  } catch { /* ignore — powershell unavailable or no process found */ }
+}
+freePort(PORT);
+
 const server = app.listen(PORT, () => {
   logger.info(`🚀 Server running in ${config.nodeEnv} mode on port ${PORT}`);
   logger.info(`📍 Base URL: ${config.baseUrl}`);
   logger.info(`🔗 Health check: ${config.baseUrl}/health`);
 }).on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    logger.error(`\n❌ Port ${PORT} is already in use!`);
-    logger.error(`\n💡 To fix this, run one of these commands:`);
-    logger.error(`   1. Find and kill the process:`);
-    logger.error(`      netstat -ano | findstr :${PORT}`);
-    logger.error(`      taskkill /PID <PID> /F`);
-    logger.error(`\n   2. Or change the port in .env file:`);
-    logger.error(`      PORT=5001`);
-    logger.error(`\n   3. Or run: npm run kill-port`);
+    logger.error(`\n❌ Port ${PORT} still in use after auto-kill attempt. Run: npm run kill-port`);
     process.exit(1);
   } else {
     logger.error('Server error:', err);

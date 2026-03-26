@@ -24,6 +24,11 @@ function normalizeToHrmsRole(code: string | undefined | null): UserRole | undefi
   for (const role of validRoles) {
     if (upper.endsWith('_' + role)) return role;
   }
+  // Keyword alias mapping for Configurator role code variants
+  // e.g. RL004_HR_ADMIN, HR_ADMIN, HRMS_HR_ADMIN → HR_MANAGER
+  if (upper.includes('HR_ADMIN')) return UserRole.HR_MANAGER;
+  if (upper.includes('ORG_ADMIN')) return UserRole.ORG_ADMIN;
+  if (upper.includes('SUPER_ADMIN')) return UserRole.SUPER_ADMIN;
   return undefined;
 }
 
@@ -302,26 +307,33 @@ export class AuthController {
       const configProjects: any[] = Array.isArray((loginRes as any).projects) ? (loginRes as any).projects : [];
       const hrmsConfigProject = configProjects.find((p: any) => p.code === 'HRMS001' || p.name === 'HRMS') || configProjects[0];
 
-      // Prefer email lookup (from token) - it's the actual logged-in user
-      let hrmsUser = await prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' } },
-        include: {
-          employee: {
-            select: {
-              id: true,
-              organizationId: true,
-              firstName: true,
-              lastName: true,
-              profilePictureUrl: true,
-              employeeStatus: true,
-              employeeCode: true,
-              department: { select: { name: true } },
-              position: { select: { title: true } },
-              organization: { select: { id: true, name: true } },
+      // Prefer email lookup (from token) - it's the actual logged-in user.
+      // Use raw SQL first to get the user ID, then use findUnique (which avoids
+      // full-table scans that hit rows with legacy invalid role enum values).
+      const rawUserRows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`;
+      const rawUserId = rawUserRows[0]?.id ?? null;
+      let hrmsUser = rawUserId
+        ? await prisma.user.findUnique({
+            where: { id: rawUserId },
+            include: {
+              employee: {
+                select: {
+                  id: true,
+                  organizationId: true,
+                  firstName: true,
+                  lastName: true,
+                  profilePictureUrl: true,
+                  employeeStatus: true,
+                  employeeCode: true,
+                  department: { select: { name: true } },
+                  position: { select: { title: true } },
+                  organization: { select: { id: true, name: true } },
+                },
+              },
             },
-          },
-        },
-      });
+          })
+        : null;
 
       if (hrmsUser) {
         const updates: { configuratorUserId?: number; role?: import('@prisma/client').UserRole } = {};
@@ -518,8 +530,12 @@ export class AuthController {
         if (directModules.length > 0) {
           console.log('[configuratorLogin] Got', directModules.length, 'modules from my-modules API');
           modules = directModules.map((m) => {
-            // Resolve path: use page_name if set, otherwise look up by module name
-            const resolvedPath = m.page_name || m.path || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
+            // Resolve path: if page_name/path starts with '/', use as-is;
+            // otherwise look up via MODULE_NAME_TO_PATH (handles names like 'event approval')
+            const rawPage = m.page_name || m.path || '';
+            const resolvedPath = rawPage.startsWith('/')
+              ? rawPage
+              : MODULE_NAME_TO_PATH[rawPage.toLowerCase()] || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || rawPage;
             return {
               id: m.id,
               module_id: m.id,
@@ -606,11 +622,35 @@ export class AuthController {
         },
       });
 
+      // Resolve organizationId: employee record → user record → org by company_id
+      let responseOrgId: string | null =
+        hrmsUser.employee?.organizationId ?? (hrmsUser as any).organizationId ?? null;
+
+      if (!responseOrgId && resolvedCompanyId) {
+        try {
+          const orgByCompany = await prisma.organization.findFirst({
+            where: { configuratorCompanyId: resolvedCompanyId },
+            select: { id: true },
+          });
+          if (orgByCompany) {
+            responseOrgId = orgByCompany.id;
+            // Persist so next login doesn't need another lookup
+            await prisma.user.update({
+              where: { id: hrmsUser.id },
+              data: { organizationId: responseOrgId },
+            });
+          }
+        } catch (orgLookupErr) {
+          console.warn('[configuratorLogin] Could not resolve org from company_id:', orgLookupErr);
+        }
+      }
+
       // Ensure Organization.configuratorCompanyId is set for Configurator DB operations
-      if (resolvedCompanyId && hrmsUser.employee?.organizationId) {
+      const orgIdForUpdate = hrmsUser.employee?.organizationId ?? responseOrgId;
+      if (resolvedCompanyId && orgIdForUpdate) {
         try {
           await prisma.organization.update({
-            where: { id: hrmsUser.employee.organizationId },
+            where: { id: orgIdForUpdate },
             data: { configuratorCompanyId: resolvedCompanyId },
           });
         } catch (orgUpdateErr) {
@@ -624,7 +664,7 @@ export class AuthController {
         email: hrmsUser.email,
         role: roleFromConfig,
         isEmailVerified: hrmsUser.isEmailVerified,
-        organizationId: hrmsUser.employee?.organizationId ?? (hrmsUser as any).organizationId ?? null,
+        organizationId: responseOrgId,
         employee: hrmsUser.employee,
       };
 
@@ -861,7 +901,10 @@ export class AuthController {
       const directModules = await configuratorService.getModules(user.configuratorAccessToken);
       if (directModules.length > 0) {
         const modules = directModules.map((m) => {
-          const resolvedPath = m.page_name || m.path || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
+          const rawPage = m.page_name || m.path || '';
+          const resolvedPath = rawPage.startsWith('/')
+            ? rawPage
+            : MODULE_NAME_TO_PATH[rawPage.toLowerCase()] || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || rawPage;
           return {
             id: m.id,
             module_id: m.id,

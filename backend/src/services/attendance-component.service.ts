@@ -2,6 +2,8 @@ import { AppError } from '../middlewares/errorHandler';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { parsePagination, parseString } from '../utils/queryParser';
+import { leaveBalanceService } from './leave-balance.service';
+import { logger } from '../utils/logger';
 
 export class AttendanceComponentService {
   /**
@@ -92,6 +94,15 @@ export class AttendanceComponentService {
         sendSMSToOnEntry: data.sendSMSToOnEntry ?? false,
       },
     });
+
+    // When a Leave component with balance tracking is created, auto-create LeaveType
+    // and sync balances for all active employees in the org
+    if (component.eventCategory === 'Leave' && (component.hasBalance || component.allowAutoCreditRule)) {
+      setImmediate(() => {
+        leaveBalanceService.syncOrgLeaveBalances(component.organizationId)
+          .catch((err) => logger.error('Post-component-create sync failed:', err));
+      });
+    }
 
     return component;
   }
@@ -253,6 +264,14 @@ export class AttendanceComponentService {
       where: { id },
       data: updateData,
     });
+
+    // When a Leave component's balance flags are updated, re-sync org balances
+    if (component.eventCategory === 'Leave' && (component.hasBalance || component.allowAutoCreditRule)) {
+      setImmediate(() => {
+        leaveBalanceService.syncOrgLeaveBalances(component.organizationId)
+          .catch((err) => logger.error('Post-component-update sync failed:', err));
+      });
+    }
 
     return component;
   }

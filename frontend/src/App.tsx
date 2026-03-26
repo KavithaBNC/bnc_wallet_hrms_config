@@ -914,6 +914,36 @@ function App() {
             }
           />
           <Route
+            path="/event/apply-event"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ApplyEventPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event/excess-time-request"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeRequestPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event/excess-time-approval"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <ExcessTimeApprovalPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/event/requests"
             element={
               <ProtectedRoute>
