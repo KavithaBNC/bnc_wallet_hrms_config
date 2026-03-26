@@ -115,6 +115,7 @@ import EventRequestPage from './pages/EventRequestPage';
 import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
 import NotFoundPage from './pages/NotFoundPage';
 import EmployeeFormPage from './pages/EmployeeFormPage';
+import EmployeeImportPage from './pages/EmployeeImportPage';
 import CostCentreDepartmentPage from './pages/CostCentreDepartmentPage';
 import DepartmentMastersPage from './pages/department_masters';
 import UserRolesPage from './pages/UserRolesPage';
@@ -1508,6 +1509,16 @@ function App() {
           />
 
           {/* Config-specific Routes (Configurator API) */}
+          <Route
+            path="/employees/import"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <EmployeeImportPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/employees/create"
             element={

@@ -62,8 +62,16 @@ export class EmployeeBulkImportController {
       });
     } catch (error: any) {
       console.error('[BulkImport Controller] ERROR:', error?.message, error?.stack?.split('\n').slice(0, 5).join('\n'));
-      // Ensure the error is an AppError with a proper status code
       if (error instanceof AppError) {
+        // Return structured validation errors directly for frontend consumption
+        if (error.validationErrors && error.validationErrors.length > 0) {
+          res.status(error.statusCode).json({
+            status: 'error',
+            message: error.message,
+            validationErrors: error.validationErrors,
+          });
+          return;
+        }
         next(error);
       } else {
         next(new AppError(error?.message || 'Bulk import failed with an unexpected error', 500));
@@ -79,15 +87,26 @@ export class EmployeeBulkImportController {
     try {
       const tokenUser = await prisma.user.findUnique({
         where: { id: req.user!.userId },
-        select: { configuratorAccessToken: true },
+        select: { configuratorAccessToken: true, organizationId: true },
       });
 
       if (!tokenUser?.configuratorAccessToken) {
         throw new AppError('No Configurator access token available. Please login again.', 401);
       }
 
+      // Look up the organization's configuratorCompanyId
+      let companyId = 0;
+      if (tokenUser.organizationId) {
+        const org = await prisma.organization.findUnique({
+          where: { id: tokenUser.organizationId },
+          select: { configuratorCompanyId: true },
+        });
+        companyId = org?.configuratorCompanyId ?? 0;
+      }
+
       const buffer = await configuratorService.downloadEmployeeImportTemplate(
         tokenUser.configuratorAccessToken,
+        companyId,
       );
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

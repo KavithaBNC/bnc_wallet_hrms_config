@@ -11,6 +11,7 @@ import {
 } from '../utils/employee.validation';
 import { hashPassword } from '../utils/password';
 import { config } from '../config/config';
+import { emailService } from './email.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -126,6 +127,33 @@ export class EmployeeService {
    */
   private async generateEmployeeCode(organizationId: string): Promise<string> {
     return this.generateEmployeeCodeWithPrefix(organizationId, 'EMP');
+  }
+
+  /**
+   * Lightweight list for searchable dropdown (reporting manager, etc.)
+   */
+  async list(organizationId: string, search?: string) {
+    const where: any = { organizationId, employeeStatus: 'ACTIVE' };
+    const searchTerm = (search || '').trim();
+    if (searchTerm) {
+      where.OR = [
+        { firstName: { contains: searchTerm, mode: 'insensitive' } },
+        { lastName: { contains: searchTerm, mode: 'insensitive' } },
+        { employeeCode: { contains: searchTerm, mode: 'insensitive' } },
+        { email: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+    return prisma.employee.findMany({
+      where,
+      orderBy: { firstName: 'asc' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employeeCode: true,
+        email: true,
+      },
+    });
   }
 
   /**
@@ -373,7 +401,9 @@ export class EmployeeService {
         }
       } else {
         // Use encrypted_password from Configurator (passed by frontend) if available
-        let passwordHash: string = data.encryptedPassword ?? await hashPassword(`Temp@${Math.random().toString(36).slice(-8)}`);
+        // Track raw password for welcome email and response
+        let rawTempPassword = data.rawTemporaryPassword || `Temp@${Math.random().toString(36).slice(-8)}`;
+        let passwordHash: string = data.encryptedPassword ?? await hashPassword(rawTempPassword);
 
         // Only call Configurator API from backend if frontend didn't already create the user
         if (configuratorUserId == null) {
@@ -444,8 +474,19 @@ export class EmployeeService {
       }
     }
 
+    // Resolve reportingManagerConfiguratorUserId to HRMS employee ID if provided
+    if (!data.reportingManagerId && data.reportingManagerConfiguratorUserId) {
+      const managerEmp = await prisma.employee.findFirst({
+        where: { configuratorUserId: data.reportingManagerConfiguratorUserId, organizationId: data.organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (managerEmp) {
+        data.reportingManagerId = managerEmp.id;
+      }
+    }
+
     // Create employee record (exclude fields used only for Config API / User table, not Employee table)
-    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, encryptedPassword: _encPwd, ...employeeData } = data;
+    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, encryptedPassword: _encPwd, rawTemporaryPassword: _rawPwd, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data;
 
     const createPayload = (code: string) => ({
       ...employeeData,
@@ -507,7 +548,15 @@ export class EmployeeService {
       }
     }
 
-    return { ...employee };
+    // Send welcome email with credentials (fire-and-forget)
+    const empEmail = employee.officialEmail || employee.email;
+    const empName = employee.firstName || 'Employee';
+    const tempPwd = (data as any).rawTemporaryPassword || '';
+    if (empEmail && tempPwd) {
+      emailService.sendEmployeeCredentialsEmail(empEmail, empName, empEmail, tempPwd).catch(() => {});
+    }
+
+    return { ...employee, temporaryPassword: tempPwd || undefined };
   }
 
   /**
@@ -924,6 +973,8 @@ export class EmployeeService {
             isActive: true,
             isEmailVerified: true,
             lastLoginAt: true,
+            configuratorRoleId: true,
+            configuratorUserId: true,
           },
         },
       },
@@ -974,7 +1025,7 @@ export class EmployeeService {
           },
         },
         user: {
-          select: { id: true, email: true, role: true, isActive: true, isEmailVerified: true, lastLoginAt: true },
+          select: { id: true, email: true, role: true, isActive: true, isEmailVerified: true, lastLoginAt: true, configuratorRoleId: true, configuratorUserId: true },
         },
       },
     });

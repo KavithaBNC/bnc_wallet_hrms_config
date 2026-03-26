@@ -167,6 +167,7 @@ interface ParsedRow {
   fixedGross: number;
   vehicleAllowances: number;
   subDepartment: string;
+  userRole: string;
 }
 
 // ─── Main service ───
@@ -274,6 +275,7 @@ export class EmployeeBulkImportService {
       const lwfLocation = String(getCellValue(row, ['LWF Location', 'lwfLocation', 'lwf_location'])).trim();
       const alternateSaturdayOff = String(getCellValue(row, ['Alternate Saturday Off', 'alternateSaturdayOff', 'alternate_saturday_off'])).trim();
       const compoffApplicable = String(getCellValue(row, ['Compoff Applicable', 'compoffApplicable', 'compoff_applicable'])).trim();
+      const userRoleVal = String(getCellValue(row, ['User Role', 'userRole', 'user_role', 'Role', 'ROLE'])).trim();
 
       const emergencyContactName = String(getCellValue(row, ['emergencyContactName', 'emergency_contact_name', 'Emergency Contact Name', 'EMRG.CONTACT NAME'])).trim();
       const emergencyContactNo = String(getCellValue(row, ['emergencyContactNo', 'emergency_contact_no', 'Emergency Contact No', 'EMRG.CONTACT NO.'])).trim();
@@ -406,6 +408,7 @@ export class EmployeeBulkImportService {
         fixedGross: parseFloat(String(fixedGrossStr).replace(/,/g, '')) || 0,
         vehicleAllowances: parseFloat(String(vehicleAllowancesStr).replace(/,/g, '')) || 0,
         subDepartment: subDepartmentVal,
+        userRole: userRoleVal,
       });
     }
 
@@ -417,7 +420,7 @@ export class EmployeeBulkImportService {
    */
   async bulkImport(
     fileBuffer: Buffer,
-    fileName: string,
+    _fileName: string,
     organizationId: string,
     createdByUserId: string,
     options: { createSalaryRecords?: boolean; skipConfiguratorSync?: boolean } = {},
@@ -435,7 +438,7 @@ export class EmployeeBulkImportService {
       orgPaygroups,
       orgCostCentres,
       orgEntities,
-      orgSubDepartments,
+      _orgSubDepartments,
       existingEmployees,
       existingUsers,
       organization,
@@ -481,15 +484,23 @@ export class EmployeeBulkImportService {
       if (e.code) entityMap.set(e.code.toLowerCase(), e.id);
     }
     const existingEmailSet = new Set(existingEmployees.map((e) => e.email.toLowerCase()));
-    const existingCodeMap = new Map(existingEmployees.map((e) => [e.employeeCode.toLowerCase(), e]));
     const existingUserEmailSet = new Set(existingUsers.map((u) => u.email.toLowerCase()));
 
     // ── 2b. Fetch Configurator reference data for validation ──
-    // Department, Sub Department, Cost Centre are validated against Configurator DB
-    // Designation and Reporting Manager are optional — validated against HRMS DB only if present
+    // Department, Sub Department, Cost Centre, User Role → validated against Configurator API only
+    // Paygroup, Entity, Designation, Place of Tax Deduction → validated against HRMS DB only
     let configDepartmentSet = new Set<string>();
     let configSubDepartmentSet = new Set<string>();
     let configCostCentreSet = new Set<string>();
+    let configUserRoleSet = new Set<string>();
+    let configuratorEmailSet = new Set<string>();
+    // ID lookup maps for Configurator createUser calls (name → configurator ID)
+    const configDeptNameToId = new Map<string, number>();
+    const configSubDeptNameToId = new Map<string, number>();
+    const configCostCentreNameToId = new Map<string, number>();
+    const configRoleNameToCode = new Map<string, string>();
+    const configRoleNameToId = new Map<string, number>();
+    let configuratorAccessToken: string | null = null;
 
     try {
       if (organization.configuratorCompanyId != null) {
@@ -499,30 +510,66 @@ export class EmployeeBulkImportService {
         });
 
         if (tokenUser?.configuratorAccessToken) {
-          const [configDepts, configSubDepts, configCostCentres] = await Promise.all([
-            configuratorService.getDepartments(tokenUser.configuratorAccessToken, { companyId: organization.configuratorCompanyId }),
-            configuratorService.getSubDepartments(tokenUser.configuratorAccessToken, { companyId: organization.configuratorCompanyId }),
-            configuratorService.getCostCentres(tokenUser.configuratorAccessToken, organization.configuratorCompanyId),
+          configuratorAccessToken = tokenUser.configuratorAccessToken;
+          const companyId = organization.configuratorCompanyId;
+          const projectId = config.configuratorHrmsProjectId || undefined;
+
+          // 5 parallel Configurator API calls — all use dynamic company_id/project_id from login context
+          const [configDepts, configSubDepts, configCostCentres, configUserRoles, configUsers] = await Promise.all([
+            configuratorService.getDepartments(tokenUser.configuratorAccessToken, { companyId }),
+            configuratorService.getSubDepartments(tokenUser.configuratorAccessToken, { companyId }),
+            configuratorService.getCostCentres(tokenUser.configuratorAccessToken, companyId),
+            configuratorService.getUserRoles(tokenUser.configuratorAccessToken, companyId, projectId),
+            configuratorService.getUsers(tokenUser.configuratorAccessToken, { companyId }),
           ]);
 
+          // Build Department validation set + ID map
           configDepartmentSet = new Set(configDepts.map((d: any) => (d.name || '').toLowerCase()).filter(Boolean));
+          for (const d of configDepts) {
+            if (d.name && d.id) configDeptNameToId.set(d.name.toLowerCase(), d.id);
+          }
+
+          // Build Sub Department validation set + ID map
           configSubDepartmentSet = new Set(configSubDepts.map((s: any) => (s.name || '').toLowerCase()).filter(Boolean));
+          for (const s of configSubDepts) {
+            if (s.name && s.id) configSubDeptNameToId.set(s.name.toLowerCase(), s.id);
+          }
+
+          // Build Cost Centre validation set + ID map (by name and code)
           for (const c of configCostCentres) {
             if (c.name) configCostCentreSet.add(c.name.toLowerCase());
             if (c.code) configCostCentreSet.add(c.code.toLowerCase());
+            if (c.id) {
+              if (c.name) configCostCentreNameToId.set(c.name.toLowerCase(), c.id);
+              if (c.code) configCostCentreNameToId.set(c.code.toLowerCase(), c.id);
+            }
           }
-          console.log(`[BulkImport] Configurator validation data: ${configDepartmentSet.size} depts, ${configSubDepartmentSet.size} sub-depts, ${configCostCentreSet.size} cost-centres`);
+
+          // Build User Role validation set + ID map (from /api/v1/user-roles API — no hardcoding)
+          configUserRoleSet = new Set(configUserRoles.map((r: any) => (r.name || r.code || '').toLowerCase()).filter(Boolean));
+          for (const r of configUserRoles) {
+            if (r.name && r.code) configRoleNameToCode.set(r.name.toLowerCase(), r.code);
+            if (r.name && r.id) configRoleNameToId.set(r.name.toLowerCase(), r.id);
+          }
+
+          // Build email set + role ID map from /api/v1/users/list response
+          for (const u of configUsers) {
+            if (u.email) configuratorEmailSet.add(u.email.toLowerCase());
+            const pr = u.project_role;
+            if (pr?.id && pr?.name) {
+              const key = pr.name.toLowerCase();
+              if (!configRoleNameToId.has(key)) configRoleNameToId.set(key, pr.id);
+            }
+          }
+
+          console.log(`[BulkImport] Configurator data: ${configDepartmentSet.size} depts, ${configSubDepartmentSet.size} sub-depts, ${configCostCentreSet.size} cost-centres, ${configUserRoleSet.size} roles, ${configuratorEmailSet.size} existing users`);
+          console.log(`[BulkImport] Role name→ID map: ${configRoleNameToId.size} entries from API`);
         }
       }
     } catch (err: any) {
+      // If Configurator unreachable, leave sets empty — validation will be skipped for Configurator fields
+      // The Configurator upload-excel API will catch any mismatches at upload time
       console.warn('[BulkImport] Failed to fetch Configurator reference data:', err?.message);
-      // Fallback to HRMS data if Configurator is unreachable
-      configDepartmentSet = new Set(orgDepartments.map((d) => d.name.toLowerCase()));
-      configSubDepartmentSet = new Set(orgSubDepartments.map((s) => s.name.toLowerCase()));
-      for (const c of orgCostCentres) {
-        configCostCentreSet.add(c.name.toLowerCase());
-        if (c.code) configCostCentreSet.add(c.code.toLowerCase());
-      }
     }
 
     // Build HRMS employee lookup for Reporting Manager validation (only when value is present)
@@ -534,14 +581,17 @@ export class EmployeeBulkImportService {
     );
 
     // ── 2c. Strict validation — validate ALL rows before any DB writes ──
+    // Order: HRMS DB validations first → Configurator API validations second
     // All-or-nothing: if any row fails, the entire upload stops
     const validationErrors: string[] = [];
 
     for (const row of parsedRows) {
       const rowNum = row.rowIndex + 2; // Excel row number (header=1, data starts at 2)
-      const missing: string[] = [];
 
-      // Mandatory field checks (Designation and Reporting Manager are NOT mandatory)
+      // ────── HRMS DB Validations (Step 2) ──────
+
+      // 1. Mandatory field presence checks
+      const missing: string[] = [];
       if (!row.firstName && !row.lastName) missing.push('Associate Name');
       if (!row.dateOfBirth) missing.push('Date of Birth');
       if (!row.gender) missing.push('Gender');
@@ -554,32 +604,39 @@ export class EmployeeBulkImportService {
       if (!row.officialEmail && !row.email) missing.push('Official E-Mail Id');
       if (!row.phone) missing.push('Permanent Phone / Current Phone / Permanent mobile');
       if (!row.paygroupName) missing.push('Paygroup');
-
+      if (!row.userRole) missing.push('Role');
       if (missing.length > 0) {
         validationErrors.push(`Row ${rowNum}: Missing mandatory field(s): ${missing.join(', ')}`);
       }
 
-      // Configurator DB existence validation for Department
-      if (row.department && configDepartmentSet.size > 0 && !configDepartmentSet.has(row.department.toLowerCase())) {
-        validationErrors.push(`Row ${rowNum}: Department "${row.department}" does not exist in Configurator database`);
+      // 2. Paygroup — must exist in HRMS DB
+      if (row.paygroupName && !paygroupMap.has(row.paygroupName.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Paygroup "${row.paygroupName}" does not exist in HRMS database`);
       }
 
-      // Configurator DB existence validation for Sub Department
-      if (row.subDepartment && configSubDepartmentSet.size > 0 && !configSubDepartmentSet.has(row.subDepartment.toLowerCase())) {
-        validationErrors.push(`Row ${rowNum}: Sub Department "${row.subDepartment}" does not exist in Configurator database`);
+      // 3. Entity — must exist in HRMS DB (only if value is present)
+      if (row.entityName && !entityMap.has(row.entityName.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Entity "${row.entityName}" does not exist in HRMS database`);
       }
 
-      // Configurator DB existence validation for Cost Centre
-      if (row.costCentreName && configCostCentreSet.size > 0 && !configCostCentreSet.has(row.costCentreName.toLowerCase())) {
-        validationErrors.push(`Row ${rowNum}: Cost Centre "${row.costCentreName}" does not exist in Configurator database`);
-      }
-
-      // HRMS DB validation for Designation (optional — only if value is present)
+      // 4. Designation — must exist in HRMS DB (optional — only if value is present)
       if (row.designation && !positionMap.has(row.designation.toLowerCase())) {
         validationErrors.push(`Row ${rowNum}: Designation "${row.designation}" does not exist in HRMS database`);
       }
 
-      // HRMS DB validation for Reporting Manager (optional — only if value is present)
+      // 5. Place of Tax Deduction — valid METRO/NON_METRO enum (already validated during parsing)
+
+      // 6. Email format validation
+      if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
+        validationErrors.push(`Row ${rowNum}: Invalid email format "${row.email}"`);
+      }
+
+      // 7. Email duplicate check — must not exist in HRMS DB
+      if (row.email && existingEmailSet.has(row.email.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Email "${row.email}" already exists in the system`);
+      }
+
+      // 8. Reporting Manager — must exist in HRMS DB (optional — only if value is present)
       if (row.reportingManagerName) {
         const rmLower = row.reportingManagerName.toLowerCase().trim();
         const rmFound = hrmsEmployeeNames.has(rmLower) || hrmsEmployeeCodes.has(rmLower);
@@ -588,13 +645,40 @@ export class EmployeeBulkImportService {
         }
       }
 
-      // Validate email format
-      if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
-        validationErrors.push(`Row ${rowNum}: Invalid email format "${row.email}"`);
+      // ────── Configurator API Validations (Step 2B) ──────
+
+      // 9. Department — must exist in Configurator API response
+      if (row.department && configDepartmentSet.size > 0 && !configDepartmentSet.has(row.department.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Department "${row.department}" does not exist in Configurator. Available: ${[...configDepartmentSet].join(', ')}`);
+      }
+
+      // 10. Sub Department — must exist in Configurator API response
+      if (row.subDepartment && configSubDepartmentSet.size > 0 && !configSubDepartmentSet.has(row.subDepartment.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Sub Department "${row.subDepartment}" does not exist in Configurator. Available: ${[...configSubDepartmentSet].join(', ')}`);
+      }
+
+      // 11. Cost Centre — must exist in Configurator API response
+      if (row.costCentreName && configCostCentreSet.size > 0 && !configCostCentreSet.has(row.costCentreName.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Cost Centre "${row.costCentreName}" does not exist in Configurator. Available: ${[...configCostCentreSet].join(', ')}`);
+      }
+
+      // 12. User Role — must exist in Configurator API response (no hardcoded env fallback)
+      if (row.userRole && configUserRoleSet.size > 0) {
+        const roleLower = row.userRole.toLowerCase();
+        const roleNormalized = roleLower.replace(/[\s-]+/g, '_');
+        const roleFound = configUserRoleSet.has(roleLower) || configUserRoleSet.has(roleNormalized);
+        if (!roleFound) {
+          validationErrors.push(`Row ${rowNum}: User Role "${row.userRole}" does not exist in Configurator. Available: ${[...configUserRoleSet].join(', ')}`);
+        }
+      }
+
+      // 13. Official Email — must NOT already exist in Configurator users list
+      if (row.officialEmail && configuratorEmailSet.size > 0 && configuratorEmailSet.has(row.officialEmail.toLowerCase())) {
+        validationErrors.push(`Row ${rowNum}: Official Email "${row.officialEmail}" already exists in Configurator`);
       }
     }
 
-    // Check for duplicate emails within the batch
+    // 14. Batch-level: duplicate emails within the uploaded file
     const batchEmails = new Map<string, number>();
     for (const row of parsedRows) {
       const email = row.email.toLowerCase();
@@ -605,15 +689,35 @@ export class EmployeeBulkImportService {
       }
     }
 
-    // If any validation errors, stop the entire upload
+    // If any validation errors, stop the entire upload (all-or-nothing)
     if (validationErrors.length > 0) {
       throw new AppError(
-        `Validation failed for ${validationErrors.length} issue(s). Upload stopped — no data was imported.\n\n${validationErrors.join('\n')}`,
+        `Validation failed for ${validationErrors.length} issue(s). Upload stopped — no data was imported.`,
         400,
+        validationErrors,
       );
     }
 
-    // ── 3. Configurator bulk upload (if org has Config link and not skipped) ──
+    // ── 2d. Resolve Configurator role IDs per row (for User.configuratorRoleId storage) ──
+    const rowConfigRoleIdMap = new Map<string, number>(); // email → configurator role ID
+    for (const row of parsedRows) {
+      if (!row.userRole) continue;
+      const roleLower = row.userRole.toLowerCase();
+      const roleNormalized = roleLower.replace(/[\s-]+/g, '_');
+      let roleId = configRoleNameToId.get(roleLower) || configRoleNameToId.get(roleNormalized);
+      // Fallback: check CONFIGURATOR_ROLE_IDS env config
+      if (!roleId && config.configuratorRoleIds) {
+        for (const [envKey, envId] of Object.entries(config.configuratorRoleIds)) {
+          if (envKey.toLowerCase() === roleNormalized || envKey.toLowerCase() === roleLower) {
+            roleId = envId;
+            break;
+          }
+        }
+      }
+      if (roleId) rowConfigRoleIdMap.set(row.email.toLowerCase(), roleId);
+    }
+
+    // ── 3. Configurator bulk upload via /api/v1/users/upload-excel ──
     let configuratorResults: BulkImportResult['configuratorResults'] = undefined;
     let configuratorSyncStatus: 'success' | 'failed' | 'skipped' = 'skipped';
     let configuratorSyncMessage = '';
@@ -623,376 +727,357 @@ export class EmployeeBulkImportService {
       configuratorSyncMessage = 'Configurator sync was skipped (skipConfiguratorSync=true)';
     } else if (organization.configuratorCompanyId == null) {
       configuratorSyncMessage = 'Organization has no configuratorCompanyId — Configurator sync skipped';
+    } else if (!configuratorAccessToken) {
+      throw new AppError('No Configurator access token available. Please logout and login again to refresh token.', 401);
     } else {
-      const tokenUser = await prisma.user.findUnique({
-        where: { id: createdByUserId },
-        select: { configuratorAccessToken: true },
-      });
+      // Build a Configurator-compatible Excel from parsed data (9 columns)
+      const configRows = parsedRows.map((row) => ({
+        first_name: row.firstName,
+        last_name: row.lastName || 'N/A',
+        email: row.email,
+        phone: row.phone || '',
+        password: `Temp@${Math.random().toString(36).slice(-8)}`,
+        cost_centre: row.costCentreName || '',
+        department: row.department || '',
+        sub_department: row.subDepartment || '',
+        manager: row.reportingManagerName || '',
+      }));
 
-      if (!tokenUser?.configuratorAccessToken) {
-        configuratorSyncMessage = 'No Configurator access token available. Please logout and login again to refresh token.';
-        console.warn('[BulkImport] No configuratorAccessToken for user', createdByUserId);
-      } else {
-        try {
-          console.log('[BulkImport] Uploading Excel to Configurator API (companyId:', organization.configuratorCompanyId, ')...');
-          const configResult = await configuratorService.uploadExcel(
-            tokenUser.configuratorAccessToken,
-            fileBuffer,
-            fileName,
-            organization.configuratorCompanyId,
-            config.configuratorHrmsProjectId || 0,
-            0, // role_id — Configurator assigns based on Excel content
-          );
-          configuratorResults = {
-            total: configResult.total,
-            created: configResult.created,
-            updated: configResult.updated,
-            failed: configResult.failed,
-          };
-          configuratorSyncStatus = 'success';
-          configuratorSyncMessage = `Configurator sync OK: ${configResult.created} created, ${configResult.updated} updated, ${configResult.failed} failed`;
-          console.log('[BulkImport] Configurator upload-excel success:', configuratorSyncMessage);
-          // Build email → config user mapping
-          for (const r of configResult.results) {
-            if (r.user?.email && r.user?.user_id) {
-              configuratorUserMap.set(r.user.email.toLowerCase(), {
-                user_id: r.user.user_id,
-                encrypted_password: r.user.encrypted_password || '',
-              });
+      const configWs = XLSX.utils.json_to_sheet(configRows);
+      const configWb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(configWb, configWs, 'Sheet1');
+      const configBuffer = Buffer.from(XLSX.write(configWb, { type: 'buffer', bookType: 'xlsx' }));
+
+      // Resolve role_id dynamically from Excel Role value
+      const excelRole = parsedRows[0]?.userRole?.toLowerCase() || '';
+      let uploadRoleId = configRoleNameToId.get(excelRole);
+
+      // Fallback: check configuratorRoleIds env config (keys are HRMS enum names like EMPLOYEE, HR_MANAGER)
+      if (!uploadRoleId && config.configuratorRoleIds) {
+        // Try matching Excel role to env config keys (case-insensitive, with underscore normalization)
+        const normalizedExcel = excelRole.replace(/[\s-]+/g, '_');
+        for (const [envKey, envId] of Object.entries(config.configuratorRoleIds)) {
+          if (envKey.toLowerCase() === normalizedExcel || envKey.toLowerCase() === excelRole) {
+            uploadRoleId = envId;
+            break;
+          }
+        }
+      }
+
+      if (!uploadRoleId) {
+        const availableFromMap = [...configRoleNameToId.keys()];
+        const availableFromEnv = Object.keys(config.configuratorRoleIds || {}).map(k => k.toLowerCase().replace(/_/g, ' '));
+        const allAvailable = [...new Set([...availableFromMap, ...availableFromEnv])].join(', ') || 'none found';
+        throw new AppError(
+          `Role "${parsedRows[0]?.userRole || ''}" not found in Configurator. Available roles: ${allAvailable}`,
+          400,
+          [`Role "${parsedRows[0]?.userRole || ''}" does not match any Configurator role for this company. Available: ${allAvailable}`],
+        );
+      }
+      console.log('[BulkImport] Uploading', parsedRows.length, 'users to Configurator via /api/v1/users/upload-excel (companyId:', organization.configuratorCompanyId, ', roleId:', uploadRoleId, ')...');
+      const configResult = await configuratorService.uploadExcel(
+        configuratorAccessToken,
+        configBuffer,
+        'bulk_import.xlsx',
+        organization.configuratorCompanyId,
+        config.configuratorHrmsProjectId || 0,
+        uploadRoleId,
+      );
+
+      // If Configurator reported failures, abort — no partial inserts
+      if (configResult.failed > 0) {
+        const failedDetails = configResult.results
+          .filter((r: any) => r.status === 'failed' || r.status === 'error')
+          .map((r: any) => `Row ${r.row}: ${r.message || 'Configurator creation failed'}`)
+          .slice(0, 20);
+        throw new AppError(
+          `Configurator user creation failed for ${configResult.failed} row(s). Upload aborted — no data was imported.`,
+          400,
+          failedDetails.length > 0 ? failedDetails : [`${configResult.failed} row(s) failed in Configurator`],
+        );
+      }
+
+      // Build email → config user mapping
+      for (const r of configResult.results) {
+        if (r.user?.email && r.user?.user_id) {
+          configuratorUserMap.set(r.user.email.toLowerCase(), {
+            user_id: r.user.user_id,
+            encrypted_password: r.user.encrypted_password || '',
+          });
+        }
+      }
+
+      configuratorResults = {
+        total: configResult.total,
+        created: configResult.created,
+        updated: configResult.updated,
+        failed: configResult.failed,
+      };
+
+      // Post-upload: update each Configurator user with dept/cc/subdept IDs
+      // The upload-excel doesn't map names to IDs, so we do it here
+      console.log('[BulkImport] Updating Configurator users with dept/cc/subdept IDs...');
+      for (const row of parsedRows) {
+        const configUser = configuratorUserMap.get(row.email.toLowerCase());
+        if (!configUser?.user_id) continue;
+
+        const deptId = row.department ? configDeptNameToId.get(row.department.toLowerCase()) : undefined;
+        const ccId = row.costCentreName ? configCostCentreNameToId.get(row.costCentreName.toLowerCase()) : undefined;
+        const subDeptId = row.subDepartment ? configSubDeptNameToId.get(row.subDepartment.toLowerCase()) : undefined;
+
+        if (deptId || ccId || subDeptId) {
+          try {
+            await configuratorService.updateUser(configuratorAccessToken, configUser.user_id, {
+              email: row.email,
+              first_name: row.firstName,
+              last_name: row.lastName || 'N/A',
+              phone: row.phone || '',
+              company_id: organization.configuratorCompanyId!,
+              is_active: true,
+              ...(deptId ? { department_id: deptId } : {}),
+              ...(ccId ? { cost_centre_id: ccId } : {}),
+              ...(subDeptId ? { sub_department_id: subDeptId } : {}),
+            });
+          } catch (err: any) {
+            console.warn(`[BulkImport] Failed to update Configurator user ${row.email} with dept/cc/subdept:`, err?.message);
+          }
+        }
+      }
+
+      configuratorSyncStatus = 'success';
+      configuratorSyncMessage = `Configurator sync OK: ${configResult.created} created, ${configResult.updated} updated`;
+      console.log('[BulkImport] Configurator upload-excel done:', configuratorSyncMessage);
+    }
+
+    // ── 4. Classify rows — all new rows must be created (existing emails already blocked above) ──
+    const toCreate: ParsedRow[] = [...parsedRows];
+
+    // ── 5-10. Atomic HRMS insert — all or nothing via Prisma $transaction ──
+    const defaultPasswordHash = await hashPassword(`Temp@${Math.random().toString(36).slice(-8)}`);
+
+    const txResult = await prisma.$transaction(async (tx) => {
+      // ── 5. Batch reserve employee codes ──
+      const needCodeCount = toCreate.filter((r) => !r.employeeCode).length;
+      let generatedCodes: string[] = [];
+
+      if (needCodeCount > 0) {
+        generatedCodes = await this.batchReserveEmployeeCodes(organizationId, needCodeCount, organization, tx);
+      }
+
+      let codeIdx = 0;
+      for (const row of toCreate) {
+        if (!row.employeeCode && codeIdx < generatedCodes.length) {
+          row.employeeCode = generatedCodes[codeIdx++];
+        }
+      }
+
+      // ── 6. Batch create HRMS Users ──
+      const userIdByEmail = new Map<string, string>();
+      for (const u of existingUsers) {
+        userIdByEmail.set(u.email.toLowerCase(), u.id);
+      }
+
+      const newUserEmails = toCreate.filter((r) => !existingUserEmailSet.has(r.email.toLowerCase()));
+
+      if (newUserEmails.length > 0) {
+        const userCreateData: Prisma.UserCreateManyInput[] = newUserEmails.map((row) => {
+          const configUser = configuratorUserMap.get(row.email.toLowerCase());
+          const passwordHash = configUser?.encrypted_password || defaultPasswordHash;
+
+          let role: 'EMPLOYEE' | 'HR_MANAGER' | 'MANAGER' = 'EMPLOYEE';
+          // Use explicit Role column from Excel if present
+          if (row.userRole) {
+            const r = row.userRole.toUpperCase().replace(/[\s_-]+/g, '_');
+            if (r === 'HR_MANAGER' || r === 'HRMANAGER' || r === 'HR_ADMIN') role = 'HR_MANAGER';
+            else if (r === 'MANAGER') role = 'MANAGER';
+            else if (r === 'EMPLOYEE') role = 'EMPLOYEE';
+          } else if (row.designation) {
+            // Fallback: auto-detect from designation
+            const title = row.designation.toLowerCase();
+            if (title.includes('hr admin') || title.includes('hr manager') || title.includes('hr administrator') ||
+                title.includes('human resources manager') || title.includes('human resource manager')) {
+              role = 'HR_MANAGER';
+            } else if (title.includes('manager') && !title.includes('hr')) {
+              role = 'MANAGER';
+            } else if (title.includes('team lead') || title.includes('team leader') || title.includes('lead')) {
+              role = 'MANAGER';
             }
           }
-        } catch (err: any) {
-          configuratorSyncStatus = 'failed';
-          configuratorSyncMessage = `Configurator sync FAILED: ${err?.message || 'Unknown error'}. Employees were created in HRMS but will NOT appear in the employee list until Configurator sync succeeds.`;
-          console.error('[BulkImport] Configurator upload-excel FAILED:', err?.message);
-        }
-      }
-    }
 
-    // ── 4. Classify rows: toCreate, toUpdate, toSkip ──
-    const toCreate: ParsedRow[] = [];
-    const toUpdate: Array<{ row: ParsedRow; existingId: string }> = [];
-    const failures: BulkImportRowResult[] = [];
-    let skipped = 0;
-    const batchEmailSet = new Set<string>(); // track intra-batch duplicates
-
-    for (const row of parsedRows) {
-      // Check existing by code (update)
-      if (row.employeeCode) {
-        const existing = existingCodeMap.get(row.employeeCode.toLowerCase());
-        if (existing) {
-          toUpdate.push({ row, existingId: existing.id });
-          continue;
-        }
-      }
-
-      // Check existing by email (skip)
-      if (existingEmailSet.has(row.email.toLowerCase())) {
-        skipped++;
-        continue;
-      }
-
-      // Check intra-batch duplicate email
-      if (batchEmailSet.has(row.email.toLowerCase())) {
-        failures.push({
-          row: row.rowIndex + 2,
-          email: row.email,
-          associateCode: row.employeeCode || undefined,
-          status: 'failed',
-          message: 'Duplicate email within this import batch',
+          const configRoleId = rowConfigRoleIdMap.get(row.email.toLowerCase());
+          return {
+            email: row.email,
+            passwordHash,
+            role,
+            organizationId,
+            isActive: true,
+            isEmailVerified: false,
+            ...(configUser?.user_id != null ? { configuratorUserId: configUser.user_id } : {}),
+            ...(configRoleId != null ? { configuratorRoleId: configRoleId } : {}),
+          };
         });
-        continue;
-      }
 
-      // Check existing user email (without employee)
-      // We'll handle linking later during creation
-      batchEmailSet.add(row.email.toLowerCase());
-      toCreate.push(row);
-    }
-
-    // ── 5. Batch reserve employee codes ──
-    const needCodeCount = toCreate.filter((r) => !r.employeeCode).length;
-    let generatedCodes: string[] = [];
-
-    if (needCodeCount > 0) {
-      generatedCodes = await this.batchReserveEmployeeCodes(organizationId, needCodeCount, organization);
-    }
-
-    // Assign codes to rows that need them
-    let codeIdx = 0;
-    for (const row of toCreate) {
-      if (!row.employeeCode && codeIdx < generatedCodes.length) {
-        row.employeeCode = generatedCodes[codeIdx++];
-      }
-    }
-
-    // ── 6. Batch create HRMS Users ──
-    // Generate a default password hash for all new users
-    const defaultPasswordHash = await hashPassword(`Temp@${Math.random().toString(36).slice(-8)}`);
-    let success = 0;
-    let updated = 0;
-
-    // Create users one at a time (can't use createMany because we need to handle existing users
-    // and get back individual user IDs for linking to employees)
-    const userIdByEmail = new Map<string, string>();
-
-    // First, map existing users
-    for (const u of existingUsers) {
-      userIdByEmail.set(u.email.toLowerCase(), u.id);
-    }
-
-    // Create new users for emails that don't exist yet
-    const newUserEmails = toCreate.filter((r) => !existingUserEmailSet.has(r.email.toLowerCase()));
-
-    if (newUserEmails.length > 0) {
-      const userCreateData: Prisma.UserCreateManyInput[] = newUserEmails.map((row) => {
-        const configUser = configuratorUserMap.get(row.email.toLowerCase());
-        const passwordHash = configUser?.encrypted_password || defaultPasswordHash;
-
-        // Determine role from position
-        let role: 'EMPLOYEE' | 'HR_MANAGER' | 'MANAGER' = 'EMPLOYEE';
-        if (row.designation) {
-          const title = row.designation.toLowerCase();
-          if (title.includes('hr admin') || title.includes('hr manager') || title.includes('hr administrator') ||
-              title.includes('human resources manager') || title.includes('human resource manager')) {
-            role = 'HR_MANAGER';
-          } else if (title.includes('manager') && !title.includes('hr')) {
-            role = 'MANAGER';
-          } else if (title.includes('team lead') || title.includes('team leader') || title.includes('lead')) {
-            role = 'MANAGER';
-          }
-        }
-
-        return {
-          email: row.email,
-          passwordHash,
-          role,
-          organizationId,
-          isActive: true,
-          isEmailVerified: false,
-          ...(configUser?.user_id != null ? { configuratorUserId: configUser.user_id } : {}),
-        };
-      });
-
-      try {
-        await prisma.user.createMany({
+        await tx.user.createMany({
           data: userCreateData,
           skipDuplicates: true,
         });
-      } catch (err: any) {
-        console.warn('[BulkImport] User createMany partial error:', err?.message);
-      }
 
-      // Fetch back created users to get their IDs
-      const createdUsers = await prisma.user.findMany({
-        where: {
-          email: { in: newUserEmails.map((r) => r.email) },
-          organizationId,
-        },
-        select: { id: true, email: true },
-      });
-      for (const u of createdUsers) {
-        userIdByEmail.set(u.email.toLowerCase(), u.id);
-      }
-    }
-
-    // ── 7. Batch create Employees ──
-    const employeeCreateData: Prisma.EmployeeCreateManyInput[] = [];
-
-    for (const row of toCreate) {
-      const userId = userIdByEmail.get(row.email.toLowerCase());
-      if (!userId) {
-        failures.push({
-          row: row.rowIndex + 2,
-          email: row.email,
-          associateCode: row.employeeCode || undefined,
-          status: 'failed',
-          message: 'Failed to create/find user account for this email',
+        const createdUsers = await tx.user.findMany({
+          where: {
+            email: { in: newUserEmails.map((r) => r.email) },
+            organizationId,
+          },
+          select: { id: true, email: true },
         });
-        continue;
-      }
-
-      const positionId = row.designation ? positionMap.get(row.designation.toLowerCase()) ?? null : null;
-      const departmentId = row.department ? departmentMap.get(row.department.toLowerCase()) ?? null : null;
-      const paygroupId = row.paygroupName ? paygroupMap.get(row.paygroupName.toLowerCase()) ?? null : null;
-      const costCentreId = row.costCentreName ? costCentreMap.get(row.costCentreName.toLowerCase()) ?? null : null;
-      const entityId = row.entityName ? entityMap.get(row.entityName.toLowerCase()) ?? null : null;
-      const configUser = configuratorUserMap.get(row.email.toLowerCase());
-
-      employeeCreateData.push({
-        organizationId,
-        employeeCode: row.employeeCode || `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-        userId,
-        firstName: row.firstName,
-        lastName: row.lastName || 'N/A',
-        ...(row.middleName ? { middleName: row.middleName } : {}),
-        email: row.email,
-        ...(row.personalEmail ? { personalEmail: row.personalEmail } : {}),
-        ...(row.officialEmail ? { officialEmail: row.officialEmail } : {}),
-        ...(row.phone ? { phone: row.phone } : {}),
-        dateOfJoining: new Date(row.dateOfJoining),
-        ...(row.dateOfBirth ? { dateOfBirth: new Date(row.dateOfBirth) } : {}),
-        ...(row.dateOfLeaving ? { dateOfLeaving: new Date(row.dateOfLeaving) } : {}),
-        ...(row.gender ? { gender: row.gender as any } : {}),
-        ...(row.maritalStatus ? { maritalStatus: row.maritalStatus as any } : {}),
-        ...(row.employmentType ? { employmentType: row.employmentType as any } : {}),
-        ...(positionId ? { positionId } : {}),
-        ...(departmentId ? { departmentId } : {}),
-        ...(paygroupId ? { paygroupId } : {}),
-        ...(costCentreId ? { costCentreId } : {}),
-        ...(entityId ? { entityId } : {}),
-        ...(row.workLocation ? { workLocation: row.workLocation } : {}),
-        ...(row.placeOfTaxDeduction ? { placeOfTaxDeduction: row.placeOfTaxDeduction as any } : {}),
-        ...(row.address ? { address: row.address as any } : {}),
-        ...(row.taxInformation ? { taxInformation: row.taxInformation as any } : {}),
-        ...(row.bankDetails ? { bankDetails: row.bankDetails as any } : {}),
-        ...(row.profileExtensions ? { profileExtensions: row.profileExtensions as any } : {}),
-        ...(row.emergencyContacts ? { emergencyContacts: row.emergencyContacts as any } : {}),
-        ...(configUser?.user_id != null ? { configuratorUserId: configUser.user_id } : {}),
-        employeeStatus: 'ACTIVE',
-      });
-    }
-
-    if (employeeCreateData.length > 0) {
-      try {
-        const result = await prisma.employee.createMany({
-          data: employeeCreateData,
-          skipDuplicates: true,
-        });
-        success = result.count;
-
-        // Track which rows failed due to skipDuplicates (email/code conflict)
-        if (success < employeeCreateData.length) {
-          const skippedCount = employeeCreateData.length - success;
-          // We can't tell exactly which rows were skipped by createMany, so we log the difference
-          console.warn(`[BulkImport] ${skippedCount} employees skipped by createMany (duplicate constraints)`);
+        for (const u of createdUsers) {
+          userIdByEmail.set(u.email.toLowerCase(), u.id);
         }
-      } catch (err: any) {
-        console.error('[BulkImport] Employee createMany failed:', err?.message);
-        throw new AppError(`Bulk employee creation failed: ${err?.message}`, 500);
-      }
-    }
-
-    // ── 8. Batch update existing employees (by code match) ──
-    for (const { row, existingId } of toUpdate) {
-      const positionId = row.designation ? positionMap.get(row.designation.toLowerCase()) ?? undefined : undefined;
-      const departmentId = row.department ? departmentMap.get(row.department.toLowerCase()) ?? undefined : undefined;
-      const paygroupId = row.paygroupName ? paygroupMap.get(row.paygroupName.toLowerCase()) ?? undefined : undefined;
-      const costCentreId = row.costCentreName ? costCentreMap.get(row.costCentreName.toLowerCase()) ?? undefined : undefined;
-      const entityId = row.entityName ? entityMap.get(row.entityName.toLowerCase()) ?? undefined : undefined;
-
-      const updatePayload: Record<string, unknown> = {};
-      if (positionId) updatePayload.positionId = positionId;
-      if (departmentId) updatePayload.departmentId = departmentId;
-      if (paygroupId) updatePayload.paygroupId = paygroupId;
-      if (costCentreId) updatePayload.costCentreId = costCentreId;
-      if (entityId) updatePayload.entityId = entityId;
-      if (row.workLocation) updatePayload.workLocation = row.workLocation;
-      if (row.placeOfTaxDeduction) updatePayload.placeOfTaxDeduction = row.placeOfTaxDeduction;
-      if (row.profileExtensions && Object.keys(row.profileExtensions).length > 0) {
-        updatePayload.profileExtensions = row.profileExtensions;
       }
 
-      if (Object.keys(updatePayload).length > 0) {
-        try {
-          await prisma.employee.update({ where: { id: existingId }, data: updatePayload });
-          updated++;
-        } catch (err: any) {
-          failures.push({
+      // ── 7. Batch create Employees ──
+      const employeeCreateData: Prisma.EmployeeCreateManyInput[] = [];
+      const txFailures: BulkImportRowResult[] = [];
+
+      for (const row of toCreate) {
+        const userId = userIdByEmail.get(row.email.toLowerCase());
+        if (!userId) {
+          txFailures.push({
             row: row.rowIndex + 2,
             email: row.email,
             associateCode: row.employeeCode || undefined,
             status: 'failed',
-            message: `Update failed: ${err?.message}`,
+            message: 'Failed to create/find user account for this email',
           });
+          continue;
         }
-      } else {
-        updated++;
+
+        const positionId = row.designation ? positionMap.get(row.designation.toLowerCase()) ?? null : null;
+        const departmentId = row.department ? departmentMap.get(row.department.toLowerCase()) ?? null : null;
+        const paygroupId = row.paygroupName ? paygroupMap.get(row.paygroupName.toLowerCase()) ?? null : null;
+        const costCentreId = row.costCentreName ? costCentreMap.get(row.costCentreName.toLowerCase()) ?? null : null;
+        const entityId = row.entityName ? entityMap.get(row.entityName.toLowerCase()) ?? null : null;
+        const configUser = configuratorUserMap.get(row.email.toLowerCase());
+
+        // Configurator integer IDs (needed for frontend dropdown prefill and list display)
+        const deptConfigId = row.department ? configDeptNameToId.get(row.department.toLowerCase()) ?? null : null;
+        const ccConfigId = row.costCentreName ? configCostCentreNameToId.get(row.costCentreName.toLowerCase()) ?? null : null;
+        const subDeptConfigId = row.subDepartment ? configSubDeptNameToId.get(row.subDepartment.toLowerCase()) ?? null : null;
+
+        employeeCreateData.push({
+          organizationId,
+          employeeCode: row.employeeCode || `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          userId,
+          firstName: row.firstName,
+          lastName: row.lastName || 'N/A',
+          ...(row.middleName ? { middleName: row.middleName } : {}),
+          email: row.email,
+          ...(row.personalEmail ? { personalEmail: row.personalEmail } : {}),
+          ...(row.officialEmail ? { officialEmail: row.officialEmail } : {}),
+          ...(row.phone ? { phone: row.phone } : {}),
+          dateOfJoining: new Date(row.dateOfJoining),
+          ...(row.dateOfBirth ? { dateOfBirth: new Date(row.dateOfBirth) } : {}),
+          ...(row.dateOfLeaving ? { dateOfLeaving: new Date(row.dateOfLeaving) } : {}),
+          ...(row.gender ? { gender: row.gender as any } : {}),
+          ...(row.maritalStatus ? { maritalStatus: row.maritalStatus as any } : {}),
+          ...(row.employmentType ? { employmentType: row.employmentType as any } : {}),
+          ...(positionId ? { positionId } : {}),
+          ...(departmentId ? { departmentId } : {}),
+          ...(paygroupId ? { paygroupId } : {}),
+          ...(costCentreId ? { costCentreId } : {}),
+          ...(entityId ? { entityId } : {}),
+          ...(deptConfigId ? { departmentConfiguratorId: deptConfigId } : {}),
+          ...(ccConfigId ? { costCentreConfiguratorId: ccConfigId } : {}),
+          ...(subDeptConfigId ? { subDepartmentConfiguratorId: subDeptConfigId } : {}),
+          ...(row.workLocation ? { workLocation: row.workLocation } : {}),
+          ...(row.placeOfTaxDeduction ? { placeOfTaxDeduction: row.placeOfTaxDeduction as any } : {}),
+          ...(row.address ? { address: row.address as any } : {}),
+          ...(row.taxInformation ? { taxInformation: row.taxInformation as any } : {}),
+          ...(row.bankDetails ? { bankDetails: row.bankDetails as any } : {}),
+          ...(row.profileExtensions ? { profileExtensions: row.profileExtensions as any } : {}),
+          ...(row.emergencyContacts ? { emergencyContacts: row.emergencyContacts as any } : {}),
+          ...(configUser?.user_id != null ? { configuratorUserId: configUser.user_id } : {}),
+          employeeStatus: 'ACTIVE',
+        });
       }
-    }
 
-    // ── 9. Second pass: reporting managers ──
-    let managersSet = 0;
+      let success = 0;
+      if (employeeCreateData.length > 0) {
+        const result = await tx.employee.createMany({
+          data: employeeCreateData,
+          skipDuplicates: true,
+        });
+        success = result.count;
+      }
 
-    // Re-fetch all employees to build complete lookup for manager resolution
-    const allEmployees = await prisma.employee.findMany({
-      where: { organizationId, deletedAt: null },
-      select: { id: true, employeeCode: true, firstName: true, lastName: true },
-    });
-
-    const resolveManagerId = (nameOrCode: string): string | null => {
-      if (!nameOrCode?.trim()) return null;
-      const raw = nameOrCode.trim();
-      const codeFromBrackets = raw.match(/\[([^\]]+)\]/)?.[1]?.trim().toLowerCase();
-      const codeFromParens = raw.match(/\(([^)]+)\)/)?.[1]?.trim().toLowerCase();
-      const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase();
-      const search = (namePart || raw.toLowerCase()).replace(/\s+/g, ' ').trim();
-      const looksLikeCode = /^[a-zA-Z]*\d+[a-z0-9]*$/i.test(raw) && raw.length <= 20;
-      const possibleCodes = [codeFromBrackets, codeFromParens, looksLikeCode ? raw.toLowerCase() : null].filter(Boolean);
-
-      // By code
-      const byCode = allEmployees.find((e) => {
-        const code = e.employeeCode?.toLowerCase()?.trim();
-        return code && (code === search || possibleCodes.some((c) => c && code === c));
+      // ── 8. Reporting managers ──
+      let managersSet = 0;
+      const allEmployees = await tx.employee.findMany({
+        where: { organizationId, deletedAt: null },
+        select: { id: true, employeeCode: true, firstName: true, lastName: true },
       });
-      if (byCode) return byCode.id;
 
-      // By name
-      const byName = allEmployees.find((e) => {
-        const full = `${e.firstName || ''} ${e.lastName || ''}`.replace(/\s+/g, ' ').trim().toLowerCase();
-        const alt = `${e.lastName || ''} ${e.firstName || ''}`.replace(/\s+/g, ' ').trim().toLowerCase();
-        return full === search || alt === search || full.includes(search) || search.includes(full);
-      });
-      return byName?.id ?? null;
-    };
+      const resolveManagerId = (nameOrCode: string): string | null => {
+        if (!nameOrCode?.trim()) return null;
+        const raw = nameOrCode.trim();
+        const codeFromBrackets = raw.match(/\[([^\]]+)\]/)?.[1]?.trim().toLowerCase();
+        const codeFromParens = raw.match(/\(([^)]+)\)/)?.[1]?.trim().toLowerCase();
+        const namePart = raw.replace(/\s*\[.*?\]\s*/g, '').replace(/\s*\(.*?\)\s*/g, '').trim().toLowerCase();
+        const search = (namePart || raw.toLowerCase()).replace(/\s+/g, ' ').trim();
+        const looksLikeCode = /^[a-zA-Z]*\d+[a-z0-9]*$/i.test(raw) && raw.length <= 20;
+        const possibleCodes = [codeFromBrackets, codeFromParens, looksLikeCode ? raw.toLowerCase() : null].filter(Boolean);
 
-    // Collect all rows that have reporting managers
-    const rowsWithManagers = parsedRows.filter((r) => r.reportingManagerName);
+        const byCode = allEmployees.find((e) => {
+          const code = e.employeeCode?.toLowerCase()?.trim();
+          return code && (code === search || possibleCodes.some((c) => c && code === c));
+        });
+        if (byCode) return byCode.id;
 
-    for (const row of rowsWithManagers) {
-      const managerId = resolveManagerId(row.reportingManagerName);
-      if (!managerId) continue;
+        const byName = allEmployees.find((e) => {
+          const full = `${e.firstName || ''} ${e.lastName || ''}`.replace(/\s+/g, ' ').trim().toLowerCase();
+          const alt = `${e.lastName || ''} ${e.firstName || ''}`.replace(/\s+/g, ' ').trim().toLowerCase();
+          return full === search || alt === search || full.includes(search) || search.includes(full);
+        });
+        return byName?.id ?? null;
+      };
 
-      // Find the employee record for this row
-      const emp = allEmployees.find((e) =>
-        (row.employeeCode && e.employeeCode.toLowerCase() === row.employeeCode.toLowerCase()) ||
-        (row.email && e.firstName?.toLowerCase() === row.firstName.toLowerCase())
-      );
-      if (!emp) continue;
+      const rowsWithManagers = parsedRows.filter((r) => r.reportingManagerName);
+      for (const row of rowsWithManagers) {
+        const managerId = resolveManagerId(row.reportingManagerName);
+        if (!managerId) continue;
 
-      try {
-        await prisma.employee.update({
+        const emp = allEmployees.find((e) =>
+          (row.employeeCode && e.employeeCode.toLowerCase() === row.employeeCode.toLowerCase()) ||
+          (row.email && e.firstName?.toLowerCase() === row.firstName.toLowerCase())
+        );
+        if (!emp) continue;
+
+        await tx.employee.update({
           where: { id: emp.id },
           data: { reportingManagerId: managerId },
         });
         managersSet++;
-      } catch (err: any) {
-        console.warn('[BulkImport] Failed to set reporting manager:', err?.message);
       }
-    }
 
-    // ── 10. Third pass: salary records ──
-    if (createSalaryRecords) {
-      const rowsWithSalary = parsedRows.filter((r) => r.fixedGross > 0 || r.vehicleAllowances > 0);
+      // ── 9. Salary records ──
+      if (createSalaryRecords) {
+        const rowsWithSalary = parsedRows.filter((r) => r.fixedGross > 0 || r.vehicleAllowances > 0);
 
-      if (rowsWithSalary.length > 0) {
-        // Fetch created employees to get their IDs
-        const createdEmps = await prisma.employee.findMany({
-          where: {
-            organizationId,
-            email: { in: rowsWithSalary.map((r) => r.email) },
-          },
-          select: { id: true, email: true, dateOfJoining: true },
-        });
-        const empByEmail = new Map(createdEmps.map((e) => [e.email.toLowerCase(), e]));
+        if (rowsWithSalary.length > 0) {
+          const createdEmps = await tx.employee.findMany({
+            where: {
+              organizationId,
+              email: { in: rowsWithSalary.map((r) => r.email) },
+            },
+            select: { id: true, email: true, dateOfJoining: true },
+          });
+          const empByEmail = new Map(createdEmps.map((e) => [e.email.toLowerCase(), e]));
 
-        for (const row of rowsWithSalary) {
-          const emp = empByEmail.get(row.email.toLowerCase());
-          if (!emp) continue;
+          for (const row of rowsWithSalary) {
+            const emp = empByEmail.get(row.email.toLowerCase());
+            if (!emp) continue;
 
-          const gross = row.fixedGross + row.vehicleAllowances;
-          try {
-            await prisma.employeeSalary.create({
+            const gross = row.fixedGross + row.vehicleAllowances;
+            await tx.employeeSalary.create({
               data: {
                 employeeId: emp.id,
                 effectiveDate: emp.dateOfJoining || new Date(row.dateOfJoining),
@@ -1004,21 +1089,24 @@ export class EmployeeBulkImportService {
                 components: { 'Fixed Gross': row.fixedGross, 'Vehicle Allowances': row.vehicleAllowances } as any,
               },
             });
-          } catch (err: any) {
-            console.warn('[BulkImport] Salary creation failed for', row.email, err?.message);
           }
         }
       }
-    }
+
+      return { success, managersSet, failures: txFailures };
+    }, {
+      maxWait: 30000,
+      timeout: 120000,
+    });
 
     return {
       total: parsedRows.length,
-      success,
-      updated,
-      skipped,
-      failed: failures.length,
-      managersSet,
-      failures,
+      success: txResult.success,
+      updated: 0,
+      skipped: 0,
+      failed: txResult.failures.length,
+      managersSet: txResult.managersSet,
+      failures: txResult.failures,
       configuratorResults,
       configuratorSyncStatus,
       configuratorSyncMessage,
@@ -1026,15 +1114,15 @@ export class EmployeeBulkImportService {
   }
 
   /**
-   * Batch reserve N employee codes in a single transaction.
+   * Batch reserve N employee codes (uses provided transaction client or creates its own).
    */
   private async batchReserveEmployeeCodes(
     organizationId: string,
     count: number,
     org: { employeeIdPrefix: string | null; employeeIdNextNumber: number | null },
+    tx?: any,
   ): Promise<string[]> {
     if (org.employeeIdNextNumber == null || count === 0) {
-      // Fallback: generate timestamp-based codes
       return Array.from({ length: count }, () =>
         `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
       );
@@ -1042,13 +1130,13 @@ export class EmployeeBulkImportService {
 
     const prefix = org.employeeIdPrefix?.trim() ?? '';
 
-    return prisma.$transaction(async (tx) => {
+    // If a transaction client was provided, use it directly (no nested $transaction)
+    if (tx) {
       const row = await tx.organization.findUnique({
         where: { id: organizationId },
         select: { employeeIdNextNumber: true },
       });
       if (!row || row.employeeIdNextNumber == null) {
-        // Fallback
         return Array.from({ length: count }, () =>
           `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
         );
@@ -1056,6 +1144,32 @@ export class EmployeeBulkImportService {
 
       const startNum = row.employeeIdNextNumber;
       await tx.organization.update({
+        where: { id: organizationId },
+        data: { employeeIdNextNumber: startNum + count },
+      });
+
+      const codes: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const code = prefix === '' ? String(startNum + i) : `${prefix}${startNum + i}`;
+        codes.push(code);
+      }
+      return codes;
+    }
+
+    // Fallback: standalone transaction when no tx provided
+    return prisma.$transaction(async (innerTx) => {
+      const row = await innerTx.organization.findUnique({
+        where: { id: organizationId },
+        select: { employeeIdNextNumber: true },
+      });
+      if (!row || row.employeeIdNextNumber == null) {
+        return Array.from({ length: count }, () =>
+          `EMP${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+        );
+      }
+
+      const startNum = row.employeeIdNextNumber;
+      await innerTx.organization.update({
         where: { id: organizationId },
         data: { employeeIdNextNumber: startNum + count },
       });

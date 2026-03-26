@@ -35,11 +35,19 @@ export const employeeListAccess = async (
         select: { organizationId: true },
       });
 
-      if (!employee) {
-        return next(new AppError('Employee profile not found. Please contact administrator.', 403));
+      if (employee) {
+        userOrganizationId = employee.organizationId;
+      } else {
+        // Fallback: check user table for organizationId (admin users without employee profile)
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { organizationId: true },
+        });
+        if (!user?.organizationId) {
+          return next(new AppError('Employee profile not found. Please contact administrator.', 403));
+        }
+        userOrganizationId = user.organizationId;
       }
-
-      userOrganizationId = employee.organizationId;
 
       // Enforce organization filter in query params
       if (!req.query.organizationId) {
@@ -124,11 +132,19 @@ export const enforceOrganizationAccess = async (
         select: { organizationId: true },
       });
 
-      if (!employee) {
-        return next(new AppError('Employee profile not found. Please contact administrator.', 403));
+      if (employee) {
+        userOrganizationId = employee.organizationId;
+      } else {
+        // Fallback: check user table for organizationId (admin users without employee profile)
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { organizationId: true },
+        });
+        if (!user?.organizationId) {
+          return next(new AppError('Employee profile not found. Please contact administrator.', 403));
+        }
+        userOrganizationId = user.organizationId;
       }
-
-      userOrganizationId = employee.organizationId;
     }
 
     const providedOrgId = req.query.organizationId || req.body.organizationId || req.params.organizationId;

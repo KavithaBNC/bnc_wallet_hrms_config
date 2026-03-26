@@ -66,6 +66,28 @@ export class JobPositionService {
   }
 
   /**
+   * Lightweight list for searchable dropdown (id, title, code)
+   */
+  async list(organizationId: string, search?: string, departmentId?: string) {
+    const where: any = { organizationId, isActive: true };
+    if (departmentId) {
+      where.departmentId = departmentId;
+    }
+    const searchTerm = (search || '').trim();
+    if (searchTerm) {
+      where.OR = [
+        { title: { contains: searchTerm, mode: 'insensitive' } },
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
+    return prisma.jobPosition.findMany({
+      where,
+      orderBy: { title: 'asc' },
+      select: { id: true, title: true, code: true },
+    });
+  }
+
+  /**
    * Get all job positions with filtering and pagination
    */
   async getAll(query: QueryJobPositionsInput) {

@@ -5,11 +5,18 @@ import { generateCostCentreExcel, processCostCentreUpload } from '../services/de
 export class CostCentreController {
   async getByOrganization(req: Request, res: Response, next: NextFunction) {
     try {
-      const { organizationId } = req.query as { organizationId: string };
+      const { organizationId, search } = req.query as { organizationId: string; search?: string };
       if (!organizationId) {
         return res.status(400).json({ status: 'fail', message: 'organizationId required' });
       }
-      const list = await costCentreService.getByOrganization(organizationId, req.user?.userId);
+      let list = await costCentreService.getByOrganization(organizationId, req.user?.userId);
+      const searchTerm = (search || '').trim().toLowerCase();
+      if (searchTerm) {
+        list = list.filter((item: any) =>
+          (item.name && item.name.toLowerCase().includes(searchTerm)) ||
+          (item.code && item.code.toLowerCase().includes(searchTerm))
+        );
+      }
       return res.status(200).json({ status: 'success', data: { costCentres: list } });
     } catch (error) {
       return next(error);

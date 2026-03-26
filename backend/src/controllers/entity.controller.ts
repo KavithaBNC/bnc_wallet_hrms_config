@@ -6,11 +6,11 @@ import { generateEntityExcel, processEntityUpload } from '../services/designatio
 export class EntityController {
   async getByOrganization(req: Request, res: Response, next: NextFunction) {
     try {
-      const { organizationId } = req.query as { organizationId: string };
+      const { organizationId, search } = req.query as { organizationId: string; search?: string };
       if (!organizationId) {
         return res.status(400).json({ status: 'fail', message: 'organizationId required' });
       }
-      const list = await entityService.getByOrganization(organizationId);
+      const list = await entityService.getByOrganization(organizationId, search);
       return res.status(200).json({ status: 'success', data: { entities: list } });
     } catch (error) {
       return next(error);

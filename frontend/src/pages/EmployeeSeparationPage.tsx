@@ -9,6 +9,7 @@ import employeeSeparationService, {
 } from '../services/employeeSeparation.service';
 import employeeService from '../services/employee.service';
 import { useAuthStore } from '../store/authStore';
+import SearchableSelect from '../components/common/SearchableSelect';
 
 const SEPARATION_TYPES: { value: SeparationType; label: string }[] = [
   { value: 'RESIGNATION', label: 'Resignation' },
@@ -62,7 +63,7 @@ export default function EmployeeSeparationPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<EmployeeSeparation | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [employees, setEmployees] = useState<Array<{ id: string; employeeCode: string; firstName: string; lastName: string }>>([]);
+  const [employees, setEmployees] = useState<Array<{ value: string; label: string; source: 'configurator' | 'local' }>>([]);
   const [formData, setFormData] = useState<CreateEmployeeSeparationInput & { id?: string }>({
     employeeId: '',
     organizationId: organizationId || '',
@@ -112,24 +113,39 @@ export default function EmployeeSeparationPage() {
     if (organizationId) fetchList();
   }, [organizationId, page, pageSize, searchTerm]);
 
-  const fetchEmployeesForDropdown = async (includeSeparated = false) => {
-    if (!organizationId) return;
+  const fetchEmployeesForDropdown = async () => {
     try {
+      // Try Configurator API first
+      const configUsers = await employeeSeparationService.getConfiguratorUsers();
+      if (configUsers && configUsers.length > 0) {
+        setEmployees(configUsers.map((u) => ({
+          value: String(u.user_id),
+          label: u.full_name || u.email || `User ${u.user_id}`,
+          source: 'configurator' as const,
+        })));
+        return;
+      }
+    } catch (err) {
+      console.warn('[Separation] Configurator users API failed, falling back to local:', err);
+    }
+    // Fallback: fetch from local employee list
+    try {
+      if (!organizationId) return;
       const res = await employeeService.getAll({
         organizationId,
         page: 1,
         limit: 500,
         listView: true,
-        employeeStatus: includeSeparated ? 'ALL' : 'ACTIVE',
+        employeeStatus: 'ACTIVE',
       });
       const list = (res.employees || []).map((e: any) => ({
-        id: e.id,
-        employeeCode: e.employeeCode,
-        firstName: e.firstName,
-        lastName: e.lastName,
+        value: e.id,
+        label: `${e.employeeCode} - ${e.firstName} ${e.lastName}`.trim(),
+        source: 'local' as const,
       }));
       setEmployees(list);
-    } catch (_) {
+    } catch (err) {
+      console.error('[Separation] Local employees fetch also failed:', err);
       setEmployees([]);
     }
   };
@@ -147,7 +163,7 @@ export default function EmployeeSeparationPage() {
       separationType: 'RESIGNATION',
       remarks: null,
     });
-    fetchEmployeesForDropdown(false);
+    fetchEmployeesForDropdown();
     setShowForm(true);
   };
 
@@ -165,7 +181,7 @@ export default function EmployeeSeparationPage() {
       remarks: row.remarks ?? null,
       id: row.id,
     });
-    fetchEmployeesForDropdown(true);
+    fetchEmployeesForDropdown();
     setShowForm(true);
   };
 
@@ -189,8 +205,8 @@ export default function EmployeeSeparationPage() {
         });
         alert('Separation updated successfully');
       } else {
-        await employeeSeparationService.create({
-          employeeId: formData.employeeId,
+        const selectedEmp = employees.find((e) => e.value === formData.employeeId);
+        const createData: CreateEmployeeSeparationInput = {
           organizationId: formData.organizationId,
           resignationApplyDate: formData.resignationApplyDate,
           noticePeriod: formData.noticePeriod,
@@ -199,7 +215,13 @@ export default function EmployeeSeparationPage() {
           reasonOfLeaving: formData.reasonOfLeaving || null,
           separationType: formData.separationType,
           remarks: formData.remarks || null,
-        });
+        };
+        if (selectedEmp?.source === 'configurator') {
+          createData.configuratorUserId = Number(formData.employeeId);
+        } else {
+          createData.employeeId = formData.employeeId;
+        }
+        await employeeSeparationService.create(createData);
         alert('Employee separation recorded successfully');
       }
       setShowForm(false);
@@ -588,20 +610,14 @@ export default function EmployeeSeparationPage() {
             <label className="block text-sm font-medium text-gray-500 mb-1.5">
               Employee <span className="text-red-500">*</span>
             </label>
-            <select
-              required
-              value={formData.employeeId}
-              onChange={(e) => setFormData((f) => ({ ...f, employeeId: e.target.value }))}
-              className="w-full bg-white rounded-lg border border-gray-200 shadow-sm py-2.5 px-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+            <SearchableSelect
+              options={employees.map((emp) => ({ value: emp.value, label: emp.label }))}
+              value={formData.employeeId || ''}
+              onChange={(val) => setFormData((f) => ({ ...f, employeeId: val }))}
+              placeholder="Select Employee..."
               disabled={!!editing}
-            >
-              <option value="">-- Select Employee --</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.employeeCode} - {emp.firstName} {emp.lastName}
-                </option>
-              ))}
-            </select>
+              name="employeeId"
+            />
           </div>
 
           <div>

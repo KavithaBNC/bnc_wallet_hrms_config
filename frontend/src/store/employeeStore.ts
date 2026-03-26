@@ -64,19 +64,27 @@ export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
         if (!isNaN(subId) && subId > 0) filters.sub_department_id = subId;
       }
 
-      console.log('[employeeStore.fetchEmployees] Calling POST /api/v1/users/list with filters:', filters);
-      let list = await configuratorDataService.listConfiguratorUsers(
-        Object.keys(filters).length > 0 ? filters : undefined
-      );
+      let list: any[];
+      if (params?.employeeStatus === 'INACTIVE') {
+        // Inactive users come from a separate Configurator API
+        console.log('[employeeStore.fetchEmployees] Calling POST /api/v1/users/inactive-users');
+        list = await configuratorDataService.listInactiveUsers();
+      } else {
+        console.log('[employeeStore.fetchEmployees] Calling POST /api/v1/users/list with filters:', filters);
+        list = await configuratorDataService.listConfiguratorUsers(
+          Object.keys(filters).length > 0 ? filters : undefined
+        );
+        // Client-side: filter by is_active for ACTIVE status
+        if (params?.employeeStatus === 'ACTIVE') {
+          list = list.filter((u) => u.is_active === true);
+        }
+      }
       console.log('[employeeStore.fetchEmployees] Raw API response:', list.length, 'users');
 
-      // Client-side: filter by is_active (status)
-      if (params?.employeeStatus && params.employeeStatus !== 'ALL') {
-        if (params.employeeStatus === 'ACTIVE') {
-          list = list.filter((u) => u.is_active === true);
-        } else if (params.employeeStatus === 'INACTIVE') {
-          list = list.filter((u) => u.is_active === false);
-        }
+      // Exclude logged-in user from the list
+      if (params?.excludeEmail) {
+        const excludeEmail = params.excludeEmail.toLowerCase();
+        list = list.filter((u) => (u.email || '').toLowerCase() !== excludeEmail);
       }
 
       // Client-side: search filter (name, email, phone, code)

@@ -5,16 +5,22 @@ import { generateSubDepartmentExcel, processSubDepartmentUpload } from '../servi
 export class SubDepartmentController {
   async getByOrganization(req: Request, res: Response, next: NextFunction) {
     try {
-      const { organizationId, departmentId } = req.query as { organizationId: string; departmentId?: string };
+      const { organizationId, departmentId, search } = req.query as { organizationId: string; departmentId?: string; search?: string };
       if (!organizationId) {
         return res.status(400).json({ status: 'fail', message: 'organizationId required' });
       }
       const deptId = departmentId ? parseInt(departmentId, 10) : undefined;
-      const list = await subDepartmentService.getByOrganization(
+      let list = await subDepartmentService.getByOrganization(
         organizationId,
         req.user?.userId,
         Number.isNaN(deptId) ? undefined : deptId
       );
+      const searchTerm = (search || '').trim().toLowerCase();
+      if (searchTerm) {
+        list = list.filter((item: any) =>
+          item.name && item.name.toLowerCase().includes(searchTerm)
+        );
+      }
       return res.status(200).json({ status: 'success', data: { subDepartments: list } });
     } catch (error) {
       return next(error);

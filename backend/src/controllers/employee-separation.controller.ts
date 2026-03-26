@@ -8,7 +8,7 @@ export class EmployeeSeparationController {
       if (req.rbac?.organizationId && !body.organizationId) {
         body.organizationId = req.rbac.organizationId;
       }
-      const separation = await employeeSeparationService.create(body);
+      const separation = await employeeSeparationService.create(body, req.user?.userId);
       return res.status(201).json({
         status: 'success',
         message: 'Employee separation recorded successfully',

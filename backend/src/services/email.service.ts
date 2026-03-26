@@ -123,6 +123,66 @@ export class EmailService {
   }
 
   /**
+   * Send welcome email with login credentials to a newly created employee.
+   * Fire-and-forget — errors are logged but don't block employee creation.
+   */
+  async sendEmployeeCredentialsEmail(
+    toEmail: string,
+    firstName: string,
+    loginEmail: string,
+    temporaryPassword: string,
+  ): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: config.emailFrom,
+        to: toEmail,
+        subject: 'Welcome to HRMS - Your Login Credentials',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+            <div style="background: linear-gradient(135deg, #f97316, #ea580c); padding: 24px; text-align: center;">
+              <h1 style="color: white; margin: 0; font-size: 24px;">Welcome to HRMS!</h1>
+            </div>
+            <div style="padding: 32px 24px;">
+              <p style="font-size: 16px; color: #374151;">Hi <strong>${firstName}</strong>,</p>
+              <p style="font-size: 15px; color: #4b5563;">Congratulations! Your employee account has been successfully created. You can now log in to the HRMS Portal using the credentials below.</p>
+
+              <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 24px 0;">
+                <h3 style="margin: 0 0 12px 0; color: #111827; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Your Login Credentials</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px 0; color: #6b7280; font-size: 14px; width: 100px;">Email</td>
+                    <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 600;">${loginEmail}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Password</td>
+                    <td style="padding: 8px 0; color: #111827; font-size: 14px; font-weight: 600; font-family: monospace; background: #fef3c7; padding: 4px 8px; border-radius: 4px;">${temporaryPassword}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${config.frontendUrl || 'http://localhost:3000'}/login"
+                   style="background-color: #f97316; color: white; padding: 12px 32px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600; font-size: 15px;">
+                  Login Now
+                </a>
+              </div>
+
+              <p style="font-size: 13px; color: #9ca3af; margin-top: 24px;">Please change your password after your first login for security purposes.</p>
+            </div>
+            <div style="background: #f3f4f6; padding: 16px 24px; text-align: center;">
+              <p style="font-size: 12px; color: #9ca3af; margin: 0;">This is an automated message from HRMS. Please do not reply.</p>
+            </div>
+          </div>
+        `,
+      });
+      logger.info(`Employee credentials email sent to ${toEmail}`);
+    } catch (error) {
+      logger.error('Error sending employee credentials email:', error);
+      // Fire-and-forget — don't throw
+    }
+  }
+
+  /**
    * Send password changed confirmation email
    */
   async sendPasswordChangedEmail(email: string): Promise<void> {

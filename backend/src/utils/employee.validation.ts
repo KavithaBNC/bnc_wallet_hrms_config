@@ -38,6 +38,7 @@ export const createEmployeeSchema = z.object({
   departmentConfiguratorId: z.number().optional().nullable(),
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
+  reportingManagerConfiguratorUserId: z.number().optional().nullable(),
   workLocation: z.string().max(255).optional(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
@@ -111,6 +112,7 @@ export const createEmployeeSchema = z.object({
 
   faceEncoding: z.array(z.number()).length(128).optional().nullable(),
   encryptedPassword: z.string().optional().nullable(), // encrypted_password from Configurator API response
+  rawTemporaryPassword: z.string().optional().nullable(), // raw temp password for welcome email
 });
 
 /**

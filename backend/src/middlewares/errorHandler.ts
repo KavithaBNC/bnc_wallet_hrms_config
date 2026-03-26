@@ -12,12 +12,14 @@ export class AppError extends Error implements ApiError {
   statusCode: number;
   status: string;
   isOperational: boolean;
+  validationErrors?: string[];
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, validationErrors?: string[]) {
     super(message);
     this.statusCode = statusCode;
     this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
     this.isOperational = true;
+    if (validationErrors) this.validationErrors = validationErrors;
 
     Error.captureStackTrace(this, this.constructor);
   }
@@ -77,12 +79,16 @@ export const errorHandler = (
 
   // Development error response
   if (config.nodeEnv === 'development') {
-    res.status(err.statusCode).json({
+    const response: Record<string, unknown> = {
       status: err.status,
       error: err,
       message: err.message,
       stack: err.stack,
-    });
+    };
+    if ((err as AppError).validationErrors) {
+      response.validationErrors = (err as AppError).validationErrors;
+    }
+    res.status(err.statusCode).json(response);
     return;
   }
 
@@ -96,10 +102,14 @@ export const errorHandler = (
       logger.error('ERROR 💥', err);
     }
 
-    res.status(err.statusCode).json({
+    const response: Record<string, unknown> = {
       status: err.status,
       message: err.message,
-    });
+    };
+    if ((err as AppError).validationErrors) {
+      response.validationErrors = (err as AppError).validationErrors;
+    }
+    res.status(err.statusCode).json(response);
   } else {
     // Programming or unknown error: don't leak error details
     logger.error('ERROR 💥', err);

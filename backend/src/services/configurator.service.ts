@@ -9,8 +9,8 @@ import jwt from 'jsonwebtoken';
 import { config } from '../config/config';
 import { AppError } from '../middlewares/errorHandler';
 
-let CONFIGURATOR_BASE = config.configuratorApiUrl;
-const CONFIGURATOR_FALLBACK = config.configuratorApiFallbackUrl;
+let CONFIGURATOR_BASE = config.configuratorApiUrl.replace(/\/+$/, '');
+const CONFIGURATOR_FALLBACK = config.configuratorApiFallbackUrl.replace(/\/+$/, '');
 const HRMS_PROJECT_ID = config.configuratorHrmsProjectId;
 
 /**
@@ -272,6 +272,29 @@ export class ConfiguratorService {
   }
 
   /**
+   * Get all user roles from Configurator for a company.
+   * GET /api/v1/user-roles/?company_id=X
+   * Returns roles filtered by company_id and is_active.
+   */
+  async getUserRoles(accessToken: string, companyId: number, projectId?: number): Promise<any[]> {
+    try {
+      const params: Record<string, any> = { company_id: companyId, skip: 0, limit: 500 };
+      if (projectId) params.project_id = projectId;
+      const res = await axios.get(`${CONFIGURATOR_BASE}/api/v1/user-roles/`, {
+        params,
+        headers: { Authorization: `Bearer ${accessToken}` },
+        timeout: 15000,
+      });
+      const data = res.data;
+      const list = Array.isArray(data) ? data : (data?.data ?? data?.roles ?? []);
+      // Use loose equality (==) for company_id to handle string/number mismatch
+      return list.filter((r: any) => r.company_id == companyId && r.is_active !== false);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get modules for HRMS project
    * Tries GET /api/v1/modules?project_id=X and GET /api/v1/project-modules?project_id=X
    * Returns modules from Config DB project_modules table.
@@ -527,25 +550,20 @@ export class ConfiguratorService {
 
   /**
    * Get departments from Config DB
-   * GET /api/v1/departments/?company_id=X&cost_centre_id=Y&skip=0&limit=500
+   * POST /api/v1/departments/list  { company_id }
    */
   async getDepartments(
     accessToken: string,
     opts: { companyId: number; costCentreId?: number }
   ): Promise<any[]> {
     try {
-      const params: Record<string, number> = { company_id: opts.companyId, skip: 0, limit: 500 };
-      if (opts.costCentreId != null) params.cost_centre_id = opts.costCentreId;
-      // Fetch departments from Configurator
-      const res = await axios.get(`${CONFIGURATOR_BASE}/api/v1/departments/`, {
-        params,
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 15000,
-      });
+      const res = await axios.post(
+        `${CONFIGURATOR_BASE}/api/v1/departments/list`,
+        { company_id: opts.companyId },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
+      );
       const data = res.data;
-      const result = Array.isArray(data) ? data : (data?.data ?? data?.departments ?? []);
-      // departments fetched
-      return result;
+      return Array.isArray(data) ? data : (data?.data ?? data?.departments ?? []);
     } catch (err: any) {
       console.error('[configuratorService.getDepartments] FAILED:', err.response?.status);
       return [];
@@ -553,26 +571,48 @@ export class ConfiguratorService {
   }
 
   /**
+   * Get users from Config DB
+   * POST /api/v1/users/list  { company_id }
+   */
+  async getUsers(
+    accessToken: string,
+    opts: { companyId: number; projectId?: number }
+  ): Promise<any[]> {
+    try {
+      const res = await withFallback((base) =>
+        axios.post(
+          `${base}/api/v1/users/list`,
+          { company_id: opts.companyId, project_id: opts.projectId ?? (Number(config.configuratorHrmsProjectId) || 2) },
+          { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
+        )
+      );
+      const data = res.data;
+      return Array.isArray(data) ? data : (data?.data ?? data?.users ?? []);
+    } catch (err: any) {
+      console.error('[configuratorService.getUsers] FAILED:', err.response?.status, err.response?.data);
+      throw new AppError(
+        err.response?.data?.detail ? JSON.stringify(err.response.data.detail) : 'Failed to fetch users',
+        err.response?.status || 500
+      );
+    }
+  }
+
+  /**
    * Get sub-departments from Config DB
-   * GET /api/v1/sub-departments/?company_id=X or ?department_id=Y
+   * POST /api/v1/sub-departments/list  { company_id }
    */
   async getSubDepartments(
     accessToken: string,
     opts: { companyId: number; departmentId?: number }
   ): Promise<any[]> {
     try {
-      const params: Record<string, number> = { company_id: opts.companyId };
-      if (opts.departmentId != null) params.department_id = opts.departmentId;
-      // Fetch sub-departments from Configurator
-      const res = await axios.get(`${CONFIGURATOR_BASE}/api/v1/sub-departments/`, {
-        params: { ...params, skip: 0, limit: 500 },
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 15000,
-      });
+      const res = await axios.post(
+        `${CONFIGURATOR_BASE}/api/v1/sub-departments/list`,
+        { company_id: opts.companyId },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
+      );
       const data = res.data;
-      const result = Array.isArray(data) ? data : (data?.data ?? data?.sub_departments ?? []);
-      // sub-departments fetched
-      return result;
+      return Array.isArray(data) ? data : (data?.data ?? data?.sub_departments ?? []);
     } catch (err: any) {
       console.error('[configuratorService.getSubDepartments] FAILED:', err.response?.status);
       return [];
@@ -604,11 +644,11 @@ export class ConfiguratorService {
    */
   async getCostCentres(accessToken: string, companyId: number): Promise<any[]> {
     try {
-      const res = await axios.get(`${CONFIGURATOR_BASE}/api/v1/cost-centres/`, {
-        params: { company_id: companyId, skip: 0, limit: 500 },
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 15000,
-      });
+      const res = await axios.post(
+        `${CONFIGURATOR_BASE}/api/v1/cost-centres/list`,
+        { company_id: companyId },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
+      );
       const data = res.data;
       return Array.isArray(data) ? data : (data?.data ?? data?.cost_centres ?? []);
     } catch {
@@ -647,11 +687,12 @@ export class ConfiguratorService {
         company_id: data.company_id,
         project_id: data.project_id ?? 0,
         role_id: data.role_id ?? 0,
-        cost_centre_id: data.cost_centre_id ?? 0,
-        department_id: data.department_id ?? 0,
-        sub_department_id: data.sub_department_id ?? 0,
         password: data.password,
       };
+      // Only include FK fields if they have actual non-zero values (0 causes FK violation)
+      if (data.cost_centre_id && data.cost_centre_id > 0) body.cost_centre_id = data.cost_centre_id;
+      if (data.department_id && data.department_id > 0) body.department_id = data.department_id;
+      if (data.sub_department_id && data.sub_department_id > 0) body.sub_department_id = data.sub_department_id;
       if (data.manager_id != null) body.manager_id = data.manager_id;
       const res = await axios.post(
         `${CONFIGURATOR_BASE}/api/v1/users/add`,
@@ -761,6 +802,39 @@ export class ConfiguratorService {
   }
 
   /**
+   * Separate a user in the Configurator DB.
+   * POST /api/v1/users/separate
+   */
+  async separateUser(
+    accessToken: string,
+    data: {
+      company_id: number;
+      user_id: number;
+      remarks: string;
+      separation_type: string;
+    }
+  ): Promise<any> {
+    try {
+      const res = await withFallback((base) =>
+        axios.put(`${base}/api/v1/users/separate`, data, {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          timeout: 15000,
+        })
+      );
+      return res.data;
+    } catch (err) {
+      const axiosErr = err as AxiosError<any>;
+      if (axiosErr.response) {
+        const msg = axiosErr.response.data?.detail
+          ? axiosErr.response.data.detail
+          : JSON.stringify(axiosErr.response?.data ?? 'User separate failed');
+        throw new AppError(msg, axiosErr.response.status);
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Upload Excel file for bulk user creation in Configurator DB.
    * POST /api/v1/users/upload-excel  (multipart/form-data)
    */
@@ -836,10 +910,11 @@ export class ConfiguratorService {
    * Download the employee import template from Configurator.
    * GET /api/v1/users/download/employee_import_template
    */
-  async downloadEmployeeImportTemplate(accessToken: string): Promise<Buffer> {
+  async downloadEmployeeImportTemplate(accessToken: string, companyId: number): Promise<Buffer> {
     try {
       const res = await withFallback((base) =>
         axios.get(`${base}/api/v1/users/download/employee_import_template`, {
+          params: { company_id: companyId },
           headers: { Authorization: `Bearer ${accessToken}` },
           responseType: 'arraybuffer',
           timeout: 30000,

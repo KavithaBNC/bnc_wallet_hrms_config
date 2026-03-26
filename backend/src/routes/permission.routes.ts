@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { UserRole } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
 import { checkPermission } from '../middlewares/permission';
 import { permissionController } from '../controllers/permission.controller';
@@ -8,6 +9,23 @@ const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+/**
+ * @route   GET /api/v1/permissions/roles
+ * @desc    List all user roles (for searchable dropdown)
+ * @access  Private (All authenticated users)
+ */
+router.get('/roles', (req, res) => {
+  const search = ((req.query.search as string) || '').trim().toLowerCase();
+  const roles = Object.values(UserRole).map((value) => ({
+    value,
+    label: value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+  }));
+  const filtered = search
+    ? roles.filter((r) => r.label.toLowerCase().includes(search) || r.value.toLowerCase().includes(search))
+    : roles;
+  return res.status(200).json({ status: 'success', data: { roles: filtered } });
+});
 
 /**
  * @route   POST /api/v1/permissions
