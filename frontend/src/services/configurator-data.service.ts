@@ -40,11 +40,24 @@ function getConfiguratorApi(): AxiosInstance {
     timeout: 30000,
   });
 
-  // Add 401 response interceptor to refresh Configurator token
+  // Add response interceptor for 401 (token refresh) and 429 (rate limit retry)
   instance.interceptors.response.use(
     (response) => response,
     async (error) => {
       const originalRequest: any = error.config;
+
+      // 429 Too Many Requests — retry after delay (up to 3 times)
+      if (error.response?.status === 429) {
+        const retryCount = originalRequest._retryCount || 0;
+        if (retryCount < 3) {
+          originalRequest._retryCount = retryCount + 1;
+          const delay = (retryCount + 1) * 1000; // 1s, 2s, 3s
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return instance(originalRequest);
+        }
+      }
+
+      // 401 Unauthorized — refresh token
       if (error.response?.status === 401 && !originalRequest._retry) {
         originalRequest._retry = true;
         try {
@@ -209,7 +222,15 @@ const configuratorDataService = {
       const company_id = getCompanyId();
       const { data } = await api.post('/api/v1/branches/list', { company_id: company_id ?? null });
       const list = Array.isArray(data) ? data : (data?.data ?? data?.branches ?? data?.results ?? []);
-      return list.filter((item: any) => item.is_active !== false);
+      return list
+        .filter((item: any) => item.is_active !== false)
+        .map((item: any) => ({
+          id: item.id ?? item.branch_id,
+          name: item.name ?? item.branch_name,
+          code: item.code,
+          company_id: item.company_id,
+          is_active: item.is_active,
+        }));
     } catch (err: any) {
       console.error('[configuratorDataService.getBranches] Error:', err?.message, err?.response?.data);
       throw err;
@@ -581,6 +602,66 @@ const configuratorDataService = {
       return list;
     } catch (err: any) {
       console.error('[listConfiguratorUsers] Error:', err?.message, err?.response?.status, err?.response?.data);
+      throw err;
+    }
+  },
+  /** POST /api/v1/users/inactive-users — fetch inactive users list */
+  async listInactiveUsers(): Promise<ConfigUser[]> {
+    try {
+      const api = getConfiguratorApi();
+      const company_id = getCompanyId();
+      console.log('[configuratorDataService.listInactiveUsers] POST /api/v1/users/inactive-users payload:', JSON.stringify({ company_id: company_id ?? 0 }));
+      const response = await api.post('/api/v1/users/inactive-users', { company_id: company_id ?? 0 });
+      const data = response.data;
+
+      // Extract the array from any possible response shape (same logic as listConfiguratorUsers)
+      let list: any[] = [];
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (data && typeof data === 'object') {
+        const inner = data.data ?? data.users ?? data.results ?? data.list;
+        if (Array.isArray(inner)) {
+          list = inner;
+        } else if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+          const deeper = inner.data ?? inner.users ?? inner.results ?? inner.list;
+          if (Array.isArray(deeper)) {
+            list = deeper;
+          } else {
+            const firstArr = Object.values(data).find((v) => Array.isArray(v));
+            if (firstArr) list = firstArr as any[];
+          }
+        } else {
+          const firstArr = Object.values(data).find((v) => Array.isArray(v));
+          if (firstArr) list = firstArr as any[];
+        }
+      } else if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data);
+          list = Array.isArray(parsed) ? parsed : (parsed?.data ?? parsed?.users ?? parsed?.results ?? []);
+          if (!Array.isArray(list)) list = [];
+        } catch { list = []; }
+      }
+
+      // Normalize fields to match ConfigUser shape expected by the table
+      // (inactive-users API may return different field names than /users/list)
+      list = list.map((u: any) => ({
+        ...u,
+        user_id: u.user_id ?? u.id ?? u.userId,
+        full_name: (u.full_name ?? u.name ?? u.fullname ?? u.full_Name ?? [u.first_name, u.last_name].filter(Boolean).join(' ')) || '',
+        email: u.email ?? u.Email ?? '',
+        code: u.code ?? u.employee_code ?? u.empCode ?? u.emp_code ?? '',
+        phone: u.phone ?? u.mobile ?? u.phone_number ?? '',
+        is_active: u.is_active ?? false,
+        project_role: u.project_role ?? (u.role_name ? { id: u.role_id, name: u.role_name } : u.project_role) ?? null,
+        cost_centre: u.cost_centre ?? (u.cost_centre_name ? { id: u.cost_centre_id, name: u.cost_centre_name } : null) ?? null,
+        department: u.department ?? (u.department_name ? { id: u.department_id, name: u.department_name } : null) ?? null,
+        sub_department: u.sub_department ?? (u.sub_department_name ? { id: u.sub_department_id, name: u.sub_department_name } : null) ?? null,
+      }));
+
+      console.log('[configuratorDataService.listInactiveUsers] Response:', list.length, 'users', list);
+      return list;
+    } catch (err: any) {
+      console.error('[listInactiveUsers] Error:', err?.message, err?.response?.status, err?.response?.data);
       throw err;
     }
   },

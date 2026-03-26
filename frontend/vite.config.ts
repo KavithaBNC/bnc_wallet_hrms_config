@@ -28,6 +28,7 @@ export default defineConfig({
       '/configurator-api': {
         target: 'https://bnc-ai.com/ragapi',
         changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/configurator-api/, ''),
         configure: (proxy) => {
           proxy.on('error', (_err, _req, _res) => {

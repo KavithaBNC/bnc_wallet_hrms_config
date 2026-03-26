@@ -5,13 +5,13 @@ import { createLocationSchema } from '../utils/location.validation';
 export class LocationController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const { organizationId, entityId } = req.query as { organizationId?: string; entityId?: string };
+      const { organizationId, entityId, search } = req.query as { organizationId?: string; entityId?: string; search?: string };
       if (!organizationId) {
         return res.status(400).json({ status: 'fail', message: 'organizationId required' });
       }
       const list = entityId
-        ? await locationService.getByEntity(entityId)
-        : await locationService.getByOrganization(organizationId);
+        ? await locationService.getByEntity(entityId, search)
+        : await locationService.getByOrganization(organizationId, search);
       return res.status(200).json({ status: 'success', data: { locations: list } });
     } catch (error) {
       return next(error);

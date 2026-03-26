@@ -11,7 +11,7 @@ export class DepartmentController {
    */
   async getConfiguratorList(req: Request, res: Response, next: NextFunction) {
     try {
-      const { organizationId, costCentreId } = req.query as { organizationId?: string; costCentreId?: string };
+      const { organizationId, costCentreId, search } = req.query as { organizationId?: string; costCentreId?: string; search?: string };
       if (!organizationId) {
         return res.status(400).json({ status: 'fail', message: 'organizationId required' });
       }
@@ -34,11 +34,17 @@ export class DepartmentController {
         companyId: org.configuratorCompanyId,
         costCentreId: Number.isNaN(ccId) ? undefined : ccId,
       });
-      const departments = configList.map((d: any) => ({
+      let departments = configList.map((d: any) => ({
         id: String(typeof d === 'object' ? d.id : d),
         name: typeof d === 'object' ? (d.name ?? d.Name ?? '') : String(d),
         cost_centre_id: typeof d === 'object' ? (d.cost_centre_id ?? d.costCentreId ?? null) : null,
       })).sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
+      const searchTerm = (search || '').trim().toLowerCase();
+      if (searchTerm) {
+        departments = departments.filter((item: any) =>
+          item.name && item.name.toLowerCase().includes(searchTerm)
+        );
+      }
       return res.status(200).json({ status: 'success', data: { departments } });
     } catch (error) {
       return next(error);

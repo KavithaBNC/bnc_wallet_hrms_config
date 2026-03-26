@@ -77,6 +77,16 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/positions/list
+ * @desc    Lightweight list for searchable dropdown (id, title, code)
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/list',
+  jobPositionController.list.bind(jobPositionController)
+);
+
+/**
  * @route   GET /api/v1/positions
  * @desc    Get all positions with filtering
  * @access  Private (All authenticated users)

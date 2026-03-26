@@ -3,17 +3,33 @@ import { prisma } from '../utils/prisma';
 import { CreateLocationInput } from '../utils/location.validation';
 
 export class LocationService {
-  async getByOrganization(organizationId: string) {
+  async getByOrganization(organizationId: string, search?: string) {
+    const where: any = { organizationId, isActive: true };
+    const searchTerm = (search || '').trim();
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
     return prisma.location.findMany({
-      where: { organizationId, isActive: true },
+      where,
       orderBy: { name: 'asc' },
       select: { id: true, name: true, code: true, entityId: true },
     });
   }
 
-  async getByEntity(entityId: string) {
+  async getByEntity(entityId: string, search?: string) {
+    const where: any = { entityId, isActive: true };
+    const searchTerm = (search || '').trim();
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
     return prisma.location.findMany({
-      where: { entityId, isActive: true },
+      where,
       orderBy: { name: 'asc' },
       select: { id: true, name: true, code: true, entityId: true },
     });

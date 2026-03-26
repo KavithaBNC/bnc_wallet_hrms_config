@@ -10,7 +10,8 @@ const separationTypeEnum = z.enum([
 ]);
 
 export const createEmployeeSeparationSchema = z.object({
-  employeeId: z.string().uuid(),
+  employeeId: z.string().uuid().optional(),
+  configuratorUserId: z.number().int().optional(),
   organizationId: z.string().uuid(),
   resignationApplyDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   noticePeriod: z.number().int().min(0),

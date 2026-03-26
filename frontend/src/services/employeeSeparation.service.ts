@@ -30,8 +30,18 @@ export interface EmployeeSeparation {
   };
 }
 
+export interface ConfiguratorUser {
+  user_id: number;
+  full_name: string;
+  email?: string;
+  code?: string;
+  is_active?: boolean;
+  [key: string]: any;
+}
+
 export interface CreateEmployeeSeparationInput {
-  employeeId: string;
+  employeeId?: string;
+  configuratorUserId?: number;
   organizationId: string;
   resignationApplyDate: string;
   noticePeriod: number;
@@ -94,6 +104,11 @@ const employeeSeparationService = {
 
   async delete(id: string): Promise<void> {
     await api.delete(`/employee-separations/${id}`);
+  },
+
+  async getConfiguratorUsers(): Promise<ConfiguratorUser[]> {
+    const response = await api.get('/configurator-data/users');
+    return response.data.data ?? [];
   },
 };
 

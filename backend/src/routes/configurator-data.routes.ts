@@ -66,6 +66,75 @@ async function getConfigContext(req: Request) {
   return { token: user.configuratorAccessToken, companyId };
 }
 
+// ─── USERS ──────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/configurator-data/users
+ * Fetch users from Configurator DB, excluding the logged-in user.
+ */
+router.get('/users', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) throw new AppError('Not authenticated', 401);
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: { id: true, configuratorAccessToken: true, configuratorRefreshToken: true },
+    });
+    if (!dbUser?.configuratorAccessToken) {
+      throw new AppError('No Configurator session. Please log in again.', 401);
+    }
+
+    // Resolve companyId
+    let companyId = 0;
+    const employee = await prisma.employee.findFirst({
+      where: { userId: req.user.userId },
+      select: { configuratorUserId: true, organization: { select: { configuratorCompanyId: true } } },
+    });
+    companyId = employee?.organization?.configuratorCompanyId || Number(config.configuratorDefaultCompanyId) || 0;
+    if (!companyId) throw new AppError('Could not determine company_id', 400);
+
+    // Try fetching users; if 401, refresh token and retry
+    let users: any[] = [];
+    try {
+      users = await configuratorService.getUsers(dbUser.configuratorAccessToken, { companyId });
+    } catch (err: any) {
+      if (err?.statusCode === 401 || err?.message?.includes('401') || err?.message?.includes('expired')) {
+        if (dbUser.configuratorRefreshToken) {
+          try {
+            const refreshed = await configuratorService.refreshToken(dbUser.configuratorRefreshToken);
+            await prisma.user.update({
+              where: { id: dbUser.id },
+              data: {
+                configuratorAccessToken: refreshed.access_token,
+                configuratorRefreshToken: refreshed.refresh_token,
+              },
+            });
+            users = await configuratorService.getUsers(refreshed.access_token, { companyId });
+          } catch (refreshErr) {
+            console.error('[GET /configurator-data/users] Token refresh failed:', refreshErr);
+            throw new AppError('Configurator session expired. Please log in again.', 401);
+          }
+        } else {
+          throw new AppError('Configurator session expired. Please log in again.', 401);
+        }
+      } else {
+        throw err;
+      }
+    }
+
+    // Exclude logged-in user
+    const excludeId = employee?.configuratorUserId ?? null;
+    const filtered = excludeId != null
+      ? users.filter((u: any) => u.user_id !== excludeId)
+      : users;
+
+    return res.json({ status: 'success', data: filtered });
+  } catch (error) {
+    console.error('[GET /configurator-data/users] Error:', error instanceof Error ? error.message : error);
+    return next(error);
+  }
+});
+
 // ─── DEPARTMENTS ────────────────────────────────────────────────────────────
 
 /**

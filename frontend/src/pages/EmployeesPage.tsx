@@ -96,6 +96,7 @@ export default function EmployeesPage() {
   const [credStatusFilter, setCredStatusFilter] = useState<string>('ALL');
   const [credSearchTerm, setCredSearchTerm] = useState('');
   const [statsActiveCount, setStatsActiveCount] = useState<number | null>(null);
+  const [statsInactiveCount, setStatsInactiveCount] = useState<number | null>(null);
 
   // Fetch current user's permissions (for permission-based edit/view per tab)
   useEffect(() => {
@@ -266,8 +267,9 @@ export default function EmployeesPage() {
     if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
     if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
+    if (user?.email) params.excludeEmail = user.email;
     fetchEmployees(params);
-  }, [location.pathname, currentPage, pageSize, debouncedSearchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, fetchEmployees]);
+  }, [location.pathname, currentPage, pageSize, debouncedSearchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, fetchEmployees, user?.email]);
 
   // When viewing ALL status, fetch active count for accurate dashboard stats
   useEffect(() => {
@@ -284,6 +286,16 @@ export default function EmployeesPage() {
       .catch(() => { if (!cancelled) setStatsActiveCount(null); });
     return () => { cancelled = true; };
   }, [statusFilter, effectiveOrganizationId, location.pathname]);
+
+  // Fetch inactive user count from Configurator API on mount
+  useEffect(() => {
+    if (location.pathname !== '/employees') return;
+    let cancelled = false;
+    configuratorDataService.listInactiveUsers()
+      .then((list) => { if (!cancelled) setStatsInactiveCount(list.length); })
+      .catch(() => { if (!cancelled) setStatsInactiveCount(null); });
+    return () => { cancelled = true; };
+  }, [location.pathname]);
 
   // Open employee edit/rejoin form when navigated with editEmployeeId or rejoinEmployeeId
   useEffect(() => {
@@ -359,25 +371,38 @@ export default function EmployeesPage() {
     }
   };
 
-  // ─── View: find HRMS employee by email, then open full EmployeeForm in view mode ───
+  // ─── View: find HRMS employee by Configurator user_id, then open full EmployeeForm in view mode ───
   const handleViewUser = async (user: any) => {
     try {
       setLoadingEmployee(true);
-      const email = user.email;
-      if (!email) {
-        setViewingUser(user);
-        return;
+      const configUserId = user.user_id || user.id;
+
+      // Try to find HRMS employee by configuratorUserId (bypasses RBAC list filter)
+      let hrmsEmployee = null;
+      if (configUserId && typeof configUserId === 'number') {
+        hrmsEmployee = await employeeService.getByConfiguratorUserId(configUserId);
       }
-      const hrmsEmployee = await employeeService.getByEmail(email);
+      if (!hrmsEmployee && user.email) {
+        hrmsEmployee = await employeeService.getByEmail(user.email);
+      }
+
       if (!hrmsEmployee) {
-        const details = await configuratorDataService.getConfiguratorUser(user.user_id);
+        const details = await configuratorDataService.getConfiguratorUser(configUserId);
         setViewingUser({ ...user, ...details });
         return;
       }
-      const full = await employeeService.getById(hrmsEmployee.id);
+
+      const configFields = buildConfigFields(user);
+      const emp = hrmsEmployee as any;
+      if (!emp.configuratorUserId) emp.configuratorUserId = configFields.configuratorUserId;
+      if (!emp.costCentreConfiguratorId && configFields.costCentreConfiguratorId) emp.costCentreConfiguratorId = configFields.costCentreConfiguratorId;
+      if (!emp.departmentConfiguratorId && configFields.departmentConfiguratorId) emp.departmentConfiguratorId = configFields.departmentConfiguratorId;
+      if (!emp.subDepartmentConfiguratorId && configFields.subDepartmentConfiguratorId) emp.subDepartmentConfiguratorId = configFields.subDepartmentConfiguratorId;
+      if (!emp.configuratorRoleId && configFields.configuratorRoleId) emp.configuratorRoleId = configFields.configuratorRoleId;
+
       navigate(`/employees/view/${hrmsEmployee.id}`, {
         state: {
-          employee: full,
+          employee: hrmsEmployee,
           mode: 'view' as const,
         },
       });
@@ -406,21 +431,16 @@ export default function EmployeesPage() {
   const handleEditUser = async (user: any) => {
     try {
       setLoadingEmployee(true);
-      const email = user.email;
-      if (!email) {
-        alert('No email found for this employee. Cannot edit.');
-        return;
-      }
       const configFields = buildConfigFields(user);
 
-      let hrmsEmployee = await employeeService.getByEmail(email);
-
-      // If email search failed, try finding by configuratorUserId
-      if (!hrmsEmployee) {
-        const configUserId = user.user_id || user.id;
-        if (configUserId && typeof configUserId === 'number') {
-          hrmsEmployee = await employeeService.getByConfiguratorUserId(configUserId);
-        }
+      // Try configuratorUserId first (bypasses RBAC), then email fallback
+      let hrmsEmployee = null;
+      const configUserId = user.user_id || user.id;
+      if (configUserId && typeof configUserId === 'number') {
+        hrmsEmployee = await employeeService.getByConfiguratorUserId(configUserId);
+      }
+      if (!hrmsEmployee && user.email) {
+        hrmsEmployee = await employeeService.getByEmail(user.email);
       }
 
       if (!hrmsEmployee) {
@@ -443,8 +463,9 @@ export default function EmployeesPage() {
         });
         return;
       }
-      const full = hrmsEmployee.id ? await employeeService.getById(hrmsEmployee.id) : hrmsEmployee;
-      const emp = full as any;
+      // Use data from getByConfiguratorUserId/getByEmail (already full).
+      // Merge Configurator fields that may be missing in HRMS record.
+      const emp = hrmsEmployee as any;
       if (!emp.configuratorUserId) emp.configuratorUserId = configFields.configuratorUserId;
       if (!emp.costCentreConfiguratorId && configFields.costCentreConfiguratorId) emp.costCentreConfiguratorId = configFields.costCentreConfiguratorId;
       if (!emp.departmentConfiguratorId && configFields.departmentConfiguratorId) emp.departmentConfiguratorId = configFields.departmentConfiguratorId;
@@ -457,9 +478,9 @@ export default function EmployeesPage() {
         emp.subDepartment = configFields.sub_department.name;
       }
 
-      navigate(`/employees/edit/${hrmsEmployee.id}`, {
+      navigate(`/employees/edit/${emp.id}`, {
         state: {
-          employee: full,
+          employee: emp,
           mode: 'edit' as const,
         },
       });
@@ -1007,10 +1028,7 @@ export default function EmployeesPage() {
             )}
             {canCreate && (
               <button
-                onClick={() => {
-                  setShowImportModal(true);
-                  setImportResult(null);
-                }}
+                onClick={() => navigate('/employees/import')}
                 disabled={isSuperAdmin && superAdminSelectedOrgId === 'ALL'}
                 title={isSuperAdmin && superAdminSelectedOrgId === 'ALL' ? 'Select an organization to import employees' : undefined}
                 className="h-9 px-4 py-2 rounded-lg bg-white text-gray-700 font-medium text-sm border border-gray-300 hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1446,9 +1464,9 @@ export default function EmployeesPage() {
 
       {/* Filters Bar - equal-width boxes, labels above, match reference */}
       {!showCredentials && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
+        <div className="flex flex-wrap gap-4 mb-6">
           {isSuperAdmin && (
-            <div className="flex flex-col">
+            <div className="flex flex-col w-52">
               <label className="text-sm font-medium text-gray-500 mb-1.5">Organization</label>
               <select
                 value={superAdminSelectedOrgId}
@@ -1462,46 +1480,7 @@ export default function EmployeesPage() {
               </select>
             </div>
           )}
-          <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Cost Centre</label>
-            <select
-              value={costCentreFilter}
-              onChange={(e) => { setCostCentreFilter(e.target.value); setCurrentPage(1); }}
-              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">All Cost Centres</option>
-              {configCostCentres.map((cc) => (
-                <option key={cc.id} value={cc.id}>{cc.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Department</label>
-            <select
-              value={departmentFilter}
-              onChange={(e) => { setDepartmentFilter(e.target.value); setCurrentPage(1); }}
-              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">All Departments</option>
-              {configDepartments.map((d) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col">
-            <label className="text-sm font-medium text-gray-500 mb-1.5">Sub Department</label>
-            <select
-              value={subDepartmentFilter}
-              onChange={(e) => { setSubDepartmentFilter(e.target.value); setCurrentPage(1); }}
-              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="ALL">All Sub Departments</option>
-              {configSubDepartments.map((sd) => (
-                <option key={sd.id} value={sd.id}>{sd.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col w-52">
             <label className="text-sm font-medium text-gray-500 mb-1.5">Select Status</label>
             <select
               value={statusFilter}
@@ -1513,7 +1492,7 @@ export default function EmployeesPage() {
               <option value="ALL">All Status</option>
             </select>
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col w-52">
             <label className="text-sm font-medium text-gray-500 mb-1.5">Search</label>
             <input
               type="text"
@@ -1528,14 +1507,8 @@ export default function EmployeesPage() {
 
       {/* Summary Cards - exact icon background colors: dark grey, green, red, blue; white icons */}
       {!showCredentials && (() => {
-        const now = new Date();
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const newJoinersCount = employees.filter((e) => {
-          const join = e.dateOfJoining ? new Date(e.dateOfJoining) : null;
-          return join && join >= thirtyDaysAgo;
-        }).length;
         return (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
               <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#333333] flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1569,19 +1542,8 @@ export default function EmployeesPage() {
               <div>
                 <div className="text-sm font-medium text-gray-500">InActive</div>
                 <div className="text-2xl font-bold text-gray-900">
-                  {statusFilter === 'ACTIVE' ? 0 : statusFilter === 'ALL' ? (statsActiveCount != null ? pagination.total - statsActiveCount : '—') : pagination.total}
+                  {statsInactiveCount != null ? statsInactiveCount : '—'}
                 </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex items-center gap-4">
-              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-[#2196F3] flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                </svg>
-              </div>
-              <div>
-                <div className="text-sm font-medium text-gray-500">New Joiners</div>
-                <div className="text-2xl font-bold text-gray-900">{newJoinersCount}</div>
               </div>
             </div>
           </div>

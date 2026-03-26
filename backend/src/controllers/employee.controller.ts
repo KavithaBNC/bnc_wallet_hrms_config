@@ -13,12 +13,13 @@ export class EmployeeController {
    */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const employee = await employeeService.create(req.body, req.user?.userId);
+      const result = await employeeService.create(req.body, req.user?.userId);
+      const { temporaryPassword, ...employee } = result;
 
       res.status(201).json({
         status: 'success',
         message: 'Employee created successfully',
-        data: { employee },
+        data: { employee, temporaryPassword },
       });
     } catch (error) {
       next(error);
@@ -47,6 +48,23 @@ export class EmployeeController {
       });
     } catch (error) {
       next(error);
+    }
+  }
+
+  /**
+   * Lightweight list for searchable dropdown (reporting manager selection, etc.)
+   * GET /api/v1/employees/list
+   */
+  async list(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, search } = req.query as { organizationId?: string; search?: string };
+      if (!organizationId) {
+        return res.status(400).json({ status: 'fail', message: 'organizationId required' });
+      }
+      const employees = await employeeService.list(organizationId, search);
+      return res.status(200).json({ status: 'success', data: { employees } });
+    } catch (error) {
+      return next(error);
     }
   }
 

@@ -283,6 +283,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const isTabEditable = (tab: EmployeeFormTabKey) =>
     mode === 'edit' && (editableTabs == null || editableTabs.length === 0 || editableTabs.includes(tab));
 
+  // Congratulations modal state
+  const [showCongratulations, setShowCongratulations] = useState(false);
+  const [createdEmployeeInfo, setCreatedEmployeeInfo] = useState<{ name: string; email: string; password: string } | null>(null);
+
   const [formData, setFormData] = useState({
     // Company Details (Module 2)
     paygroupDisplay: initialPaygroupName || (employee as any)?.paygroup?.name || '',
@@ -538,7 +542,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const fetchBranches = async () => {
       try {
         const list = await configuratorDataService.getBranches();
-        setBranches(list.map((b) => ({ id: b.id, name: b.name })));
+        const branchList = list.map((b) => ({ id: b.id, name: b.name }));
+        setBranches(branchList);
+        // Prefill location for edit mode: match workLocation text to branch name
+        if (employee && (employee as any)?.workLocation && !formData.locationId) {
+          const wl = ((employee as any).workLocation as string).toLowerCase();
+          const match = branchList.find(b => b.name.toLowerCase() === wl);
+          if (match) {
+            setFormData(prev => ({ ...prev, locationId: String(match.id) }));
+          }
+        }
       } catch {
         setBranches([]);
       }
@@ -567,14 +580,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       let allCostCentres: { id: number; name: string }[] = [];
       let filteredDepts: { id: number; name: string }[] = [];
       let allSubDepts: { id: number; name: string; department_id?: number }[] = [];
+      let roleList: { role_id: number; name: string }[] = [];
       try {
-        const [ccList, subDeptList, roleList] = await Promise.all([
+        const [ccList, subDeptList, fetchedRoles] = await Promise.all([
           configuratorDataService.getCostCentres(),
           configuratorDataService.getSubDepartments(),
           configuratorDataService.getUserRoles(),
         ]);
         allCostCentres = ccList.map((c) => ({ id: c.id, name: c.name }));
         allSubDepts = subDeptList.map((s) => ({ id: s.id, name: s.name, department_id: s.department_id }));
+        roleList = fetchedRoles;
         // Ensure user role options are populated for the dropdown
         if (roleList.length > 0) {
           setUserRoleOptions(roleList.map((r) => ({ id: r.role_id, name: r.name })));
@@ -591,6 +606,13 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           const deptList = await configuratorDataService.getDepartments(ccId);
           filteredDepts = deptList.map((d) => ({ id: d.id, name: d.name }));
           setConfigDepartments(filteredDepts);
+          // If the employee's department is not in the filtered list, fetch all departments as fallback
+          if (empDeptConfigId && !filteredDepts.find((d) => d.id === empDeptConfigId)) {
+            const allDeptList = await configuratorDataService.getDepartments();
+            const allDepts = allDeptList.map((d) => ({ id: d.id, name: d.name }));
+            filteredDepts = allDepts;
+            setConfigDepartments(allDepts);
+          }
         } catch {
           // Try unfiltered
           try {
@@ -625,8 +647,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       if (empDeptConfigId) setSelectedConfigDepartmentId(empDeptConfigId);
       if (empSubDeptConfigId) setSelectedConfigSubDepartmentId(empSubDeptConfigId);
 
-      // Resolve user role from enriched employee, Configurator user, or stored role
-      const empConfigRoleId = (employee as any)?.configuratorRoleId as number | undefined;
+      // Resolve user role from enriched employee, Configurator user, or stored HRMS role
+      const empConfigRoleId = (employee as any)?.configuratorRoleId
+        ?? (employee as any)?.user?.configuratorRoleId as number | undefined;
       let resolvedRoleId: number | null = empConfigRoleId ?? null;
       if (!resolvedRoleId && configUserId) {
         try {
@@ -635,6 +658,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             resolvedRoleId = configUser?.role_id || configUser?.project_role?.id || null;
           }
         } catch { /* ignore */ }
+      }
+      // Fallback: match HRMS user.role enum (e.g. "EMPLOYEE") against fetched role list by name
+      const availableRoles = roleList.map((r) => ({ id: r.role_id, name: r.name }));
+      if (!resolvedRoleId && (employee as any)?.user?.role) {
+        const hrmsRole = ((employee as any).user.role as string).toLowerCase().replace(/_/g, ' ');
+        const matched = availableRoles.find((r) =>
+          r.name.toLowerCase() === hrmsRole ||
+          r.name.toLowerCase().replace(/[\s_-]+/g, '') === hrmsRole.replace(/[\s_-]+/g, '')
+        );
+        if (matched) resolvedRoleId = matched.id;
       }
       if (cancelled) return;
       if (resolvedRoleId) setSelectedUserRoleId(resolvedRoleId);
@@ -645,10 +678,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
         if (!prev.costCentre && ccName) updates.costCentre = ccName;
 
-        if (!prev.departmentId && deptMatch) {
-          // Check if a local HRMS department matches by name
-          const localMatch = localDepartments.find((d) => d.name.toLowerCase() === deptMatch.name.toLowerCase());
-          updates.departmentId = localMatch ? localMatch.id : `config_${deptMatch.id}`;
+        // Department: resolve from Configurator match, HRMS relation, or local departments
+        if (!prev.departmentId || (prev.departmentId && !localDepartments.find((d) => d.id === prev.departmentId))) {
+          if (deptMatch) {
+            const localMatch = localDepartments.find((d) => d.name.toLowerCase() === deptMatch.name.toLowerCase());
+            updates.departmentId = localMatch ? localMatch.id : `config_${deptMatch.id}`;
+          } else if ((employee as any)?.department?.name) {
+            // Fallback: use HRMS department relation name to find local match
+            const deptName = (employee as any).department.name.toLowerCase();
+            const localMatch = localDepartments.find((d) => d.name.toLowerCase() === deptName);
+            if (localMatch) updates.departmentId = localMatch.id;
+            // Also check in configDepartments
+            const configMatch = filteredDepts.find((d) => d.name.toLowerCase() === deptName);
+            if (!localMatch && configMatch) updates.departmentId = `config_${configMatch.id}`;
+          }
         }
 
         if (!prev.subDepartment && subDeptName) updates.subDepartment = subDeptName;
@@ -842,25 +885,34 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     }));
   }, [employee?.id, (employee as any)?.academicQualifications, (employee as any)?.previousEmployments, (employee as any)?.familyMembers]);
 
-  // Fetch potential managers (all active employees in the organization)
+  // Fetch potential managers from Configurator users/list (HRMS API is filtered by RBAC)
   const fetchManagersForDropdown = async () => {
     try {
-      const response = await employeeService.getAll({
-        organizationId,
-        employeeStatus: 'ACTIVE',
-        limit: 500,
-        listView: true,
-      });
+      const configUsers = await configuratorDataService.listConfiguratorUsers();
+      const managers: Employee[] = configUsers
+        .filter((u: any) => u.is_active === true)
+        .filter((u: any) => !employee || u.email?.toLowerCase() !== employee.email?.toLowerCase())
+        .map((u: any) => ({
+          id: u.user_id ? String(u.user_id) : '',
+          employeeCode: u.code || '',
+          firstName: (u.full_name || '').split(' ')[0] || '',
+          lastName: (u.full_name || '').split(' ').slice(1).join(' ') || '',
+          email: u.email || '',
+          employeeStatus: 'ACTIVE' as EmployeeStatus,
+          configuratorUserId: u.user_id,
+        } as any));
+      setAvailableManagers(managers);
 
-      // Filter out the current employee if editing
-      const allEmployees = response.employees || [];
-      const filteredManagers = employee
-        ? allEmployees.filter(emp => emp.id !== employee.id && emp.employeeStatus === 'ACTIVE')
-        : allEmployees.filter(emp => emp.employeeStatus === 'ACTIVE');
-
-      setAvailableManagers(filteredManagers);
+      // Prefill managerId for edit mode: match reporting manager's email to Configurator user_id
+      if (employee?.reportingManager?.email) {
+        const rmEmail = employee.reportingManager.email.toLowerCase();
+        const matchedManager = managers.find(m => m.email?.toLowerCase() === rmEmail);
+        if (matchedManager) {
+          setFormData(prev => ({ ...prev, managerId: matchedManager.id }));
+        }
+      }
     } catch (error) {
-      console.error('Failed to fetch employees for managers dropdown:', error);
+      console.error('Failed to fetch managers from Configurator:', error);
       setAvailableManagers([]);
     }
   };
@@ -891,6 +943,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const validateCompany = () => {
     const newErrors: Record<string, string> = {};
     if (!formData.firstName?.trim()) newErrors.firstName = 'First name is required';
+    if (!formData.lastName?.trim()) newErrors.lastName = 'Last name is required';
     if (!formData.dateOfBirth?.trim()) newErrors.dateOfBirth = 'Date of birth is required';
     if (!formData.gender) newErrors.gender = 'Gender is required';
     if (!formData.joiningDate?.trim()) newErrors.joiningDate = 'Date of joining is required';
@@ -1063,7 +1116,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           return val;
         })(),
         positionId: formData.positionId && formData.positionId.trim() ? formData.positionId : null,
-        reportingManagerId: formData.managerId && formData.managerId.trim() ? formData.managerId : null,
+        reportingManagerId: (() => {
+          const val = formData.managerId?.trim();
+          if (!val) return null;
+          // If it's a UUID, use directly. If it's a Configurator user_id (number), pass as configurator lookup
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(val)) return val;
+          return null; // Not a UUID — will be resolved via reportingManagerConfiguratorUserId
+        })(),
+        reportingManagerConfiguratorUserId: (() => {
+          const val = formData.managerId?.trim();
+          if (!val) return null;
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(val)) return null; // Already a UUID
+          const num = parseInt(val, 10);
+          return isNaN(num) ? null : num;
+        })(),
         entityId: formData.entityId && formData.entityId.trim() ? formData.entityId : null,
         locationId: formData.locationId && formData.locationId.trim() ? formData.locationId : null,
         costCentreId: (() => {
@@ -1321,6 +1387,10 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         console.log('[EmployeeForm] Configurator Payload:', JSON.stringify(configuratorPayload, null, 2));
         console.log('[EmployeeForm] hasConfigToken:', hasConfigToken, 'companyId:', companyId, 'projectId:', projectId);
 
+        // Track configurator response email/password for congratulations modal
+        let configResponseEmail = '';
+        let configResponsePassword = '';
+
         // Track configurator failures (non-blocking)
         if (hasConfigToken && companyId > 0) {
           try {
@@ -1332,6 +1402,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             if (realConfigUserId) {
               submitData.configuratorUserId = Number(realConfigUserId);
             }
+            // Capture email and password from Configurator response
+            configResponseEmail = responseData?.email ?? configUser?.email ?? '';
+            configResponsePassword = responseData?.password ?? configUser?.password ?? '';
             // Store encrypted_password so backend writes it directly to password_hash column
             const encryptedPwd = responseData?.encrypted_password ?? configUser?.encrypted_password;
             if (encryptedPwd) {
@@ -1368,9 +1441,18 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           subDepartmentConfiguratorId: submitData.subDepartmentConfiguratorId,
         }, null, 2));
 
+        // Pass raw password so backend can send welcome email
+        submitData.rawTemporaryPassword = configResponsePassword || tempPassword;
+
         // Step 2: Create employee in HRMS (backend will also try Configurator user creation as fallback)
         await createEmployee(submitData);
-        onSuccess?.();
+        // Show congratulations modal with email + password from Configurator response
+        setCreatedEmployeeInfo({
+          name: `${submitData.firstName || ''} ${submitData.lastName || ''}`.trim(),
+          email: configResponseEmail || submitData.email || submitData.officialEmail || '',
+          password: configResponsePassword || tempPassword,
+        });
+        setShowCongratulations(true);
       }
     } catch (error: any) {
       console.error('Error creating employee:', error);
@@ -1406,6 +1488,45 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
 
   return (
     <>
+    {/* Congratulations Modal */}
+    {showCongratulations && createdEmployeeInfo && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+          <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-5 text-center">
+            <div className="w-16 h-16 mx-auto mb-3 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+              <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-white">Employee Created Successfully!</h2>
+            <p className="text-green-100 text-sm mt-1">A welcome email has been sent with login credentials.</p>
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Name</span>
+                <span className="text-sm font-semibold text-gray-900">{createdEmployeeInfo.name}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Email</span>
+                <span className="text-sm font-semibold text-gray-900">{createdEmployeeInfo.email}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Password</span>
+                <span className="text-sm font-mono font-semibold text-orange-600 bg-orange-50 px-2 py-1 rounded">{createdEmployeeInfo.password}</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setShowCongratulations(false); onSuccess?.(); }}
+              className="w-full py-3 bg-orange-500 text-white font-semibold rounded-lg hover:bg-orange-600 transition"
+            >
+              Go to Employees
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     <form onSubmit={handleSubmit} className="space-y-6 w-full max-w-full min-w-0 h-full">
       {/* Rejoin banner: full form is shown; on Save a new employee record will be created */}
       {rejoinMode && employee && (
@@ -1621,8 +1742,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Last Name</label>
-              <input type="text" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Last Name"
+              <label className="block text-sm font-medium text-gray-700">Last Name <span className="text-red-500">*</span></label>
+              <input type="text" name="lastName" value={formData.lastName} onChange={handleChange} placeholder="Last Name" required
                 className={`mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
                   errors.lastName
                     ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
@@ -1925,17 +2046,15 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
             <div>
               <label className="block text-sm font-medium text-gray-700">Designation <span className="text-red-500">*</span></label>
               <div className="flex gap-2">
-                <select name="positionId" value={formData.positionId} onChange={handleChange}
-                  className={`flex-1 mt-1 block w-full h-10 bg-white text-black rounded-md border shadow-sm sm:text-sm ${
-                    errors.positionId
-                      ? 'border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500'
-                      : 'border-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
-                  }`}>
-                  <option value="">Designation</option>
-                  {positions
+                <SearchableSelect
+                  value={formData.positionId}
+                  onChange={(val) => setFormData((prev) => ({ ...prev, positionId: val }))}
+                  options={positions
                     .filter((p) => !formData.departmentId?.trim() || !p.departmentId || p.departmentId === formData.departmentId)
-                    .map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                </select>
+                    .map((p) => ({ value: p.id, label: p.title }))}
+                  placeholder="Designation"
+                  className={`flex-1 ${errors.positionId ? 'border-red-500' : ''}`}
+                />
                 <button
                   type="button"
                   onClick={() => setShowPositionModal(true)}
@@ -1984,24 +2103,20 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
-              <select
-                name="managerId"
+              <label className="block text-sm font-medium text-gray-700">Reporting Manager <span className="text-red-500">*</span></label>
+              <SearchableSelect
                 value={formData.managerId}
-                onChange={handleChange}
-                className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="">Reporting Manager</option>
-                {availableManagers.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.firstName} {m.lastName} ({m.employeeCode})
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setFormData((prev) => ({ ...prev, managerId: val }))}
+                options={availableManagers.map((m) => ({
+                  value: m.id,
+                  label: `${m.firstName} ${m.lastName} (${m.employeeCode})`,
+                }))}
+                placeholder="Select Reporting Manager"
+              />
             </div>
             {/* User Role dropdown (same pattern as Cost Centre) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700">User Role</label>
+              <label className="block text-sm font-medium text-gray-700">User Role <span className="text-red-500">*</span></label>
               <div className="flex gap-2">
                 <SearchableSelect
                   name="userRoleId"

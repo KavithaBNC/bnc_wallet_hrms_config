@@ -22,6 +22,27 @@ export class JobPositionController {
   }
 
   /**
+   * Lightweight list for searchable dropdown
+   * GET /api/v1/positions/list
+   */
+  async list(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { organizationId, departmentId, search } = req.query as {
+        organizationId?: string;
+        departmentId?: string;
+        search?: string;
+      };
+      if (!organizationId) {
+        return res.status(400).json({ status: 'fail', message: 'organizationId required' });
+      }
+      const positions = await jobPositionService.list(organizationId, search, departmentId);
+      return res.status(200).json({ status: 'success', data: { positions } });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  /**
    * Get all job positions with filtering
    * GET /api/v1/positions
    */

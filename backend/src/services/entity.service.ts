@@ -3,9 +3,17 @@ import { prisma } from '../utils/prisma';
 import { CreateEntityInput, UpdateEntityInput } from '../utils/entity.validation';
 
 export class EntityService {
-  async getByOrganization(organizationId: string) {
+  async getByOrganization(organizationId: string, search?: string) {
+    const where: any = { organizationId, isActive: true };
+    const searchTerm = (search || '').trim();
+    if (searchTerm) {
+      where.OR = [
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { code: { contains: searchTerm, mode: 'insensitive' } },
+      ];
+    }
     return prisma.entity.findMany({
-      where: { organizationId, isActive: true },
+      where,
       orderBy: { name: 'asc' },
       select: { id: true, name: true, code: true, isActive: true },
     });

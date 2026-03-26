@@ -107,6 +107,17 @@ router.get(
 );
 
 /**
+ * @route   GET /api/v1/employees/list
+ * @desc    Lightweight list for searchable dropdown (reporting manager, etc.)
+ * @access  Private (All authenticated users)
+ */
+router.get(
+  '/list',
+  employeeListAccess,
+  employeeController.list.bind(employeeController)
+);
+
+/**
  * @route   GET /api/v1/employees
  * @desc    Get all employees with filtering (RBAC optimized)
  * @access  Private (Role-based field filtering via employeeListAccess)
