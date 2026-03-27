@@ -107,6 +107,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [configSubDepartments, setConfigSubDepartments] = useState<{ id: number; name: string; department_id?: number }[]>([]);
   const [selectedConfigDepartmentId, setSelectedConfigDepartmentId] = useState<number | null>(null);
   const [selectedConfigSubDepartmentId, setSelectedConfigSubDepartmentId] = useState<number | null>(null);
+  const [selectedConfigBranchId, setSelectedConfigBranchId] = useState<number | null>(null);
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [showAcademicModal, setShowAcademicModal] = useState(false);
   const [showPreviousEmploymentModal, setShowPreviousEmploymentModal] = useState(false);
@@ -544,12 +545,22 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         const list = await configuratorDataService.getBranches();
         const branchList = list.map((b) => ({ id: b.id, name: b.name }));
         setBranches(branchList);
-        // Prefill location for edit mode: match workLocation text to branch name
-        if (employee && (employee as any)?.workLocation && !formData.locationId) {
-          const wl = ((employee as any).workLocation as string).toLowerCase();
-          const match = branchList.find(b => b.name.toLowerCase() === wl);
-          if (match) {
-            setFormData(prev => ({ ...prev, locationId: String(match.id) }));
+        // Prefill location for edit mode: match by branchConfiguratorId first, then workLocation text
+        if (employee) {
+          const branchConfId = (employee as any)?.branchConfiguratorId;
+          if (branchConfId) {
+            const match = branchList.find(b => b.id === branchConfId);
+            if (match) {
+              setFormData(prev => ({ ...prev, locationId: String(match.id) }));
+              setSelectedConfigBranchId(match.id);
+            }
+          } else if ((employee as any)?.workLocation && !formData.locationId) {
+            const wl = ((employee as any).workLocation as string).toLowerCase();
+            const match = branchList.find(b => b.name.toLowerCase() === wl);
+            if (match) {
+              setFormData(prev => ({ ...prev, locationId: String(match.id) }));
+              setSelectedConfigBranchId(match.id);
+            }
           }
         }
       } catch {
@@ -923,7 +934,12 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     const { name, value } = e.target;
     const updates: Record<string, string> = { [name]: value };
     // When entity changes, clear location so user picks from entity-scoped list
-    if (name === 'entityId') updates.locationId = '';
+    if (name === 'entityId') { updates.locationId = ''; setSelectedConfigBranchId(null); }
+    // Track branch configurator ID when location is selected
+    if (name === 'locationId') {
+      const isNumeric = /^\d+$/.test(value);
+      setSelectedConfigBranchId(isNumeric ? parseInt(value, 10) : null);
+    }
     // Sync Personal Info fields used for validation/submit
     if (name === 'personalEmail') updates.email = value;
     if (name === 'permanentPhoneNumber') updates.phoneNumber = value;
@@ -1216,6 +1232,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       if (selectedConfigCostCentreId) submitData.costCentreConfiguratorId = selectedConfigCostCentreId;
       if (selectedConfigDepartmentId) submitData.departmentConfiguratorId = selectedConfigDepartmentId;
       if (selectedConfigSubDepartmentId) submitData.subDepartmentConfiguratorId = selectedConfigSubDepartmentId;
+      if (selectedConfigBranchId) submitData.branchConfiguratorId = selectedConfigBranchId;
       if (selectedUserRoleId) submitData.configuratorRoleId = selectedUserRoleId;
       const companyId = Number(localStorage.getItem('configuratorCompanyId')) || undefined;
       if (companyId) submitData.configuratorCompanyId = companyId;

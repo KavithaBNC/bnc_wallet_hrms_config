@@ -333,6 +333,27 @@ export class EmployeeService {
       }
     }
 
+    // Resolve locationId when it's Config id (numeric string)
+    let resolvedLocationId: string | null = null;
+    let branchConfiguratorId: number | null = null;
+    if (data.locationId) {
+      if (UUID_REGEX.test(data.locationId)) {
+        resolvedLocationId = data.locationId;
+        // Look up the configurator branch ID from the HRMS location record
+        const loc = await prisma.location.findUnique({ where: { id: data.locationId }, select: { configuratorBranchId: true } });
+        branchConfiguratorId = loc?.configuratorBranchId ?? null;
+      } else {
+        const configId = parseInt(data.locationId, 10);
+        branchConfiguratorId = configId;
+        const hrmsLoc = await prisma.location.findFirst({
+          where: { organizationId: data.organizationId, configuratorBranchId: configId },
+        });
+        if (hrmsLoc) {
+          resolvedLocationId = hrmsLoc.id;
+        }
+      }
+    }
+
     // Check if position exists (if provided) and determine user role
     let userRole: 'EMPLOYEE' | 'HR_MANAGER' | 'MANAGER' = 'EMPLOYEE';
     if (data.positionId) {
@@ -482,7 +503,7 @@ export class EmployeeService {
     }
 
     // Create employee record (exclude fields used only for Config API / User table, not Employee table)
-    const { employeeCode: _, departmentId: __, costCentreId: ___, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, encryptedPassword: _encPwd, rawTemporaryPassword: _rawPwd, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data;
+    const { employeeCode: _, departmentId: __, costCentreId: ___, locationId: _locId, branchConfiguratorId: _branchConfigId, configuratorRoleId: _roleId, configuratorCompanyId: _companyId, configuratorUserId: _configUserId, encryptedPassword: _encPwd, rawTemporaryPassword: _rawPwd, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data;
 
     const createPayload = (code: string) => ({
       ...employeeData,
@@ -491,6 +512,8 @@ export class EmployeeService {
       configuratorUserId: configuratorUserId ?? undefined,
       departmentId: resolvedDepartmentId ?? undefined,
       costCentreId: resolvedCostCentreId ?? undefined,
+      locationId: resolvedLocationId ?? undefined,
+      branchConfiguratorId: branchConfiguratorId ?? data.branchConfiguratorId ?? undefined,
       departmentConfiguratorId: departmentConfiguratorId ?? data.departmentConfiguratorId ?? undefined,
       costCentreConfiguratorId: costCentreConfiguratorId ?? data.costCentreConfiguratorId ?? undefined,
       subDepartmentConfiguratorId: data.subDepartmentConfiguratorId ?? undefined,
@@ -1191,6 +1214,29 @@ export class EmployeeService {
       }
     }
 
+    // Resolve locationId when it's Config id (numeric string)
+    let resolvedLocationId: string | null | undefined = undefined;
+    let branchConfiguratorId: number | null | undefined = undefined;
+    if (data.locationId !== undefined) {
+      if (!data.locationId) {
+        resolvedLocationId = null;
+        branchConfiguratorId = null;
+      } else if (UUID_REGEX.test(data.locationId)) {
+        resolvedLocationId = data.locationId;
+        const loc = await prisma.location.findUnique({ where: { id: data.locationId }, select: { configuratorBranchId: true } });
+        branchConfiguratorId = loc?.configuratorBranchId ?? null;
+      } else {
+        const configId = parseInt(data.locationId, 10);
+        branchConfiguratorId = configId;
+        const hrmsLoc = await prisma.location.findFirst({
+          where: { organizationId: existing.organizationId, configuratorBranchId: configId },
+        });
+        if (hrmsLoc) {
+          resolvedLocationId = hrmsLoc.id;
+        }
+      }
+    }
+
     // Check if position exists (if provided)
     if (data.positionId !== undefined && data.positionId) {
       const position = await prisma.jobPosition.findUnique({
@@ -1248,7 +1294,7 @@ export class EmployeeService {
     }
 
     // Extract role and configuratorRoleId from data (for User / Config, not Employee)
-    const { role, departmentId: _deptId, costCentreId: _ccId, configuratorRoleId: _configRoleId, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data as typeof data & { reportingManagerConfiguratorUserId?: number | null };
+    const { role, departmentId: _deptId, costCentreId: _ccId, locationId: _locId, branchConfiguratorId: _branchConfigId, configuratorRoleId: _configRoleId, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data as typeof data & { reportingManagerConfiguratorUserId?: number | null };
 
     // Update Config user (PUT /api/v1/users/{user_id}) when any relevant field changes
     const userForConfig = existing.userId ? await prisma.user.findUnique({
@@ -1349,7 +1395,8 @@ export class EmployeeService {
       positionId: employeeData.positionId ?? undefined,
       reportingManagerId: employeeData.reportingManagerId ?? undefined,
       entityId: employeeData.entityId ?? undefined,
-      locationId: employeeData.locationId ?? undefined,
+      ...(resolvedLocationId !== undefined && { locationId: resolvedLocationId }),
+      ...(branchConfiguratorId !== undefined && { branchConfiguratorId: branchConfiguratorId }),
       ...(resolvedCostCentreId !== undefined && { costCentreId: resolvedCostCentreId }),
       faceEncoding:
         employeeData.faceEncoding === null
