@@ -460,6 +460,18 @@ export class ShiftAssignmentRuleService {
       },
     });
 
+    // Sort by specificity so employee-specific rules always beat org-wide rules
+    // when priority and effectiveDate are equal.
+    const specificity = (r: { employeeIds: any; paygroupId: string | null; departmentId: string | null }) => {
+      const empIds = Array.isArray(r.employeeIds) ? (r.employeeIds as string[]) : [];
+      if (empIds.length > 0) return 4;
+      if (r.paygroupId && r.departmentId) return 3;
+      if (r.paygroupId) return 2;
+      if (r.departmentId) return 1;
+      return 0;
+    };
+    rules.sort((a, b) => specificity(b) - specificity(a));
+
     for (const rule of rules) {
       if (!rule.shift) continue; // skip policy-only rules with no shift
       const employeeIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];

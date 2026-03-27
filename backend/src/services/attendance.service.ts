@@ -1639,7 +1639,10 @@ export class AttendanceService {
         where: {
           organizationId,
           effectiveDate: { lte: endDateObj },
-          AND: policyMarkers.map((m) => ({ remarks: { not: { contains: m } } })),
+          OR: [
+            { remarks: null },
+            ...policyMarkers.map((m) => ({ remarks: { not: { contains: m } } })),
+          ],
         },
         orderBy: [{ priority: 'desc' }, { effectiveDate: 'desc' }],
         include: { shift: { select: { id: true, name: true, startTime: true, endTime: true } } },
@@ -1648,6 +1651,18 @@ export class AttendanceService {
 
     const employeeInfo = employeeWithDept ?? records[0]?.employee;
     if (!employeeInfo) return records;
+
+    // Sort shift rules by specificity so more-specific rules always win over broader ones
+    // when priority and effectiveDate are equal (e.g. employee-specific beats org-wide).
+    const shiftRuleSpecificity = (r: { employeeIds: any; paygroupId: string | null; departmentId: string | null }) => {
+      const empIds = Array.isArray(r.employeeIds) ? (r.employeeIds as string[]) : [];
+      if (empIds.length > 0) return 4;
+      if (r.paygroupId && r.departmentId) return 3;
+      if (r.paygroupId) return 2;
+      if (r.departmentId) return 1;
+      return 0; // org-wide
+    };
+    shiftRules.sort((a, b) => shiftRuleSpecificity(b) - shiftRuleSpecificity(a));
 
     // In-memory rule matcher (no DB)
     const ruleMatchesEmployee = (rule: { employeeIds: any; paygroupId: string | null; departmentId: string | null }) => {

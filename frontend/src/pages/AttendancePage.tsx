@@ -463,11 +463,9 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
 
     setLoadingShifts(true);
 
-    // Create shift assignments map - default to "General Shift" for all dates.
-    // Sunday is default Week Off; Saturday and other days follow configured policy/records.
-    // Override with explicitly assigned shifts from attendance records.
+    // Create shift assignments map from attendance records / synthetic shift records returned by backend.
+    // Sunday is default Week Off; other days only show a shift if the backend found a matching shift rule.
     const assignments = new Map<string, string>();
-    const defaultShift = 'General Shift';
 
     for (const date of daysInMonth) {
       const dateStr = format(date, 'yyyy-MM-dd');
@@ -478,9 +476,8 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
         assignments.set(dateStr, 'Weekoff');
       } else if (dayRecord?.shift?.name) {
         assignments.set(dateStr, dayRecord.shift.name);
-      } else {
-        assignments.set(dateStr, defaultShift);
       }
+      // If no record/shift exists for this date, leave unset so calendar shows "No records"
     }
 
     setShiftAssignments(assignments);
@@ -629,7 +626,7 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
           const dayRecords = Array.from(byEmployee.values());
           const isCurrentDay = isToday(day);
           const dayNumber = format(day, 'd');
-          const shiftName = shiftAssignments.get(dateStr) || 'General Shift'; // Default to "General Shift"
+          const shiftName = shiftAssignments.get(dateStr) || '';
           const isWeekOffDay = shiftName === 'Weekoff' || shiftName === 'W' || shiftName === 'Week Off';
           const isFutureDay = day > new Date(new Date().toDateString());
 
