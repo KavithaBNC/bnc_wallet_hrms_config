@@ -1232,6 +1232,21 @@ export class EmployeeService {
       }
     }
 
+    // Resolve reportingManagerConfiguratorUserId to HRMS employee ID if provided (mirrors create logic)
+    if (!data.reportingManagerId && (data as any).reportingManagerConfiguratorUserId) {
+      const managerEmp = await prisma.employee.findFirst({
+        where: {
+          configuratorUserId: (data as any).reportingManagerConfiguratorUserId,
+          organizationId: existing.organizationId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (managerEmp) {
+        data.reportingManagerId = managerEmp.id;
+      }
+    }
+
     // Extract role and configuratorRoleId from data (for User / Config, not Employee)
     const { role, departmentId: _deptId, costCentreId: _ccId, configuratorRoleId: _configRoleId, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data as typeof data & { reportingManagerConfiguratorUserId?: number | null };
 
