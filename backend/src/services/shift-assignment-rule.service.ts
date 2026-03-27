@@ -176,8 +176,8 @@ export class ShiftAssignmentRuleService {
       data: {
         ...(data.displayName !== undefined && { displayName: data.displayName }),
         ...(data.shiftId !== undefined && { shiftId: data.shiftId }),
-        ...(data.paygroupId !== undefined && { paygroupId: data.paygroupId || undefined }),
-        ...(data.departmentId !== undefined && { departmentId: data.departmentId || undefined }),
+        ...(data.paygroupId !== undefined && { paygroupId: data.paygroupId || null }),
+        ...(data.departmentId !== undefined && { departmentId: data.departmentId || null }),
         ...(data.effectiveDate !== undefined && { effectiveDate: new Date(data.effectiveDate) }),
         ...(data.priority !== undefined && { priority: data.priority }),
         ...(data.remarks !== undefined && { remarks: data.remarks }),

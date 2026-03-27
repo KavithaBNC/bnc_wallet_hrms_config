@@ -905,7 +905,7 @@ function App() {
             }
           />
           <Route
-            path="/leave/approvals"
+            path="/event/approvals"
             element={
               <ProtectedRoute>
                 <DashboardLayout>

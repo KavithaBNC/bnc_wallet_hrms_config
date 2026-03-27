@@ -155,7 +155,7 @@ const DashboardPage = () => {
               {employeePerms.can_view && <QuickLink to="/employees" icon={employeesIcon} color="bg-blue-100 text-blue-600" title="Employees" subtitle="Manage employee records" />}
               {getModulePermissions('/departments').can_view && <QuickLink to="/departments" icon={departmentsIcon} color="bg-blue-100 text-blue-600" title="Departments" subtitle="Organize departments" />}
               {canViewLeaveApprovals && (
-                <QuickLink to="/leave/approvals" icon={leaveIcon} color="bg-amber-100 text-amber-600" title="Leave Approvals" subtitle="Review leave requests" />
+                <QuickLink to="/event/approvals" icon={leaveIcon} color="bg-amber-100 text-amber-600" title="Event Approvals" subtitle="Review event requests" />
               )}
             </div>
           </div>

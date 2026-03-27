@@ -177,7 +177,7 @@ export default function ApplyEventPage() {
   // HR/Manager mode: when HR/Admin/Manager applies leave on behalf of another employee
   const leavePerms = getModulePermissions('/leave');
   const isHR = leavePerms.can_edit;
-  const isManager = !isHR && getModulePermissions('/leave/approvals').can_view;
+  const isManager = !isHR && getModulePermissions('/event/approvals').can_view;
   const isApplyingForOther = (isHR || isManager) && !!state.employeeId && state.employeeId !== user?.employee?.id;
   const targetEmployeeId = isApplyingForOther ? state.employeeId : undefined;
   const targetEmployeeName = state.employeeName;

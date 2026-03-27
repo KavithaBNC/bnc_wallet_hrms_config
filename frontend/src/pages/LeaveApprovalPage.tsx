@@ -63,7 +63,7 @@ export default function LeaveApprovalPage() {
   const { user, logout } = useAuthStore();
   const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
   const organizationName = user?.employee?.organization?.name;
-  const leavePerms = getModulePermissions('/leave/approvals');
+  const leavePerms = getModulePermissions('/event/approvals');
   const canApprove = leavePerms.can_view;
 
   const [requests, setRequests] = useState<LeaveRequest[]>([]);
