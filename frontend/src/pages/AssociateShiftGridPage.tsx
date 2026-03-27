@@ -158,37 +158,44 @@ export default function AssociateShiftGridPage() {
           filtered = filtered.filter((emp) => selectedAssociateIds.includes(emp.id));
         }
 
+        // Set employees immediately — never cleared on attendance fetch failure
         setEmployees(filtered);
+        setPage(1);
 
         const defaultShift = shifts?.length ? shifts[0].name : 'General Shift';
         const newAssignments = new Map<string, ShiftAssignment>();
 
         // Pre-fill from attendance records API (merged: DB overrides + rule-based, same as calendar)
         if (filtered.length > 0) {
-          const recordPromises = filtered.map((emp) =>
-            attendanceService.getRecords({
-              employeeId: emp.id,
-              startDate: monthStartStr,
-              endDate: monthEndStr,
-              organizationId,
-            })
-          );
-          const recordArrays = await Promise.all(recordPromises);
-
-          recordArrays.forEach((records, idx) => {
-            const emp = filtered[idx];
-            records.forEach((r) => {
-              const dateStr = typeof r.date === 'string' ? r.date.slice(0, 10) : format(new Date(r.date), 'yyyy-MM-dd');
-              const key = `${emp.id}-${dateStr}`;
-              const shiftName = r.shift?.name ?? defaultShift;
-              newAssignments.set(key, {
+          try {
+            const recordPromises = filtered.map((emp) =>
+              attendanceService.getRecords({
                 employeeId: emp.id,
-                date: dateStr,
-                shiftName: shiftName === 'Week Off' || shiftName === 'Weekoff' ? 'W' : shiftName,
-                isWeekOff: shiftName === 'W' || shiftName === 'Week Off' || shiftName === 'Weekoff',
+                startDate: monthStartStr,
+                endDate: monthEndStr,
+                organizationId,
+              })
+            );
+            const recordArrays = await Promise.all(recordPromises);
+
+            recordArrays.forEach((records, idx) => {
+              const emp = filtered[idx];
+              records.forEach((r) => {
+                const dateStr = typeof r.date === 'string' ? r.date.slice(0, 10) : format(new Date(r.date), 'yyyy-MM-dd');
+                const key = `${emp.id}-${dateStr}`;
+                const shiftName = r.shift?.name ?? defaultShift;
+                newAssignments.set(key, {
+                  employeeId: emp.id,
+                  date: dateStr,
+                  shiftName: shiftName === 'Week Off' || shiftName === 'Weekoff' ? 'W' : shiftName,
+                  isWeekOff: shiftName === 'W' || shiftName === 'Week Off' || shiftName === 'Weekoff',
+                });
               });
             });
-          });
+          } catch (error) {
+            console.error('Failed to pre-fill from attendance records, using defaults:', error);
+            // newAssignments stays empty → falls through to default fill below
+          }
         }
 
         // Fill any missing days with default (weekdays = first shift, weekends = W)
@@ -211,11 +218,10 @@ export default function AssociateShiftGridPage() {
 
         setShiftAssignments(new Map(newAssignments));
         setInitialAssignments(new Map(newAssignments));
-        setPage(1);
       })
       .catch((error) => {
         console.error('Error fetching employees:', error);
-        setEmployees([]);
+        // Do not clear employees — leave grid empty but visible
       })
       .finally(() => setLoading(false));
   }, [organizationId, currentMonth, selectedAssociateIds.join(','), shifts.length, selectedDepartmentId]);
@@ -599,10 +605,10 @@ export default function AssociateShiftGridPage() {
                   <table className="min-w-full divide-y divide-gray-200 border-collapse">
                     <thead className="bg-gray-50 sticky top-0 z-20">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 sticky left-0 bg-gray-50 z-30 shadow-sm">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 sticky left-0 bg-gray-50 z-30 shadow-sm w-[130px] min-w-[130px]">
                           Associate Code
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 sticky left-[140px] bg-gray-50 z-30 shadow-sm">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-300 sticky left-[130px] bg-gray-50 z-30 shadow-sm">
                           Associate Name
                         </th>
                         {dateRange.map((date) => (
@@ -626,10 +632,10 @@ export default function AssociateShiftGridPage() {
                     ) : (
                       paginatedEmployees.map((emp, rowIndex) => (
                         <tr key={emp.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r border-gray-300 sticky left-0 bg-white z-20 shadow-sm">
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 border-r border-gray-300 sticky left-0 bg-white z-20 shadow-sm w-[130px] min-w-[130px]">
                             {emp.employeeCode}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-300 sticky left-[140px] bg-white z-20 shadow-sm">
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 border-r border-gray-300 sticky left-[130px] bg-white z-20 shadow-sm">
                             {fullName(emp)}
                           </td>
                           {dateRange.map((date, colIndex) => {

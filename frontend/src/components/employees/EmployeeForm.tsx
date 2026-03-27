@@ -1391,8 +1391,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         let configResponseEmail = '';
         let configResponsePassword = '';
 
+        // If employee prop already has a configuratorUserId (existing Configurator user being
+        // registered in HRMS for the first time), pre-set it so it's saved even if the
+        // Configurator API call below fails (e.g., duplicate email → creation rejected).
+        const existingConfigUserId = (employee as any)?.configuratorUserId;
+        if (existingConfigUserId && !submitData.configuratorUserId) {
+          submitData.configuratorUserId = Number(existingConfigUserId);
+        }
+
         // Track configurator failures (non-blocking)
-        if (hasConfigToken && companyId > 0) {
+        if (!existingConfigUserId && hasConfigToken && companyId > 0) {
           try {
             const configUser = await configuratorDataService.createConfiguratorUser(configuratorPayload);
             console.log('[EmployeeForm] Configurator API raw response:', JSON.stringify(configUser));

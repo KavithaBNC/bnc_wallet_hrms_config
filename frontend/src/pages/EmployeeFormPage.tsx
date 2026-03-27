@@ -30,6 +30,10 @@ export default function EmployeeFormPage() {
   const isEdit = Boolean(id) && !isNewFromConfigurator;
   const isCreate = !isEdit;
 
+  // Extract Configurator identifiers from state (used for HRMS lookup below)
+  const configStateUserId = (state.employee as any)?.configuratorUserId as number | string | undefined;
+  const configStateEmail = (state.employee as any)?.email as string | undefined;
+
   const [employee, setEmployee] = useState<Employee | null>(state.employee ?? null);
   const [loading, setLoading] = useState(isEdit && !state.employee);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +84,34 @@ export default function EmployeeFormPage() {
       })
       .finally(() => setLoading(false));
   }, [id, isEdit]);
+
+  // For Configurator-to-HRMS registration (/employees/edit/new):
+  // Check if an HRMS employee already exists for this Configurator user.
+  // If found, redirect to the proper /employees/edit/:id URL so all saved HRMS data
+  // (DOB, gender, DOJ, etc.) is pre-filled. This handles cases where the employee
+  // was previously saved in HRMS but the handleEditUser lookup in EmployeesPage failed.
+  useEffect(() => {
+    if (!isNewFromConfigurator || (!configStateUserId && !configStateEmail)) return;
+    (async () => {
+      try {
+        let emp: Employee | null = null;
+        if (configStateUserId) {
+          emp = await employeeService.getByConfiguratorUserId(Number(configStateUserId));
+        }
+        if (!emp && configStateEmail) {
+          emp = await employeeService.getByEmail(configStateEmail);
+        }
+        if (emp) {
+          navigate(`/employees/edit/${emp.id}`, {
+            replace: true,
+            state: { employee: emp, mode: 'edit' },
+          });
+        }
+      } catch {
+        // Lookup failed — stay on create form
+      }
+    })();
+  }, [isNewFromConfigurator, configStateUserId, configStateEmail, navigate]);
 
   // For create mode: if no paygroup selected yet, show the paygroup modal
   // Skip when prefilled from Configurator (state.employee already has data)

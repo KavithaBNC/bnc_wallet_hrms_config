@@ -14,6 +14,10 @@ const ROLE_FALLBACK_PERMISSIONS: Record<string, Set<string>> = {
     'leave_policies.read', 'leave_policies.create', 'leave_policies.update', 'leave_policies.delete',
     'employees.read', 'employees.create', 'employees.update',
     'attendance.read', 'attendance.update',
+    'auto_credit_settings.read', 'auto_credit_settings.create', 'auto_credit_settings.update', 'auto_credit_settings.delete',
+    'attendance_components.read', 'attendance_components.create', 'attendance_components.update', 'attendance_components.delete',
+    'rights_allocations.read', 'rights_allocations.create', 'rights_allocations.update', 'rights_allocations.delete',
+    'encashment_carry_forward.read', 'encashment_carry_forward.create', 'encashment_carry_forward.update', 'encashment_carry_forward.delete',
   ]),
   HR_MANAGER: new Set([
     'leaves.read', 'leaves.create', 'leaves.update',
@@ -22,6 +26,10 @@ const ROLE_FALLBACK_PERMISSIONS: Record<string, Set<string>> = {
     'leave_policies.read', 'leave_policies.create', 'leave_policies.update',
     'employees.read', 'employees.update',
     'attendance.read', 'attendance.update',
+    'auto_credit_settings.read', 'auto_credit_settings.create', 'auto_credit_settings.update', 'auto_credit_settings.delete',
+    'attendance_components.read', 'attendance_components.create', 'attendance_components.update', 'attendance_components.delete',
+    'rights_allocations.read', 'rights_allocations.create', 'rights_allocations.update', 'rights_allocations.delete',
+    'encashment_carry_forward.read', 'encashment_carry_forward.create', 'encashment_carry_forward.update', 'encashment_carry_forward.delete',
   ]),
   MANAGER: new Set([
     'leaves.read', 'leaves.create', 'leaves.update',

@@ -1619,84 +1619,128 @@ export class AttendanceService {
       const key = `${r.employeeId}-${this.toDateKey(recordDateKeySource)}`;
       recordsByDate.set(key, r);
     });
-    const employeeInfo = records[0]?.employee
-      ? records[0].employee
-      : await prisma.employee.findUnique({
-          where: { id: employeeId },
-          select: { id: true, firstName: true, lastName: true, email: true, employeeCode: true },
-        });
+    // Pre-fetch all needed data ONCE in parallel — eliminates N×3 sequential DB calls in the loop
+    const endDateObj = new Date(endDate + 'T23:59:59.000Z');
+    const policyMarkers = ['__HOLIDAY_DATA__', '__EVENT_RULE_DATA__', '__OT_USAGE_RULE_DATA__', '__WEEK_OFF_DATA__', '__POLICY_RULES__'];
+    const [employeeWithDept, weekOffRules, holidayRules, shiftRules] = await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { id: true, firstName: true, lastName: true, email: true, employeeCode: true, paygroupId: true, departmentId: true },
+      }),
+      prisma.shiftAssignmentRule.findMany({
+        where: { organizationId, effectiveDate: { lte: endDateObj }, remarks: { contains: '__WEEK_OFF_DATA__' } },
+        orderBy: [{ priority: 'desc' }, { effectiveDate: 'desc' }],
+      }),
+      prisma.shiftAssignmentRule.findMany({
+        where: { organizationId, remarks: { contains: '__HOLIDAY_DATA__' } },
+        orderBy: [{ priority: 'desc' }, { effectiveDate: 'desc' }],
+      }),
+      prisma.shiftAssignmentRule.findMany({
+        where: {
+          organizationId,
+          effectiveDate: { lte: endDateObj },
+          AND: policyMarkers.map((m) => ({ remarks: { not: { contains: m } } })),
+        },
+        orderBy: [{ priority: 'desc' }, { effectiveDate: 'desc' }],
+        include: { shift: { select: { id: true, name: true, startTime: true, endTime: true } } },
+      }),
+    ]);
+
+    const employeeInfo = employeeWithDept ?? records[0]?.employee;
     if (!employeeInfo) return records;
+
+    // In-memory rule matcher (no DB)
+    const ruleMatchesEmployee = (rule: { employeeIds: any; paygroupId: string | null; departmentId: string | null }) => {
+      const empIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];
+      if (empIds.length > 0) return empIds.includes(employeeId);
+      if (rule.paygroupId && rule.departmentId) return rule.paygroupId === employeeWithDept?.paygroupId && rule.departmentId === employeeWithDept?.departmentId;
+      if (rule.paygroupId) return rule.paygroupId === employeeWithDept?.paygroupId;
+      if (rule.departmentId) return rule.departmentId === employeeWithDept?.departmentId;
+      return true; // org-wide
+    };
 
     const merged: any[] = [];
     for (const dateStr of datesInRange) {
       const key = `${employeeId}-${dateStr}`;
       const existing = recordsByDate.get(key);
       const dateForRule = new Date(dateStr + 'T12:00:00.000Z');
-      // Week off takes precedence: if a Week Off rule applies to this employee on this date, show Week Off on calendar
-      const weekOffShift = await shiftAssignmentRuleService.getApplicableWeekOffForEmployee(
-        employeeId,
-        dateForRule,
-        organizationId
-      );
+      const dateStart = new Date(dateStr + 'T00:00:00.000Z');
+
+      // Week off check (in-memory)
+      let weekOffShift: { id: string; name: string; startTime: string; endTime: string } | null = null;
+      for (const rule of weekOffRules) {
+        if (new Date(rule.effectiveDate as Date) > dateStart) continue;
+        if (!ruleMatchesEmployee(rule) || !rule.remarks) continue;
+        const markerIdx = rule.remarks.indexOf('__WEEK_OFF_DATA__');
+        if (markerIdx === -1) continue;
+        try {
+          const parsed = JSON.parse(rule.remarks.slice(markerIdx + '__WEEK_OFF_DATA__'.length)) as { weekOffDetails?: boolean[][]; alternateSaturdayOff?: string };
+          let weekOffDetails = parsed?.weekOffDetails;
+          if (!weekOffDetails || !Array.isArray(weekOffDetails)) continue;
+          const altSat = (parsed?.alternateSaturdayOff || '').toUpperCase();
+          if ((altSat.includes('1ST') && altSat.includes('3RD')) || (altSat.includes('2ND') && altSat.includes('4TH'))) {
+            weekOffDetails = weekOffDetails.map((week) => { const row = [...week]; if (row[0] !== undefined) row[0] = false; return row; });
+          }
+          const weekIndex = Math.min(5, Math.max(0, Math.ceil(dateStart.getDate() / 7) - 1));
+          if (weekOffDetails[weekIndex]?.[dateStart.getDay()]) {
+            weekOffShift = { id: 'week-off', name: 'Week Off', startTime: '00:00', endTime: '00:00' };
+            break;
+          }
+        } catch { /* ignore */ }
+      }
       if (weekOffShift) {
-        merged.push({
-          id: existing?.id ?? `synthetic-${employeeId}-${dateStr}`,
-          employeeId,
-          date: dateForRule,
-          shiftId: weekOffShift.id,
-          employee: existing?.employee ?? employeeInfo,
-          shift: weekOffShift,
-        });
+        merged.push({ id: existing?.id ?? `synthetic-${employeeId}-${dateStr}`, employeeId, date: dateForRule, shiftId: weekOffShift.id, employee: existing?.employee ?? employeeInfo, shift: weekOffShift });
         continue;
       }
-      // Holiday from Holiday Assign (ShiftAssignmentRule with __HOLIDAY_DATA__) — show on employee calendar
-      // Pass dateStr (YYYY-MM-DD) so comparison is timezone-neutral; avoids holidays showing on 17th/20th instead of 16th/19th
-      const holiday = await shiftAssignmentRuleService.getApplicableHolidayForEmployee(
-        employeeId,
-        dateStr,
-        organizationId
-      );
-      if (holiday) {
-        merged.push({
-          id: existing?.id ?? `synthetic-holiday-${employeeId}-${dateStr}`,
-          employeeId,
-          date: dateForRule,
-          shiftId: null,
-          employee: existing?.employee ?? employeeInfo,
-          shift: { id: 'holiday', name: holiday.name, startTime: '00:00', endTime: '00:00' },
-          status: AttendanceStatus.HOLIDAY,
-        });
+
+      // Holiday check (in-memory)
+      let holidayMatch: { name: string } | null = null;
+      for (const rule of holidayRules) {
+        if (!ruleMatchesEmployee(rule) || !rule.remarks) continue;
+        const markerIdx = rule.remarks.indexOf('__HOLIDAY_DATA__');
+        if (markerIdx === -1) continue;
+        try {
+          const parsed = JSON.parse(rule.remarks.slice(markerIdx + '__HOLIDAY_DATA__'.length)) as { holidayDetails?: Array<{ date?: string; name?: string }> };
+          const found = parsed?.holidayDetails?.find((h) => h.date && h.date.slice(0, 10) === dateStr);
+          if (found?.name) { holidayMatch = { name: found.name }; break; }
+        } catch { /* ignore */ }
+      }
+      if (holidayMatch) {
+        merged.push({ id: existing?.id ?? `synthetic-holiday-${employeeId}-${dateStr}`, employeeId, date: dateForRule, shiftId: null, employee: existing?.employee ?? employeeInfo, shift: { id: 'holiday', name: holidayMatch.name, startTime: '00:00', endTime: '00:00' }, status: AttendanceStatus.HOLIDAY });
         continue;
       }
+
+      // Shift from rule (in-memory)
+      const getShiftFromRules = () => {
+        for (const rule of shiftRules) {
+          if (!rule.shift) continue;
+          if (new Date(rule.effectiveDate as Date) > dateStart) continue;
+          const empIds = Array.isArray(rule.employeeIds) ? (rule.employeeIds as string[]) : [];
+          if (empIds.length > 0) {
+            if (empIds.includes(employeeId)) return rule.shift;
+            continue;
+          }
+          if (rule.paygroupId && rule.departmentId) {
+            if (rule.paygroupId === employeeWithDept?.paygroupId && rule.departmentId === employeeWithDept?.departmentId) return rule.shift;
+          } else if (rule.paygroupId) {
+            if (rule.paygroupId === employeeWithDept?.paygroupId) return rule.shift;
+          } else if (rule.departmentId) {
+            if (rule.departmentId === employeeWithDept?.departmentId) return rule.shift;
+          } else {
+            return rule.shift; // org-wide
+          }
+        }
+        return null;
+      };
+
       if (existing) {
         // Normalize output date to the working date bucket we are building, so API consumers
         // always get attendance mapped by shift start date even if DB date was stored differently.
-        const existingOnWorkingDate = { ...existing, date: dateForRule };
-        if (existing.shift) {
-          merged.push(existingOnWorkingDate);
-        } else {
-          const shiftFromRule = await shiftAssignmentRuleService.getApplicableShiftForEmployee(
-            employeeId,
-            dateForRule,
-            organizationId
-          );
-          merged.push({ ...existingOnWorkingDate, shift: shiftFromRule });
-        }
+        merged.push({ ...existing, date: dateForRule, shift: existing.shift ?? getShiftFromRules() });
       } else {
-        const shiftFromRule = await shiftAssignmentRuleService.getApplicableShiftForEmployee(
-          employeeId,
-          dateForRule,
-          organizationId
-        );
+        const shiftFromRule = getShiftFromRules();
         if (shiftFromRule) {
-          merged.push({
-            id: `synthetic-${employeeId}-${dateStr}`,
-            employeeId,
-            date: dateForRule,
-            shiftId: shiftFromRule.id,
-            employee: employeeInfo,
-            shift: shiftFromRule,
-          });
+          merged.push({ id: `synthetic-${employeeId}-${dateStr}`, employeeId, date: dateForRule, shiftId: shiftFromRule.id, employee: employeeInfo, shift: shiftFromRule });
         }
       }
     }

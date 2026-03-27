@@ -617,6 +617,14 @@ const LeavePage = () => {
                   : 'My Leave Requests'}
               </h2>
               <div className="flex items-center space-x-4">
+                {canManageLeaveTypes && (
+                  <button
+                    onClick={() => setShowLeaveTypeForm(!showLeaveTypeForm)}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium"
+                  >
+                    {showLeaveTypeForm ? 'Hide Leave Type Form' : '+ Create Leave Type'}
+                  </button>
+                )}
                 {!showApplyForm && (
                   <button
                     onClick={() => setShowApplyForm(true)}

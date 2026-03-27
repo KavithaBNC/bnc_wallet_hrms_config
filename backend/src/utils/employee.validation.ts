@@ -39,7 +39,7 @@ export const createEmployeeSchema = z.object({
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
   reportingManagerConfiguratorUserId: z.number().optional().nullable(),
-  workLocation: z.string().max(255).optional(),
+  workLocation: z.string().max(255).optional().nullable(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
   costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
@@ -123,16 +123,16 @@ export const updateEmployeeSchema = z.object({
 
   // Personal Information
   firstName: z.string().min(2).max(100).optional(),
-  middleName: z.string().max(100).optional(),
+  middleName: z.string().max(100).optional().nullable(),
   lastName: z.string().min(2).max(100).optional(),
   email: z.string().email().max(255).optional(),
-  personalEmail: z.string().email().max(255).optional(),
-  phone: z.string().max(20).optional(),
-  dateOfBirth: z.string().optional(),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']).optional(),
-  maritalStatus: z.enum(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED']).optional(),
-  nationality: z.string().max(100).optional(),
-  profilePictureUrl: z.string().url().max(500).optional(),
+  personalEmail: z.string().email().max(255).optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
+  dateOfBirth: z.string().optional().nullable(),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER', 'PREFER_NOT_TO_SAY']).optional().nullable(),
+  maritalStatus: z.enum(['SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED']).optional().nullable(),
+  nationality: z.string().max(100).optional().nullable(),
+  profilePictureUrl: z.string().max(500).optional().nullable(),
 
   // Employment Information
   paygroupId: z.string().uuid().optional().nullable(),
@@ -143,7 +143,7 @@ export const updateEmployeeSchema = z.object({
   departmentConfiguratorId: z.number().optional().nullable(),
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
-  workLocation: z.string().max(255).optional(),
+  workLocation: z.string().max(255).optional().nullable(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
   costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
@@ -154,15 +154,15 @@ export const updateEmployeeSchema = z.object({
   grade: z.string().max(50).optional().nullable(),
   placeOfTaxDeduction: z.enum(['METRO', 'NON_METRO']).optional().nullable(),
   jobResponsibility: z.string().max(2000).optional().nullable(),
-  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN']).optional(),
+  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN']).optional().nullable(),
   employeeStatus: z.enum(['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'TERMINATED', 'RESIGNED']).optional(),
 
   // Dates
   dateOfJoining: z.string().optional(),
-  probationEndDate: z.string().optional(),
-  confirmationDate: z.string().optional(),
-  dateOfLeaving: z.string().optional(),
-  terminationReason: z.string().max(1000).optional(),
+  probationEndDate: z.string().optional().nullable(),
+  confirmationDate: z.string().optional().nullable(),
+  dateOfLeaving: z.string().optional().nullable(),
+  terminationReason: z.string().max(1000).optional().nullable(),
 
   // Additional Information (JSON fields)
   address: z.object({

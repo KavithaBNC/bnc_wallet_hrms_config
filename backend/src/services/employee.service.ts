@@ -298,13 +298,11 @@ export class EmployeeService {
           where: { organizationId: data.organizationId, configuratorDepartmentId: configId },
         });
         if (!hrmsDept) {
-          throw new AppError(
-            'Department from Config not found in HRMS. Run sync:config-to-hrms to sync departments first.',
-            404
-          );
+          console.warn(`Department with Config ID ${configId} not found in HRMS. Employee will be created without department.`);
+        } else {
+          resolvedDepartmentId = hrmsDept.id;
+          departmentConfiguratorId = configId;
         }
-        resolvedDepartmentId = hrmsDept.id;
-        departmentConfiguratorId = configId;
       }
     }
 
@@ -327,13 +325,11 @@ export class EmployeeService {
           where: { organizationId: data.organizationId, configuratorCostCentreId: configId },
         });
         if (!hrmsCc) {
-          throw new AppError(
-            'Cost centre from Config not found in HRMS. Run sync:config-to-hrms to sync cost centres first.',
-            404
-          );
+          console.warn(`Cost centre with Config ID ${configId} not found in HRMS. Employee will be created without cost centre.`);
+        } else {
+          resolvedCostCentreId = hrmsCc.id;
+          costCentreConfiguratorId = configId;
         }
-        resolvedCostCentreId = hrmsCc.id;
-        costCentreConfiguratorId = configId;
       }
     }
 
@@ -1157,13 +1153,11 @@ export class EmployeeService {
           where: { organizationId: existing.organizationId, configuratorDepartmentId: configId },
         });
         if (!hrmsDept) {
-          throw new AppError(
-            'Department from Config not found in HRMS. Run sync:config-to-hrms to sync departments first.',
-            404
-          );
+          console.warn(`Department with Config ID ${configId} not found in HRMS. Skipping department update.`);
+        } else {
+          resolvedDepartmentId = hrmsDept.id;
+          departmentConfiguratorId = configId;
         }
-        resolvedDepartmentId = hrmsDept.id;
-        departmentConfiguratorId = configId;
       }
     }
 
@@ -1189,13 +1183,11 @@ export class EmployeeService {
           where: { organizationId: existing.organizationId, configuratorCostCentreId: configId },
         });
         if (!hrmsCc) {
-          throw new AppError(
-            'Cost centre from Config not found in HRMS. Run sync:config-to-hrms to sync cost centres first.',
-            404
-          );
+          console.warn(`Cost centre with Config ID ${configId} not found in HRMS. Skipping cost centre update.`);
+        } else {
+          resolvedCostCentreId = hrmsCc.id;
+          costCentreConfiguratorId = configId;
         }
-        resolvedCostCentreId = hrmsCc.id;
-        costCentreConfiguratorId = configId;
       }
     }
 
@@ -1241,7 +1233,7 @@ export class EmployeeService {
     }
 
     // Extract role and configuratorRoleId from data (for User / Config, not Employee)
-    const { role, departmentId: _deptId, costCentreId: _ccId, configuratorRoleId: _configRoleId, ...employeeData } = data;
+    const { role, departmentId: _deptId, costCentreId: _ccId, configuratorRoleId: _configRoleId, reportingManagerConfiguratorUserId: _rmConfigId, ...employeeData } = data as typeof data & { reportingManagerConfiguratorUserId?: number | null };
 
     // Update Config user (PUT /api/v1/users/{user_id}) when any relevant field changes
     const userForConfig = existing.userId ? await prisma.user.findUnique({
@@ -1329,11 +1321,11 @@ export class EmployeeService {
     // Prisma Json fields require Prisma.JsonNull to set null, not plain null.
     const updatePayload: Prisma.EmployeeUncheckedUpdateInput = {
       ...employeeData,
-      dateOfBirth: employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth) : undefined,
+      dateOfBirth: employeeData.dateOfBirth === null ? null : (employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth) : undefined),
       dateOfJoining: employeeData.dateOfJoining ? new Date(employeeData.dateOfJoining) : undefined,
-      probationEndDate: employeeData.probationEndDate ? new Date(employeeData.probationEndDate) : undefined,
-      confirmationDate: employeeData.confirmationDate ? new Date(employeeData.confirmationDate) : undefined,
-      dateOfLeaving: employeeData.dateOfLeaving ? new Date(employeeData.dateOfLeaving) : undefined,
+      probationEndDate: employeeData.probationEndDate === null ? null : (employeeData.probationEndDate ? new Date(employeeData.probationEndDate) : undefined),
+      confirmationDate: employeeData.confirmationDate === null ? null : (employeeData.confirmationDate ? new Date(employeeData.confirmationDate) : undefined),
+      dateOfLeaving: employeeData.dateOfLeaving === null ? null : (employeeData.dateOfLeaving ? new Date(employeeData.dateOfLeaving) : undefined),
       paygroupId: employeeData.paygroupId ?? undefined,
       ...(resolvedDepartmentId !== undefined && { departmentId: resolvedDepartmentId }),
       ...(departmentConfiguratorId !== undefined && { departmentConfiguratorId: departmentConfiguratorId }),
