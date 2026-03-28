@@ -111,6 +111,8 @@ import ExerciseRequestsPage from './pages/ExerciseRequestsPage';
 import EsopLedgerPage from './pages/EsopLedgerPage';
 import EsopMyHoldingsPage from './pages/EsopMyHoldingsPage';
 import LeaveApprovalPage from './pages/LeaveApprovalPage';
+import LeaveTypePage from './pages/LeaveTypePage';
+import LeaveTypeFormPage from './pages/LeaveTypeFormPage';
 import EventRequestPage from './pages/EventRequestPage';
 import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
 import NotFoundPage from './pages/NotFoundPage';
@@ -630,6 +632,36 @@ function App() {
               <ProtectedRoute>
                 <DashboardLayout>
                   <AutoCreditSettingPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event-configuration/leave-types"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LeaveTypePage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event-configuration/leave-types/add"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LeaveTypeFormPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event-configuration/leave-types/edit/:id"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <LeaveTypeFormPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }

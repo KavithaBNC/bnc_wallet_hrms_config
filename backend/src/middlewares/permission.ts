@@ -158,6 +158,14 @@ export const checkPermission = (resource: string, action: string) => {
       return next();
     }
 
+    // Fallback: if the Configurator hasn't explicitly granted this permission,
+    // allow it based on the JWT role (e.g. MANAGER approving leaves when the
+    // Configurator module hasn't been configured with can_edit for that role).
+    const roleFallback = ROLE_FALLBACK_PERMISSIONS[req.user.role];
+    if (roleFallback?.has(`${resource}.${action}`)) {
+      return next();
+    }
+
     return next(
       new AppError(
         `Access denied. You do not have permission to ${action} ${resource}.`,

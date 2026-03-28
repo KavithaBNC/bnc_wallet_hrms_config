@@ -403,6 +403,15 @@ export class LeaveRequestService {
     return key.includes('permission');
   }
 
+  private parsePermissionMinutes(reason: string | null | undefined): number {
+    if (!reason) return 0;
+    const match = reason.match(/^\[Permission\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\]/i);
+    if (!match) return 0;
+    const [hFrom, mFrom] = match[1].split(':').map(Number);
+    const [hTo, mTo] = match[2].split(':').map(Number);
+    return Math.max(0, (hTo * 60 + mTo) - (hFrom * 60 + mFrom));
+  }
+
   private readPermissionMonthlyLimit(ruleDef: unknown, remarks?: string | null): number | null {
     if (ruleDef && typeof ruleDef === 'object') {
       const r = ruleDef as Record<string, unknown>;
@@ -434,9 +443,23 @@ export class LeaveRequestService {
     },
     leaveType: { id: string; name?: string | null; code?: string | null },
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    incomingReason: string
   ): Promise<void> {
     if (!this.isPermissionLikeLeaveType(leaveType)) return;
+
+    const MAX_MINUTES_PER_REQUEST = 120;
+    const MAX_MINUTES_PER_MONTH = 240;
+    const MAX_COUNT_PER_MONTH = 2;
+
+    // Per-request duration check (max 2 hours)
+    const incomingMinutes = this.parsePermissionMinutes(incomingReason);
+    if (incomingMinutes > MAX_MINUTES_PER_REQUEST) {
+      throw new AppError(
+        `Permission cannot exceed 2 hours per request. Requested: ${incomingMinutes} minutes.`,
+        400
+      );
+    }
 
     const isRuleApplicableToEmployee = (r: {
       paygroupId?: string | null;
@@ -484,7 +507,8 @@ export class LeaveRequestService {
       matchingRule?.eventRuleDefinition,
       matchingRule?.remarks ?? null
     );
-    if (!monthlyLimit) return;
+    // Use hardcoded default if no RuleSetting configured
+    const countLimit = monthlyLimit ?? MAX_COUNT_PER_MONTH;
 
     const monthStart = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1, 0, 0, 0, 0));
     const monthEnd = new Date(
@@ -506,16 +530,32 @@ export class LeaveRequestService {
       },
     });
 
-    const usedPermissionCount = existingMonthlyRequests.filter((lr) => {
+    const permissionRequests = existingMonthlyRequests.filter((lr) => {
       if (permissionReasonRegex.test(lr.reason || '')) return true;
       return this.isPermissionLikeLeaveType(lr.leaveType);
-    }).length;
+    });
+    const usedPermissionCount = permissionRequests.length;
 
-    if (usedPermissionCount >= monthlyLimit) {
+    if (usedPermissionCount >= countLimit) {
       throw new AppError(
-        `Monthly permission limit reached. Allowed: ${monthlyLimit}, Used: ${usedPermissionCount}.`,
+        `Monthly permission limit reached. Allowed: ${countLimit}, Used: ${usedPermissionCount}.`,
         400
       );
+    }
+
+    // Total monthly duration check (max 4 hours)
+    if (incomingMinutes > 0) {
+      const existingTotalMinutes = permissionRequests.reduce(
+        (sum, lr) => sum + this.parsePermissionMinutes(lr.reason),
+        0
+      );
+      if (existingTotalMinutes + incomingMinutes > MAX_MINUTES_PER_MONTH) {
+        const remainingMinutes = Math.max(0, MAX_MINUTES_PER_MONTH - existingTotalMinutes);
+        throw new AppError(
+          `Monthly permission time limit reached. Used: ${existingTotalMinutes} min, Remaining: ${remainingMinutes} min, Requested: ${incomingMinutes} min.`,
+          400
+        );
+      }
     }
 
     // Also block cross-month multi-day permission requests.
@@ -804,33 +844,6 @@ export class LeaveRequestService {
       }
     }
 
-    // 2. Block if validation has run for any date in range (presence/absence is final)
-    const allDatesInRange: Date[] = [];
-    const dateCursor2 = new Date(startDate);
-    while (dateCursor2 <= endDate) {
-      allDatesInRange.push(new Date(dateCursor2));
-      dateCursor2.setUTCDate(dateCursor2.getUTCDate() + 1);
-    }
-
-    const validationResultDates = await prisma.attendanceValidationResult.findMany({
-      where: {
-        organizationId: employee.organizationId,
-        employeeId,
-        date: { in: allDatesInRange },
-      },
-      select: { date: true },
-    });
-
-    if (validationResultDates.length > 0) {
-      const blockedDateStrings = validationResultDates
-        .map(v => v.date.toISOString().split('T')[0])
-        .join(', ');
-      throw new AppError(
-        `Validation already run for date(s): ${blockedDateStrings}. Cannot apply event to closed period.`,
-        400
-      );
-    }
-
     // Check eligibility based on leave policy
     const eligibility = await leavePolicyService.checkEligibility(employeeId, data.leaveTypeId);
     if (!eligibility.eligible) {
@@ -988,7 +1001,7 @@ export class LeaveRequestService {
     }
 
     // Enforce monthly permission application limit from Rule Settings (server-side guard)
-    await this.enforceMonthlyPermissionLimit(employee, leaveType, startDate, endDate);
+    await this.enforceMonthlyPermissionLimit(employee, leaveType, startDate, endDate, data.reason || '');
 
     // Use request start year for balance operations.
     const year = startDate.getUTCFullYear();
@@ -1212,31 +1225,6 @@ export class LeaveRequestService {
           400
         );
       }
-    }
-
-    // Validation lock check
-    const allDatesInRange: Date[] = [];
-    const dateCursor2 = new Date(startDate);
-    while (dateCursor2 <= endDate) {
-      allDatesInRange.push(new Date(dateCursor2));
-      dateCursor2.setUTCDate(dateCursor2.getUTCDate() + 1);
-    }
-    const validationResultDates = await prisma.attendanceValidationResult.findMany({
-      where: {
-        organizationId: employee.organizationId,
-        employeeId: targetEmployeeId,
-        date: { in: allDatesInRange },
-      },
-      select: { date: true },
-    });
-    if (validationResultDates.length > 0) {
-      const blockedDateStrings = validationResultDates
-        .map(v => v.date.toISOString().split('T')[0])
-        .join(', ');
-      throw new AppError(
-        `Validation already run for date(s): ${blockedDateStrings}. Cannot apply event to closed period.`,
-        400
-      );
     }
 
     // Overlap check

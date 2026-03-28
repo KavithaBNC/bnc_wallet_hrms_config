@@ -73,6 +73,13 @@ function parsePermissionTimingFromReason(reason: string | undefined | null, _lea
   return `${match[1]} - ${match[2]}`;
 }
 
+/** Parse "[First Half]" or "[Second Half]" from start of reason for calendar display. */
+function parseHalfDayLabelFromReason(reason: string | undefined | null): string | null {
+  if (!reason?.trim()) return null;
+  const match = reason.match(/^\[(First Half|Second Half)\]/i);
+  return match ? match[1] : null;
+}
+
 function parseOndutyLabelFromReason(reason: string | undefined | null): string | null {
   if (!reason?.trim()) return null;
   const match = reason.match(/^\[Onduty(?:\s+([^\]]+))?\]/i);
@@ -677,7 +684,10 @@ const AttendanceCalendarView = ({ records, punches, currentMonth, onMonthChange,
                     status === 'APPROVED' ? 'Approved' :
                     status === 'REJECTED' ? 'Rejected' :
                     status === 'CANCELLED' ? 'Cancelled' : 'Pending';
-                  const dayType = isPermission ? 'Permission' : (Number(lr.totalDays) >= 1 ? 'Full Day' : 'Half Day');
+                  const halfDayLabel = !isPermission && Number(lr.totalDays) > 0 && Number(lr.totalDays) < 1
+                    ? parseHalfDayLabelFromReason(lr.reason ?? undefined)
+                    : null;
+                  const dayType = isPermission ? 'Permission' : (Number(lr.totalDays) >= 1 ? 'Full Day' : (halfDayLabel || 'Half Day'));
                   const titleParts = [displayLeaveTypeName, permissionTiming || dayType, statusText].filter(Boolean);
                   const tone =
                     status === 'APPROVED'
