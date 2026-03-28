@@ -95,7 +95,14 @@ export async function resolveRightsAllocationContextForEmployee(
     };
   }
 
-  const workflow = await resolveWorkflowForEmployeeOrNull(employeeId, organizationId);
+  let workflow = null;
+  try {
+    workflow = await resolveWorkflowForEmployeeOrNull(employeeId, organizationId);
+  } catch {
+    // No matching workflow for this employee's paygroup/department.
+    // For rights-allocation (a best-effort lookup), treat as "no template".
+    workflow = null;
+  }
   const template = workflow?.entryRightsTemplate?.trim();
   if (!template) {
     return {

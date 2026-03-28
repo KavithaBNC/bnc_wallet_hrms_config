@@ -160,6 +160,8 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   'rule setting': '/event-configuration/rule-setting',
   'auto credit setting': '/event-configuration/auto-credit-setting',
   'encashment / carry forward': '/event-configuration/encashment-carry-forward',
+  'leave types': '/event-configuration/leave-types',
+  'leave type': '/event-configuration/leave-types',
   'hr activities': '/hr-activities',
   'validation process': '/hr-activities/validation-process',
   'others configuration': '/others-configuration',

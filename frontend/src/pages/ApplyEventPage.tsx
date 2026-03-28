@@ -584,6 +584,10 @@ export default function ApplyEventPage() {
         }
 
         const durationMinutes = endMinutes - startMinutes;
+        if (durationMinutes > 120) {
+          setError('Permission cannot exceed 2 hours (120 minutes) per request.');
+          return;
+        }
         const shiftWindowMinutes = Math.max(1, allowedEnd - allowedStart);
         totalDays = Number((durationMinutes / shiftWindowMinutes).toFixed(4));
         startDate = entryDate;
@@ -595,6 +599,14 @@ export default function ApplyEventPage() {
         const isSingleDay = fromDate === toDate;
         const isHalfDaySelection = fromDuration !== 'FULL_DAY' || toDuration !== 'FULL_DAY';
         totalDays = isSingleDay && isHalfDaySelection ? 0.5 : undefined;
+        if (isSingleDay && isHalfDaySelection) {
+          const halfLabel = fromDuration === 'FIRST_HALF' ? 'First Half'
+                          : fromDuration === 'SECOND_HALF' ? 'Second Half'
+                          : null;
+          if (halfLabel) {
+            submitReason = `[${halfLabel}] ${submitReason}`;
+          }
+        }
         if (fixedDurationEnforced && leaveHint?.fixedDays && leaveHint.fixedDays > 0) {
           endDate = leaveHint.recommendedEndDate;
           totalDays = leaveHint.fixedDays;

@@ -41,6 +41,7 @@ export const APP_MODULES: AppModule[] = [
   { path: '/event-configuration/rule-setting', label: 'Rule Setting', resource: 'rule_setting', visibility: 'all', parentPath: '/event-configuration' },
   { path: '/event-configuration/auto-credit-setting', label: 'Auto Credit Setting', resource: 'auto_credit_setting', visibility: 'all', parentPath: '/event-configuration' },
   { path: '/event-configuration/encashment-carry-forward', label: 'Encashment / Carry Forward', resource: 'encashment_carry_forward', visibility: 'all', parentPath: '/event-configuration' },
+  { path: '/event-configuration/leave-types', label: 'Leave Types', resource: 'leave_types', visibility: 'all', parentPath: '/event-configuration' },
   { path: '/hr-activities', label: 'HR Activities', resource: 'hr_activities', visibility: 'all' },
   { path: '/hr-activities/validation-process', label: 'Validation Process', resource: 'validation_process', visibility: 'all', parentPath: '/hr-activities' },
   { path: '/hr-activities/post-to-payroll', label: 'Post to Payroll', resource: 'hr_activities', visibility: 'all', parentPath: '/hr-activities' },
