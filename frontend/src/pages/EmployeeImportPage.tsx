@@ -135,13 +135,16 @@ export default function EmployeeImportPage() {
   const handleDownloadTemplate = () => {
     // Generate empty HRMS template with column headers only (49 columns)
     const COLUMNS = [
-      'S.No', 'Paygroup', 'Associate Code', 'Associate Name', 'Gender', 'Department', 'Designation', 'Role', 'Father Name', 'Blood Group',
-      'Date of Birth', 'Date of Joining', 'Cost Centre', 'Pan Card Number', 'Bank Name', 'Account No', 'Bank IFSC Code',
-      'Permanent E-Mail Id', 'Official E-Mail Id', 'Permanent Address', 'Permanent City', 'Permanent State', 'Permanent Pincode', 'Permanent Phone',
-      'Current Address', 'Current City', 'Current State', 'Current Pincode', 'Current Phone',
-      'Place of Tax Deduction', 'PF Number', 'ESI Number', 'Location', 'ESI Location', 'Ptax Location', 'Marital Status',
-      'Reporting Manager', 'Associate Notice Period Days', 'LWF Location', 'Permanent District', 'Current District', 'Permanent mobile',
-      'UAN Number', 'Adhaar Number', 'Tax Regime', 'Sub Department', 'Alternate Saturday Off', 'Compoff Applicable', 'Fixed Gross', 'Vehicle Allowances',
+      'S.No', 'Paygroup', 'Associate Code', 'Associate First Name', 'Associate Last Name', 'Gender',
+      'Department', 'Sub Department', 'Cost Centre', 'Designation', 'Role',
+      'Father Name', 'Blood Group', 'Date of Birth', 'Date of Joining',
+      'Pan Card Number', 'Bank Name', 'Account No', 'Bank IFSC Code',
+      'Permanent E-Mail Id', 'Official E-Mail Id',
+      'Permanent Address', 'Permanent City', 'Permanent District', 'Permanent State', 'Permanent Pincode', 'Permanent Phone', 'Permanent mobile',
+      'Current Address', 'Current City', 'Current District', 'Current State', 'Current Pincode', 'Current Phone',
+      'Place of Tax Deduction', 'PF Number', 'ESI Number', 'Location', 'ESI Location', 'Ptax Location',
+      'Marital Status', 'Reporting Manager', 'Associate Notice Period Days', 'LWF Location',
+      'UAN Number', 'Adhaar Number', 'Tax Regime', 'Alternate Saturday Off', 'Compoff Applicable', 'Fixed Gross', 'Vehicle Allowances',
     ];
     const ws = XLSX.utils.aoa_to_sheet([COLUMNS]);
     const wb = XLSX.utils.book_new();

@@ -1552,7 +1552,23 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         </div>
       </div>
     )}
-    <form onSubmit={handleSubmit} className="space-y-6 w-full max-w-full min-w-0 h-full">
+    <form onSubmit={handleSubmit} className={`space-y-6 w-full max-w-full min-w-0 h-full ${isViewMode ? 'employee-view-mode' : ''}`}>
+      {isViewMode && (
+        <style>{`
+          .employee-view-mode input,
+          .employee-view-mode select,
+          .employee-view-mode textarea {
+            background-color: #f3f4f6 !important;
+            color: #374151 !important;
+            cursor: not-allowed !important;
+            pointer-events: none !important;
+            border-color: #d1d5db !important;
+          }
+          .employee-view-mode button[type="button"]:not(.back-btn):not(nav button) {
+            display: none !important;
+          }
+        `}</style>
+      )}
       {/* Rejoin banner: full form is shown; on Save a new employee record will be created */}
       {rejoinMode && employee && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
@@ -1932,6 +1948,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="costCentre"
                   value={formData.costCentre}
                   placeholder="Cost Centre"
+                  disabled={isViewMode}
                   options={costCentreOptions.map((name) => ({ value: name, label: name }))}
                   onChange={(val) => {
                     // Simulate native event for handleChange
@@ -1984,7 +2001,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="departmentId"
                   value={formData.departmentId}
                   placeholder={formData.costCentre?.trim() ? 'Department' : 'Select cost centre first'}
-                  disabled={!formData.costCentre?.trim()}
+                  disabled={isViewMode || !formData.costCentre?.trim()}
                   options={(() => {
                     const merged: { value: string; label: string }[] = [];
                     const seenNames = new Set<string>();
@@ -2039,7 +2056,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="subDepartment"
                   value={formData.subDepartment}
                   placeholder={formData.departmentId?.trim() ? 'Sub-Department' : 'Select department first'}
-                  disabled={!formData.departmentId?.trim()}
+                  disabled={isViewMode || !formData.departmentId?.trim()}
                   options={subDepartmentOptions.map((name) => ({ value: name, label: name }))}
                   onChange={(val) => {
                     const syntheticEvent = { target: { name: 'subDepartment', value: val } } as React.ChangeEvent<HTMLSelectElement>;
@@ -2074,6 +2091,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 <SearchableSelect
                   value={formData.positionId}
                   onChange={(val) => setFormData((prev) => ({ ...prev, positionId: val }))}
+                  disabled={isViewMode}
                   options={positions
                     .filter((p) => !formData.departmentId?.trim() || !p.departmentId || p.departmentId === formData.departmentId)
                     .map((p) => ({ value: p.id, label: p.title }))}
@@ -2132,6 +2150,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
               <SearchableSelect
                 value={formData.managerId}
                 onChange={(val) => setFormData((prev) => ({ ...prev, managerId: val }))}
+                disabled={isViewMode}
                 options={availableManagers.map((m) => ({
                   value: m.id,
                   label: `${m.firstName} ${m.lastName} (${m.employeeCode})`,
@@ -2147,6 +2166,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                   name="userRoleId"
                   value={formData.userRoleId}
                   placeholder="Select User Role"
+                  disabled={isViewMode}
                   options={userRoleOptions.map((r) => ({ value: String(r.id), label: r.name }))}
                   onChange={(val) => {
                     const syntheticEvent = { target: { name: 'userRoleId', value: val } } as React.ChangeEvent<HTMLSelectElement>;

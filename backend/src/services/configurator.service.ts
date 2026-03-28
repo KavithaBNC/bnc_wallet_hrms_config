@@ -656,6 +656,20 @@ export class ConfiguratorService {
     }
   }
 
+  async getBranches(accessToken: string, companyId: number): Promise<any[]> {
+    try {
+      const res = await axios.post(
+        `${CONFIGURATOR_BASE}/api/v1/branches/list`,
+        { company_id: companyId },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
+      );
+      const data = res.data;
+      return Array.isArray(data) ? data : (data?.data ?? data?.branches ?? []);
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * Create user in Config DB users table
    * POST /api/v1/users/add
@@ -782,10 +796,16 @@ export class ConfiguratorService {
    * DELETE /api/v1/users/  body: { user_id }
    */
   async deleteUser(accessToken: string, userId: number): Promise<void> {
+    console.log('[configuratorService.deleteUser] Calling DELETE /api/v1/users/ with user_id:', userId);
     try {
       await withFallback((base) =>
-        axios.delete(`${base}/api/v1/users/`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
+        axios.request({
+          method: 'DELETE',
+          url: `${base}/api/v1/users/`,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
           data: { user_id: userId },
         })
       );

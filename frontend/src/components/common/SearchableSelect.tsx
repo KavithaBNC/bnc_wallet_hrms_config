@@ -94,7 +94,7 @@ export default function SearchableSelect({
         onClick={handleOpen}
         className={`mt-1.5 flex items-center justify-between w-full h-11 px-3 bg-white/60 backdrop-blur-md rounded-xl border shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] sm:text-sm ${
           disabled
-            ? 'opacity-60 cursor-not-allowed border-gray-300'
+            ? 'bg-gray-100 cursor-not-allowed border-gray-300 text-gray-500'
             : isOpen
             ? 'border-blue-500 ring-2 ring-blue-500'
             : hasError

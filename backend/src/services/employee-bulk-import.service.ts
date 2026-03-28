@@ -190,8 +190,8 @@ export class EmployeeBulkImportService {
       const row = rawRows[index];
 
       const associateName = getAssociateNameWithFallback(row);
-      const firstNameCol = String(getCellValue(row, ['firstName', 'first_name', 'firstname', 'First Name', 'EMP.F.NAME'])).trim();
-      const lastNameCol = String(getCellValue(row, ['lastName', 'last_name', 'lastname', 'Last Name', 'EMP.L.NAME'])).trim();
+      const firstNameCol = String(getCellValue(row, ['Associate First Name', 'firstName', 'first_name', 'firstname', 'First Name', 'EMP.F.NAME'])).trim();
+      const lastNameCol = String(getCellValue(row, ['Associate Last Name', 'lastName', 'last_name', 'lastname', 'Last Name', 'EMP.L.NAME'])).trim();
       let firstName = firstNameCol;
       let lastName = lastNameCol;
       if (associateName && !firstNameCol && !lastNameCol) {
@@ -423,9 +423,9 @@ export class EmployeeBulkImportService {
     _fileName: string,
     organizationId: string,
     createdByUserId: string,
-    options: { createSalaryRecords?: boolean; skipConfiguratorSync?: boolean } = {},
+    options: { createSalaryRecords?: boolean; skipConfiguratorSync?: boolean; configuratorAccessToken?: string | null } = {},
   ): Promise<BulkImportResult> {
-    const { createSalaryRecords = false, skipConfiguratorSync = false } = options;
+    const { createSalaryRecords = false, skipConfiguratorSync = false, configuratorAccessToken: passedToken = null } = options;
 
     // ── 1. Parse Excel ──
     const parsedRows = this.parseExcel(fileBuffer);
@@ -498,29 +498,33 @@ export class EmployeeBulkImportService {
     const configDeptNameToId = new Map<string, number>();
     const configSubDeptNameToId = new Map<string, number>();
     const configCostCentreNameToId = new Map<string, number>();
+    const configBranchNameToId = new Map<string, number>();
     const configRoleNameToCode = new Map<string, string>();
     const configRoleNameToId = new Map<string, number>();
-    let configuratorAccessToken: string | null = null;
+    let configuratorAccessToken: string | null = passedToken;
 
     try {
       if (organization.configuratorCompanyId != null) {
-        const tokenUser = await prisma.user.findUnique({
-          where: { id: createdByUserId },
-          select: { configuratorAccessToken: true },
-        });
+        if (!configuratorAccessToken) {
+          const tokenUser = await prisma.user.findUnique({
+            where: { id: createdByUserId },
+            select: { configuratorAccessToken: true },
+          });
+          configuratorAccessToken = tokenUser?.configuratorAccessToken ?? null;
+        }
 
-        if (tokenUser?.configuratorAccessToken) {
-          configuratorAccessToken = tokenUser.configuratorAccessToken;
+        if (configuratorAccessToken) {
           const companyId = organization.configuratorCompanyId;
           const projectId = config.configuratorHrmsProjectId || undefined;
 
-          // 5 parallel Configurator API calls — all use dynamic company_id/project_id from login context
-          const [configDepts, configSubDepts, configCostCentres, configUserRoles, configUsers] = await Promise.all([
-            configuratorService.getDepartments(tokenUser.configuratorAccessToken, { companyId }),
-            configuratorService.getSubDepartments(tokenUser.configuratorAccessToken, { companyId }),
-            configuratorService.getCostCentres(tokenUser.configuratorAccessToken, companyId),
-            configuratorService.getUserRoles(tokenUser.configuratorAccessToken, companyId, projectId),
-            configuratorService.getUsers(tokenUser.configuratorAccessToken, { companyId }),
+          // 6 parallel Configurator API calls — all use dynamic company_id/project_id from login context
+          const [configDepts, configSubDepts, configCostCentres, configUserRoles, configUsers, configBranches] = await Promise.all([
+            configuratorService.getDepartments(configuratorAccessToken, { companyId }),
+            configuratorService.getSubDepartments(configuratorAccessToken, { companyId }),
+            configuratorService.getCostCentres(configuratorAccessToken, companyId),
+            configuratorService.getUserRoles(configuratorAccessToken, companyId, projectId),
+            configuratorService.getUsers(configuratorAccessToken, { companyId }),
+            configuratorService.getBranches(configuratorAccessToken, companyId),
           ]);
 
           // Build Department validation set + ID map
@@ -562,7 +566,12 @@ export class EmployeeBulkImportService {
             }
           }
 
-          console.log(`[BulkImport] Configurator data: ${configDepartmentSet.size} depts, ${configSubDepartmentSet.size} sub-depts, ${configCostCentreSet.size} cost-centres, ${configUserRoleSet.size} roles, ${configuratorEmailSet.size} existing users`);
+          // Build Branch ID map (name → configurator branch ID)
+          for (const b of configBranches) {
+            if (b.name && b.id) configBranchNameToId.set(b.name.toLowerCase(), b.id);
+          }
+
+          console.log(`[BulkImport] Configurator data: ${configDepartmentSet.size} depts, ${configSubDepartmentSet.size} sub-depts, ${configCostCentreSet.size} cost-centres, ${configUserRoleSet.size} roles, ${configuratorEmailSet.size} existing users, ${configBranchNameToId.size} branches`);
           console.log(`[BulkImport] Role name→ID map: ${configRoleNameToId.size} entries from API`);
         }
       }
@@ -730,17 +739,19 @@ export class EmployeeBulkImportService {
     } else if (!configuratorAccessToken) {
       throw new AppError('No Configurator access token available. Please logout and login again to refresh token.', 401);
     } else {
-      // Build a Configurator-compatible Excel from parsed data (9 columns)
+      // Build a Configurator-compatible Excel from parsed data
+      // Column names must match what Configurator /api/v1/users/upload-excel expects
       const configRows = parsedRows.map((row) => ({
-        first_name: row.firstName,
-        last_name: row.lastName || 'N/A',
-        email: row.email,
-        phone: row.phone || '',
-        password: `Temp@${Math.random().toString(36).slice(-8)}`,
-        cost_centre: row.costCentreName || '',
-        department: row.department || '',
-        sub_department: row.subDepartment || '',
-        manager: row.reportingManagerName || '',
+        'associate first name': row.firstName || '',
+        'associate last name': row.lastName || 'N/A',
+        'official e-mail id': row.email,
+        'phone': row.phone || '',
+        'department': row.department || '',
+        'cost centre': row.costCentreName || '',
+        'sub department': row.subDepartment || '',
+        'role': row.userRole || '',
+        'password': `Temp@${Math.random().toString(36).slice(-8)}`,
+        'reporting manager': row.reportingManagerName || '',
       }));
 
       const configWs = XLSX.utils.json_to_sheet(configRows);
@@ -914,6 +925,7 @@ export class EmployeeBulkImportService {
             isEmailVerified: false,
             ...(configUser?.user_id != null ? { configuratorUserId: configUser.user_id } : {}),
             ...(configRoleId != null ? { configuratorRoleId: configRoleId } : {}),
+            ...(organization.configuratorCompanyId != null ? { configuratorCompanyId: organization.configuratorCompanyId } : {}),
           };
         });
 
@@ -962,6 +974,7 @@ export class EmployeeBulkImportService {
         const deptConfigId = row.department ? configDeptNameToId.get(row.department.toLowerCase()) ?? null : null;
         const ccConfigId = row.costCentreName ? configCostCentreNameToId.get(row.costCentreName.toLowerCase()) ?? null : null;
         const subDeptConfigId = row.subDepartment ? configSubDeptNameToId.get(row.subDepartment.toLowerCase()) ?? null : null;
+        const configBranchId = row.workLocation ? configBranchNameToId.get(row.workLocation.toLowerCase()) ?? null : null;
 
         employeeCreateData.push({
           organizationId,
@@ -996,6 +1009,8 @@ export class EmployeeBulkImportService {
           ...(row.profileExtensions ? { profileExtensions: row.profileExtensions as any } : {}),
           ...(row.emergencyContacts ? { emergencyContacts: row.emergencyContacts as any } : {}),
           ...(configUser?.user_id != null ? { configuratorUserId: configUser.user_id } : {}),
+          ...(organization.configuratorCompanyId != null ? { configuratorCompanyId: organization.configuratorCompanyId } : {}),
+          ...(configBranchId ? { branchConfiguratorId: configBranchId } : {}),
           employeeStatus: 'ACTIVE',
         });
       }

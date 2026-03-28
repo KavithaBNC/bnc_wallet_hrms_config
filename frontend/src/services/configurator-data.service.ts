@@ -440,8 +440,12 @@ const configuratorDataService = {
     try {
       const api = getConfiguratorApi();
       // DELETE /api/v1/users/  body: { user_id }
-      await api.delete('/api/v1/users/', { data: { user_id: userId } });
-      console.log('[configuratorDataService.deleteConfiguratorUser] Deleted user:', userId);
+      const { data } = await api.request({
+        method: 'DELETE',
+        url: '/api/v1/users/',
+        data: { user_id: userId },
+      });
+      console.log('[configuratorDataService.deleteConfiguratorUser] Deleted user:', userId, data);
     } catch (err: any) {
       console.error('[configuratorDataService.deleteConfiguratorUser] FAILED:', {
         status: err?.response?.status,

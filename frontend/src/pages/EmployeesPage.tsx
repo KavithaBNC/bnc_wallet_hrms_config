@@ -358,13 +358,7 @@ export default function EmployeesPage() {
       try {
         await deleteEmployee(id);
         alert('Employee deleted successfully');
-        // Re-fetch the list
-        const params: any = { page: currentPage, limit: pageSize, employeeStatus: statusFilter };
-        if (searchTerm) params.search = searchTerm;
-        if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
-        if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
-        if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
-        fetchEmployees(params);
+        window.location.reload();
       } catch (error: any) {
         alert(error.message || 'Failed to delete employee');
       }

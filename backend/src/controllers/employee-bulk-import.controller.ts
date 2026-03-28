@@ -39,12 +39,14 @@ export class EmployeeBulkImportController {
         skipConfiguratorSync,
       });
 
+      const configuratorAccessToken = req.body.configuratorAccessToken || null;
+
       const result = await employeeBulkImportService.bulkImport(
         file.buffer,
         file.originalname,
         organizationId,
         req.user.userId,
-        { createSalaryRecords, skipConfiguratorSync },
+        { createSalaryRecords, skipConfiguratorSync, configuratorAccessToken },
       );
 
       console.log('[BulkImport Controller] Import completed:', {

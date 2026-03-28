@@ -178,16 +178,15 @@ export default function UserRolesPage() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="w-[8%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                      <th className="w-[15%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role ID</th>
-                      <th className="w-[37%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role Name</th>
-                      <th className="w-[20%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="w-[20%] px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="w-[42%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role Name</th>
+                      <th className="w-[25%] px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="w-[25%] px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {paginatedRoles.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-12 text-center text-gray-500 text-sm">
+                        <td colSpan={4} className="px-4 py-12 text-center text-gray-500 text-sm">
                           {searchTerm ? 'No roles match your search.' : 'No roles found.'}
                         </td>
                       </tr>
@@ -195,7 +194,6 @@ export default function UserRolesPage() {
                       paginatedRoles.map((role, index) => (
                         <tr key={role.role_id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{(currentPage - 1) * pageSize + index + 1}</td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 font-medium">{role.role_id}</td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{role.name}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

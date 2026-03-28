@@ -69,9 +69,10 @@ export default function EmployeeFormPage() {
 
   const editableTabsFromPermissions = getEditableTabsFromPermissions(userPermissions);
 
-  // For edit mode: if no employee data passed via state, fetch it
+  // For edit/view mode: if no employee data passed via state, fetch it from API
   useEffect(() => {
-    if (!isEdit || !id || state.employee) return;
+    if (!id || isNewFromConfigurator) return;
+    if (employee) return; // already have data from state
     setLoading(true);
     employeeService.getById(id)
       .then((emp) => {
@@ -83,7 +84,7 @@ export default function EmployeeFormPage() {
         setError('Failed to load employee details.');
       })
       .finally(() => setLoading(false));
-  }, [id, isEdit]);
+  }, [id]);
 
   // For Configurator-to-HRMS registration (/employees/edit/new):
   // Check if an HRMS employee already exists for this Configurator user.
@@ -231,8 +232,23 @@ export default function EmployeeFormPage() {
           </svg>
           Back to Employees
         </button>
-        <h1 className="text-2xl font-bold text-gray-900">Employee Management</h1>
-        <p className="text-gray-500 mt-1">{pageTitle}</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Employee Management</h1>
+            <p className="text-gray-500 mt-1">{pageTitle}</p>
+          </div>
+          {mode === 'view' && employee?.id && (
+            <button
+              onClick={() => navigate(`/employees/edit/${employee.id}`, { state: { employee, mode: 'edit' } })}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Edit Employee
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Employee Form */}

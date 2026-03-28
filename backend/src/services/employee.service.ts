@@ -1439,17 +1439,13 @@ export class EmployeeService {
    * 3. Sets deletedAt, employeeStatus = TERMINATED on employees table
    * 4. Sets isActive = false on users table
    */
-  async delete(id: string, requestingUserId?: string) {
+  async delete(id: string, requestingUserId?: string, knownConfiguratorUserId?: number) {
     const employee = await prisma.employee.findFirst({
       where: {
         id,
         deletedAt: null,
       },
       include: {
-        subordinates: {
-          where: { deletedAt: null },
-        },
-        managedDepartments: true,
         user: { select: { id: true, configuratorUserId: true, configuratorAccessToken: true } },
       },
     });
@@ -1458,24 +1454,8 @@ export class EmployeeService {
       throw new AppError('Employee not found', 404);
     }
 
-    // Check if employee has subordinates
-    if (employee.subordinates.length > 0) {
-      throw new AppError(
-        `Cannot delete employee with ${employee.subordinates.length} subordinate(s). Please reassign subordinates first.`,
-        400
-      );
-    }
-
-    // Check if employee manages any departments
-    if (employee.managedDepartments.length > 0) {
-      throw new AppError(
-        `Cannot delete employee who manages ${employee.managedDepartments.length} department(s). Please reassign department manager first.`,
-        400
-      );
-    }
-
     // Step 1: Call Configurator delete API if we have a configuratorUserId
-    const configuratorUserId = employee.configuratorUserId ?? employee.user?.configuratorUserId;
+    const configuratorUserId = knownConfiguratorUserId ?? employee.configuratorUserId ?? employee.user?.configuratorUserId;
     if (configuratorUserId) {
       try {
         // Get the requesting user's Configurator token for the API call
@@ -1562,7 +1542,7 @@ export class EmployeeService {
       return { message: 'User deactivated successfully' };
     }
 
-    return this.delete(employee.id, requestingUserId);
+    return this.delete(employee.id, requestingUserId, configuratorUserId);
   }
 
   /**

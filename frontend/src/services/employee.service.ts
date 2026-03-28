@@ -318,6 +318,8 @@ const employeeService = {
     formData.append('organizationId', organizationId);
     if (options?.createSalaryRecords) formData.append('createSalaryRecords', 'true');
     if (options?.skipConfiguratorSync) formData.append('skipConfiguratorSync', 'true');
+    const configToken = localStorage.getItem('configuratorAccessToken');
+    if (configToken) formData.append('configuratorAccessToken', configToken);
 
     const response = await api.post('/employees/bulk-import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

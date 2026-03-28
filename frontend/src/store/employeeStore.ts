@@ -166,10 +166,17 @@ export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
         throw new Error('Invalid user ID');
       }
 
-      // Call HRMS backend DELETE /api/v1/employees/configurator/:userId
-      // This handles: Configurator API call + sets configurator_active_status = false on both tables
+      // Step 1: Call Configurator API directly to delete/deactivate user
+      try {
+        await configuratorDataService.deleteConfiguratorUser(userId);
+        console.log('[employeeStore.deleteEmployee] Configurator delete successful for user_id:', userId);
+      } catch (configErr: any) {
+        console.error('[employeeStore.deleteEmployee] Configurator delete failed (continuing with HRMS):', configErr?.message);
+      }
+
+      // Step 2: Call HRMS backend to soft-delete employee + deactivate user in HRMS DB
       await employeeService.deleteByConfiguratorUserId(userId);
-      console.log('[employeeStore.deleteEmployee] Delete successful for configurator user_id:', userId);
+      console.log('[employeeStore.deleteEmployee] HRMS delete successful for configurator user_id:', userId);
 
       set((state) => ({
         employees: state.employees.filter((e: any) => e.user_id !== userId),
@@ -177,8 +184,10 @@ export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
       }));
     } catch (error: any) {
       console.error('[employeeStore.deleteEmployee] Error:', error);
-      set({ error: error.message || 'Failed to delete employee', loading: false });
-      throw error;
+      const msg = error.response?.data?.message || error.message || 'Failed to delete employee';
+      set({ error: msg, loading: false });
+      const err = new Error(msg);
+      throw err;
     }
   },
 
