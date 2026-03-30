@@ -195,8 +195,17 @@ jobs:
         env:
           NODE_ENV: test
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
+          REDIS_URL: ${{ secrets.REDIS_URL || '' }}
+
+      - name: "4F: Seed 4 test employees (kept in DB for flow testing)"
+        working-directory: backend
+        run: npx jest src/tests/hrms-seed-test-employees.test.ts --forceExit --verbose --no-cache
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
+          REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
   # ── STAGE 5: Frontend Build ──────────────────────────────────────────────────
   frontend-build:
