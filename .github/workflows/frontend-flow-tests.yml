@@ -162,22 +162,34 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: "4B: Generate Prisma client"
+      - name: "4B: Check DATABASE_URL availability"
+        id: db-check
+        run: |
+          if [ -n "${{ secrets.DATABASE_URL }}" ]; then
+            echo "has_db=true" >> $GITHUB_OUTPUT
+            echo "DATABASE_URL is available — DB tests will run"
+          else
+            echo "has_db=false" >> $GITHUB_OUTPUT
+            echo "WARNING: DATABASE_URL is empty — DB tests will be skipped (tests use describe.skip)"
+            echo "To fix: Add DATABASE_URL as a Repository-level secret in GitHub Settings"
+          fi
+
+      - name: "4C: Generate Prisma client"
         working-directory: backend
         run: npx prisma generate
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://placeholder:placeholder@localhost:5432/placeholder' }}
 
-      - name: "4C: Run ALL Jest tests"
+      - name: "4D: Run ALL Jest tests"
         working-directory: backend
         run: npm test -- --passWithNoTests --forceExit --verbose
         env:
           NODE_ENV: test
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
+          REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
-      - name: "4D: Run E2E DB workflow test (12 tables — insert, verify, cleanup)"
+      - name: "4E: Run E2E DB workflow test (12 tables — insert, verify, cleanup)"
         working-directory: backend
         run: npx jest src/tests/hrms-e2e-workflow.test.ts --forceExit --verbose --no-cache
         env:

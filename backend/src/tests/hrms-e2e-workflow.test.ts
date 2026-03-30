@@ -20,6 +20,13 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
+// ── Skip all tests gracefully if DATABASE_URL is not set ────────────────────
+const DB_URL = process.env.DATABASE_URL;
+if (!DB_URL) {
+  console.warn('⚠ DATABASE_URL is not set — skipping all DB integration tests');
+}
+const describeDB = DB_URL ? describe : describe.skip;
+
 const prisma = new PrismaClient();
 
 // ── Shared state — populated by tests, used across describe blocks ──────────
@@ -84,7 +91,7 @@ afterAll(async () => {
 // POSITIVE TESTS — Insert data, read back, verify tables
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('POSITIVE: Full workflow — DB insert and verify', () => {
+describeDB('POSITIVE: Full workflow — DB insert and verify', () => {
 
   // ── POS-1: Create Org + Dept + Position + Users + Employees ──────────────
 
@@ -575,7 +582,7 @@ describe('POSITIVE: Full workflow — DB insert and verify', () => {
 // NEGATIVE TESTS — Constraint violations and logic checks
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('NEGATIVE: Constraint violations and validation failures', () => {
+describeDB('NEGATIVE: Constraint violations and validation failures', () => {
 
   test('NEG-1: Duplicate Employee email throws unique constraint error', async () => {
     const hash = await bcrypt.hash(PASSWORD, 10);
@@ -697,7 +704,7 @@ describe('NEGATIVE: Constraint violations and validation failures', () => {
 // CROSS-TABLE: Final integrity — join all 12 tables and verify consistency
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('CROSS-TABLE: Full data integrity across 12 tables', () => {
+describeDB('CROSS-TABLE: Full data integrity across 12 tables', () => {
 
   test('All tables have consistent data for employee Deepak — single query joins', async () => {
     const emp = await prisma.employee.findUnique({
