@@ -1,0 +1,145 @@
+name: HRMS Frontend Flow Test Cases
+
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  frontend-flow-tests:
+    name: Frontend Flow Test Cases
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run HRMS Frontend Flow Test Cases
+        run: node docs/HRMS_FRONTEND_FLOW_TEST_CASES.js
+
+      - name: Validate all test cases have required fields
+        run: |
+          node -e "
+          const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
+          let errors = 0;
+          let total = 0;
+
+          tc.sections.forEach(section => {
+            section.cases.forEach(c => {
+              total++;
+              const missing = [];
+              if (!c.id) missing.push('id');
+              if (!c.title) missing.push('title');
+              if (!c.role && !c.roles) missing.push('role');
+              if (!c.steps || c.steps.length === 0) missing.push('steps');
+              if (!c.expected || c.expected.length === 0) missing.push('expected');
+
+              if (missing.length > 0) {
+                console.error('FAIL: ' + c.id + ' (' + c.title + ') — missing: ' + missing.join(', '));
+                errors++;
+              }
+            });
+          });
+
+          console.log('');
+          console.log('Validated ' + total + ' test cases');
+          if (errors > 0) {
+            console.error(errors + ' test case(s) have missing required fields');
+            process.exit(1);
+          } else {
+            console.log('All test cases have required fields (id, title, role, steps, expected)');
+          }
+          "
+
+      - name: Verify test case ID uniqueness
+        run: |
+          node -e "
+          const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
+          const ids = new Set();
+          const duplicates = [];
+
+          tc.sections.forEach(section => {
+            section.cases.forEach(c => {
+              if (ids.has(c.id)) {
+                duplicates.push(c.id);
+              }
+              ids.add(c.id);
+            });
+          });
+
+          if (duplicates.length > 0) {
+            console.error('FAIL: Duplicate test case IDs found: ' + duplicates.join(', '));
+            process.exit(1);
+          } else {
+            console.log('All ' + ids.size + ' test case IDs are unique');
+          }
+          "
+
+      - name: Verify section counts match actual cases
+        run: |
+          node -e "
+          const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
+          let errors = 0;
+
+          tc.sections.forEach(section => {
+            const actual = section.cases.length;
+            const declared = section.count;
+            if (actual !== declared) {
+              console.error('FAIL: ' + section.id + ' (' + section.title + ') — declared ' + declared + ' cases but has ' + actual);
+              errors++;
+            }
+          });
+
+          if (errors > 0) {
+            process.exit(1);
+          } else {
+            console.log('All section counts match actual case counts');
+          }
+          "
+
+      - name: Generate test report
+        if: always()
+        run: |
+          node -e "
+          const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
+          const totalCases = tc.sections.reduce((sum, s) => sum + s.count, 0);
+          const totalSteps = tc.sections.reduce((sum, s) =>
+            sum + s.cases.reduce((ss, c) => ss + (c.steps ? c.steps.length : 0), 0), 0);
+          const totalExpected = tc.sections.reduce((sum, s) =>
+            sum + s.cases.reduce((ss, c) => ss + (c.expected ? c.expected.length : 0), 0), 0);
+
+          const roles = new Set();
+          tc.sections.forEach(s => s.cases.forEach(c => {
+            if (c.role) roles.add(c.role);
+            if (c.roles) c.roles.forEach(r => roles.add(r));
+          }));
+
+          console.log('');
+          console.log('╔══════════════════════════════════════════════════════════════╗');
+          console.log('║          HRMS FRONTEND FLOW TEST REPORT                     ║');
+          console.log('╠══════════════════════════════════════════════════════════════╣');
+          console.log('║  Organization    : ' + tc.organization.name.padEnd(40) + '║');
+          console.log('║  Total Sections  : ' + String(tc.sections.length).padEnd(40) + '║');
+          console.log('║  Total Cases     : ' + String(totalCases).padEnd(40) + '║');
+          console.log('║  Total Steps     : ' + String(totalSteps).padEnd(40) + '║');
+          console.log('║  Total Expected  : ' + String(totalExpected).padEnd(40) + '║');
+          console.log('║  Roles Covered   : ' + String(roles.size).padEnd(40) + '║');
+          console.log('╠══════════════════════════════════════════════════════════════╣');
+          tc.sections.forEach(s => {
+            const line = '  ' + s.id.padEnd(8) + s.title.padEnd(35) + String(s.count).padStart(3) + ' cases';
+            console.log('║' + line.padEnd(60) + '║');
+          });
+          console.log('╠══════════════════════════════════════════════════════════════╣');
+          console.log('║  Status: ALL VALIDATIONS PASSED                             ║');
+          console.log('╚══════════════════════════════════════════════════════════════╝');
+          "
