@@ -1015,6 +1015,7 @@ export class LeaveRequestService {
     if (shouldCheckBalance) {
       const balance = await this.getOrCreateLeaveBalance(employeeId, data.leaveTypeId, year);
       const availableDays = parseFloat(balance.available.toString());
+
       if (this.isFixedDurationLeaveType(leaveType) && availableDays <= 0) {
         throw new AppError(
           `${leaveType.name} balance is exhausted. You cannot apply again.`,
@@ -1078,6 +1079,26 @@ export class LeaveRequestService {
         },
       },
     });
+
+    // Immediately deduct leave balance when leave is applied (PENDING)
+    if (shouldCheckBalance) {
+      const balance = await this.getOrCreateLeaveBalance(employeeId, data.leaveTypeId, year);
+      const usedDays = parseFloat(balance.used.toString()) + totalDays;
+      const availableDays = parseFloat(balance.available.toString()) - totalDays;
+      await prisma.employeeLeaveBalance.update({
+        where: {
+          employeeId_leaveTypeId_year: {
+            employeeId,
+            leaveTypeId: data.leaveTypeId,
+            year,
+          },
+        },
+        data: {
+          used: new Prisma.Decimal(usedDays),
+          available: new Prisma.Decimal(Math.max(0, availableDays)),
+        },
+      });
+    }
 
     // Send notification to employee
     try {
@@ -1737,11 +1758,6 @@ export class LeaveRequestService {
       leaveRequest.employee.organizationId,
       leaveRequest.leaveType
     );
-    const isOndutyMarkedRequest = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(leaveRequest.reason || '');
-    const hrEntryRequiredLeave = this.isHrEntryRequiredLeaveType(leaveRequest.leaveType);
-    const shouldDeductBalance =
-      !isOndutyMarkedRequest && (hrEntryRequiredLeave || component === null || component.hasBalance);
-
     const reviewerEmployee = await this.validateReviewerAccess(reviewerId, reviewerRole, leaveRequest);
 
     const approvalLevels = parseApprovalLevels(leaveRequest.workflowMapping?.approvalLevels);
@@ -1822,32 +1838,7 @@ export class LeaveRequestService {
 
     const isFullyApproved = (updateData.status as string) === LeaveStatus.APPROVED;
 
-    // Update leave balance only when FULLY approved and event config Has Balance = YES
-    if (isFullyApproved && shouldDeductBalance) {
-      const year = new Date(leaveRequest.startDate).getUTCFullYear();
-      const balance = await this.getOrCreateLeaveBalance(
-        leaveRequest.employeeId,
-        leaveRequest.leaveTypeId,
-        year
-      );
-
-      const usedDays = parseFloat(balance.used.toString()) + parseFloat(leaveRequest.totalDays.toString());
-      const availableDays = parseFloat(balance.available.toString()) - parseFloat(leaveRequest.totalDays.toString());
-
-      await prisma.employeeLeaveBalance.update({
-        where: {
-          employeeId_leaveTypeId_year: {
-            employeeId: leaveRequest.employeeId,
-            leaveTypeId: leaveRequest.leaveTypeId,
-            year,
-          },
-        },
-        data: {
-          used: new Prisma.Decimal(usedDays),
-          available: new Prisma.Decimal(Math.max(0, availableDays)), // Don't go below 0
-        },
-      });
-    }
+    // Balance was already deducted at PENDING creation; no further deduction needed on approval.
 
     // When advancing to next level, notify the next approver
     if (!isFullyApproved && updateData.assignedApproverEmployeeId) {
@@ -2011,6 +2002,7 @@ export class LeaveRequestService {
     }
 
     const wasApproved = leaveRequest.status === LeaveStatus.APPROVED;
+    const wasPending = leaveRequest.status === LeaveStatus.PENDING;
 
     await this.validateReviewerAccess(reviewerId, reviewerRole, leaveRequest);
 
@@ -2063,8 +2055,8 @@ export class LeaveRequestService {
       },
     });
 
-    // ── Revert attendance records and leave balance if the leave was APPROVED ──
-    if (wasApproved) {
+    // ── Revert attendance records and leave balance if the leave was APPROVED or PENDING ──
+    if (wasApproved || wasPending) {
       // 1. Restore leave balance
       const year = new Date(leaveRequest.startDate).getUTCFullYear();
       try {
@@ -2244,6 +2236,49 @@ export class LeaveRequestService {
         },
       },
     });
+
+    // Restore leave balance when a PENDING leave is cancelled
+    try {
+      const cancelledLeaveType = await prisma.leaveType.findUnique({
+        where: { id: leaveRequest.leaveTypeId },
+        select: { id: true, name: true, code: true },
+      });
+      if (cancelledLeaveType && employee) {
+        const component = await getAttendanceComponentForLeaveType(employee.organizationId, cancelledLeaveType);
+        const isOndutyMarked = /^\[Onduty(?:\s+[^\]]+)?\]/i.test(leaveRequest.reason || '');
+        const hrEntryRequired = this.isHrEntryRequiredLeaveType(cancelledLeaveType);
+        const shouldRestore = !isOndutyMarked && (hrEntryRequired || component === null || component.hasBalance);
+        if (shouldRestore) {
+          const cancelYear = new Date(leaveRequest.startDate).getUTCFullYear();
+          const balance = await prisma.employeeLeaveBalance.findUnique({
+            where: {
+              employeeId_leaveTypeId_year: {
+                employeeId,
+                leaveTypeId: leaveRequest.leaveTypeId,
+                year: cancelYear,
+              },
+            },
+          });
+          if (balance) {
+            await prisma.employeeLeaveBalance.update({
+              where: {
+                employeeId_leaveTypeId_year: {
+                  employeeId,
+                  leaveTypeId: leaveRequest.leaveTypeId,
+                  year: cancelYear,
+                },
+              },
+              data: {
+                used: new Prisma.Decimal(Math.max(0, parseFloat(balance.used.toString()) - parseFloat(leaveRequest.totalDays.toString()))),
+                available: new Prisma.Decimal(parseFloat(balance.available.toString()) + parseFloat(leaveRequest.totalDays.toString())),
+              },
+            });
+          }
+        }
+      }
+    } catch (balanceError) {
+      logger.error(`Failed to restore leave balance for employee ${employeeId} on cancellation:`, balanceError);
+    }
 
     return updated;
   }
