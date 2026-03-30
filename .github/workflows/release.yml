@@ -1,0 +1,115 @@
+name: Release with Tag
+# yml file for git test
+
+on:
+  # Only run after Deploy workflow completes successfully (avoids race condition)
+  workflow_run:
+    workflows: ["Build & Test"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    # Skip if deploy failed (workflow_run trigger) — always run for manual dispatch
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          echo "tag=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Latest tag: $LATEST"
+
+      - name: Calculate next version
+        id: next_version
+        run: |
+          LATEST="${{ steps.latest_tag.outputs.tag }}"
+          # Strip 'v' prefix
+          VERSION="${LATEST#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Determine bump type
+          BUMP="${{ github.event.inputs.version_bump || 'patch' }}"
+
+          if [ "$BUMP" = "major" ]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [ "$BUMP" = "minor" ]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          LATEST="${{ steps.latest_tag.outputs.tag }}"
+          NEXT="${{ steps.next_version.outputs.version }}"
+
+          # Get commits since last tag (or all commits if first release)
+          if git rev-parse "$LATEST" >/dev/null 2>&1; then
+            COMMITS=$(git log "${LATEST}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+          else
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
+          fi
+
+          if [ -z "$COMMITS" ]; then
+            COMMITS="- No notable changes"
+          fi
+
+          # Write to file to handle multiline
+          {
+            echo "## What's Changed in ${NEXT}"
+            echo ""
+            echo "$COMMITS"
+            echo ""
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LATEST}...${NEXT}"
+          } > release_notes.md
+
+          cat release_notes.md
+
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NEXT="${{ steps.next_version.outputs.version }}"
+
+          # Create and push the tag
+          git tag "$NEXT"
+          git push origin "$NEXT"
+
+          # Create GitHub release
+          gh release create "$NEXT" \
+            --title "Release $NEXT" \
+            --notes-file release_notes.md \
+            --latest
