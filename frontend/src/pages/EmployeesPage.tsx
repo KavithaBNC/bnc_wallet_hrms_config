@@ -43,13 +43,13 @@ export default function EmployeesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
-  const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
-  const [costCentreFilter, setCostCentreFilter] = useState<string>('ALL');
-  const [subDepartmentFilter, setSubDepartmentFilter] = useState<string>('ALL');
+  const [departmentFilter, _setDepartmentFilter] = useState<string>('ALL');
+  const [costCentreFilter, _setCostCentreFilter] = useState<string>('ALL');
+  const [subDepartmentFilter, _setSubDepartmentFilter] = useState<string>('ALL');
   // Configurator dropdown data
-  const [configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
-  const [configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
-  const [configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
+  const [_configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
+  const [_configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
+  const [_configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
   const [_configUserRoles, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
