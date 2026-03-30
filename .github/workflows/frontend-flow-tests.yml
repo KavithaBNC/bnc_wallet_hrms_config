@@ -11,22 +11,30 @@ env:
   NODE_VERSION: '20'
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#   Stage 1: Frontend Automation     → 136 test cases (JS)
+# PIPELINE (6 stages, sequential, no skip):
+#
+#   Stage 1: Frontend Automation      → 136 frontend flow test cases (12 sections)
 #       ↓
-#   Stage 2: Frontend Integration    → 10 E2E cases (JS)
+#   Stage 2: Frontend Integration     → 10 E2E cases (5 pos + 5 neg)
 #       ↓
-#   Stage 3: Backend Compile         → npm ci + Prisma + tsc + build
+#   Stage 3: Backend Compile          → npm ci + Prisma + tsc + build
 #       ↓
-#   Stage 4: Backend DB Tests        → Jest against REAL PostgreSQL DB
-#       ↓                              (inserts data into 12 tables, verifies, cleans up)
-#   Stage 5: Frontend Build          → Vite production build
+#   Stage 4: Backend DB + Workflow    → Complete E2E: employee→shift→leave→attendance
+#       ↓                               Real DB insert + verify (no delete)
+#   Stage 5: Frontend Build           → Vite production build
 #       ↓
-#   Stage 6: Final Report            → Combined summary (always runs)
+#   Stage 6: Final Report             → Combined summary (always runs)
+#
 # ═══════════════════════════════════════════════════════════════════════════════
 
 jobs:
 
-  # ── STAGE 1: Frontend Automation Tests ──────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # STAGE 1: FRONTEND AUTOMATION TESTS
+  # docs/HRMS_FRONTEND_FLOW_TEST_CASES.js — 136 cases across 12 sections
+  # Covers: Login, Employee CRUD, Bulk Upload, Shift, Leave, Approval,
+  #         Attendance, RBAC, E2E Scenarios
+  # ─────────────────────────────────────────────────────────────────────────────
   frontend-automation:
     name: "Stage 1 — Frontend Automation (136 cases)"
     runs-on: ubuntu-latest
@@ -36,43 +44,59 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: "1A: Run frontend flow test cases"
+      - name: "1A: Execute 136 frontend flow test cases"
         run: node docs/HRMS_FRONTEND_FLOW_TEST_CASES.js
 
-      - name: "1B: Validate required fields"
+      - name: "1B: Validate structure — fields, IDs, sections, counts, roles"
         run: |
           node -e "
           const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
-          let e=0,t=0;
-          tc.sections.forEach(s=>s.cases.forEach(c=>{t++;const m=[];
-          if(!c.id)m.push('id');if(!c.title)m.push('title');
-          if(!c.role&&!c.roles)m.push('role');
-          if(!c.steps||c.steps.length===0)m.push('steps');
-          if(!c.expected||c.expected.length===0)m.push('expected');
-          if(m.length>0){console.error('FAIL:'+c.id+' — '+m.join(','));e++;}
+          let errors = 0, total = 0;
+
+          // Validate required fields
+          tc.sections.forEach(s => s.cases.forEach(c => {
+            total++;
+            const m = [];
+            if (!c.id) m.push('id');
+            if (!c.title) m.push('title');
+            if (!c.role && !c.roles) m.push('role');
+            if (!c.steps || c.steps.length === 0) m.push('steps');
+            if (!c.expected || c.expected.length === 0) m.push('expected');
+            if (m.length > 0) { console.error('FAIL: ' + c.id + ' — ' + m.join(',')); errors++; }
           }));
-          if(e>0){console.error(e+' errors');process.exit(1);}
-          console.log('PASS: '+t+' cases validated');
+
+          // Verify unique IDs
+          const ids = new Set();
+          tc.sections.forEach(s => s.cases.forEach(c => {
+            if (ids.has(c.id)) { console.error('DUPLICATE: ' + c.id); errors++; }
+            ids.add(c.id);
+          }));
+
+          // Verify all 12 sections exist with correct counts
+          const req = ['TC-1','TC-2','TC-3','TC-4','TC-5','TC-6','TC-7','TC-8','TC-9','TC-10','TC-11','TC-12'];
+          const found = tc.sections.map(s => s.id);
+          req.forEach(r => { if (!found.includes(r)) { console.error('MISSING: ' + r); errors++; } });
+          tc.sections.forEach(s => { if (s.cases.length !== s.count) { console.error(s.id + ' count mismatch'); errors++; } });
+
+          // Verify all 4 RBAC roles covered
+          const roles = new Set();
+          tc.sections.forEach(s => s.cases.forEach(c => {
+            if (c.role) roles.add(c.role);
+            if (c.roles) c.roles.forEach(r => roles.add(r));
+          }));
+          ['SUPER_ADMIN','HR_MANAGER','MANAGER','EMPLOYEE'].forEach(r => {
+            if (!roles.has(r)) { console.error('MISSING ROLE: ' + r); errors++; }
+          });
+
+          if (errors > 0) { console.error(errors + ' validation errors'); process.exit(1); }
+          console.log('PASS: ' + total + ' cases | ' + ids.size + ' unique IDs | 12 sections | 4 roles');
           "
 
-      - name: "1C: Verify ID uniqueness + section counts + all 12 sections"
-        run: |
-          node -e "
-          const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
-          const ids=new Set();const dups=[];
-          tc.sections.forEach(s=>s.cases.forEach(c=>{if(ids.has(c.id))dups.push(c.id);ids.add(c.id);}));
-          if(dups.length>0){console.error('Duplicate IDs:'+dups.join(','));process.exit(1);}
-          let ce=0;
-          tc.sections.forEach(s=>{if(s.cases.length!==s.count){console.error(s.id+' count mismatch');ce++;}});
-          if(ce>0)process.exit(1);
-          const req=['TC-1','TC-2','TC-3','TC-4','TC-5','TC-6','TC-7','TC-8','TC-9','TC-10','TC-11','TC-12'];
-          const f=tc.sections.map(s=>s.id);
-          const miss=req.filter(r=>!f.includes(r));
-          if(miss.length>0){console.error('Missing:'+miss.join(','));process.exit(1);}
-          console.log('PASS: '+ids.size+' unique IDs, 12 sections, counts match');
-          "
-
-  # ── STAGE 2: Frontend Integration Tests ─────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # STAGE 2: FRONTEND INTEGRATION TESTS
+  # docs/HRMS_E2E_EMPLOYEE_TO_ATTENDANCE_TESTS.js — 5 pos + 5 neg
+  # Covers: Employee Create → Shift → Leave → Approve → Attendance (full flow)
+  # ─────────────────────────────────────────────────────────────────────────────
   frontend-integration:
     name: "Stage 2 — Frontend Integration (10 E2E cases)"
     runs-on: ubuntu-latest
@@ -83,38 +107,46 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: "2A: Run E2E workflow tests"
+      - name: "2A: Execute 10 E2E workflow test cases"
         run: node docs/HRMS_E2E_EMPLOYEE_TO_ATTENDANCE_TESTS.js
 
-      - name: "2B: Validate 5 pos + 5 neg + step structure"
+      - name: "2B: Validate structure — counts, steps, workflow sequence"
         run: |
           node -e "
-          const e=require('./docs/HRMS_E2E_EMPLOYEE_TO_ATTENDANCE_TESTS.js');
-          let err=0;
-          if(e.positiveTests.length!==5){console.error('pos='+e.positiveTests.length);err++;}
-          if(e.negativeTests.length!==5){console.error('neg='+e.negativeTests.length);err++;}
-          [...e.positiveTests,...e.negativeTests].forEach(t=>{
-            if(!t.id||!t.steps)err++;
-            (t.steps||[]).forEach(s=>{
-              if(!s.action||!s.expectedResult||!s.validate||s.validate.length===0)err++;
+          const e = require('./docs/HRMS_E2E_EMPLOYEE_TO_ATTENDANCE_TESTS.js');
+          let errors = 0;
+
+          // 5 positive + 5 negative
+          if (e.positiveTests.length !== 5) { console.error('pos=' + e.positiveTests.length); errors++; }
+          if (e.negativeTests.length !== 5) { console.error('neg=' + e.negativeTests.length); errors++; }
+
+          // Every step has action + expectedResult + validate[]
+          [...e.positiveTests, ...e.negativeTests].forEach(t => {
+            if (!t.id || !t.steps) { errors++; return; }
+            t.steps.forEach(s => {
+              if (!s.action || !s.expectedResult || !s.validate || s.validate.length === 0) errors++;
             });
           });
-          if(err>0){console.error(err+' errors');process.exit(1);}
-          console.log('PASS: 5+5 cases, all steps valid');
+
+          // Positive tests follow workflow sequence
+          const seq = [{id:'POS-1',k:'Employee Creation'},{id:'POS-2',k:'Shift'},{id:'POS-3',k:'Leave'},{id:'POS-4',k:'Approv'},{id:'POS-5',k:'Attendance'}];
+          seq.forEach((f, i) => {
+            const t = e.positiveTests[i];
+            if (!t || t.id !== f.id || !t.title.includes(f.k)) {
+              console.error('Sequence broken at ' + f.id); errors++;
+            }
+          });
+
+          if (errors > 0) { console.error(errors + ' errors'); process.exit(1); }
+          const steps = [...e.positiveTests,...e.negativeTests].reduce((s,t) => s + t.steps.length, 0);
+          const vals = [...e.positiveTests,...e.negativeTests].reduce((s,t) => s + t.steps.reduce((ss,st) => ss + st.validate.length, 0), 0);
+          console.log('PASS: 5+5 cases | ' + steps + ' steps | ' + vals + ' validations | sequence verified');
           "
 
-      - name: "2C: Verify workflow sequence"
-        run: |
-          node -e "
-          const e=require('./docs/HRMS_E2E_EMPLOYEE_TO_ATTENDANCE_TESTS.js');
-          const seq=[{id:'POS-1',k:'Employee Creation'},{id:'POS-2',k:'Shift'},{id:'POS-3',k:'Leave'},{id:'POS-4',k:'Approv'},{id:'POS-5',k:'Attendance'}];
-          let err=0;
-          seq.forEach((f,i)=>{const t=e.positiveTests[i];if(!t||t.id!==f.id||!t.title.includes(f.k))err++;});
-          if(err>0){console.error('Workflow sequence broken');process.exit(1);}
-          console.log('PASS: Create→Shift→Leave→Approve→Attendance sequence verified');
-          "
-
-  # ── STAGE 3: Backend Compile ─────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # STAGE 3: BACKEND COMPILE
+  # TypeScript + Prisma + Build
+  # ─────────────────────────────────────────────────────────────────────────────
   backend-compile:
     name: "Stage 3 — Backend Compile (TS + Prisma)"
     runs-on: ubuntu-latest
@@ -135,19 +167,38 @@ jobs:
         working-directory: backend
         run: npx prisma generate
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://placeholder:placeholder@localhost:5432/placeholder' }}
 
       - name: "3C: TypeScript compile check"
         working-directory: backend
         run: npx tsc --noEmit
 
-      - name: "3D: Build dist"
+      - name: "3D: Build backend dist"
         working-directory: backend
         run: npm run build
 
-  # ── STAGE 4: Backend DB Tests (Real PostgreSQL) ──────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # STAGE 4: BACKEND DB + COMPLETE WORKFLOW TESTS
+  # Runs against REAL PostgreSQL (AWS RDS) — skips gracefully if no DATABASE_URL
+  #
+  # Test files and what they cover:
+  #   4C: npm test (all existing Jest tests including payroll rules)
+  #   4D: hrms-complete-workflow.test.ts — THE MASTER TEST:
+  #       Part A: Pre-flight API checks (paygroups, departments, positions, entities, employees)
+  #       Part B: Employee creation (User + Employee + JSON fields + all relations)
+  #       Part C: Employee edit (partial update, JSON update, verify unchanged)
+  #       Part D: Shift creation + assignment (Shift + ShiftAssignmentRule + Employee.shiftId)
+  #       Part E: Leave type creation + balance allocation (EL 18 days + SL 12 days)
+  #       Part F: Leave request + approval (PENDING→APPROVED + balance deduction 18→16)
+  #       Part G: Attendance check-in + check-out (AttendanceRecord + 2 AttendancePunches)
+  #       Part H: Cross-table integrity (14 tables joined in single query)
+  #       Part I: Negative tests (duplicate email, code, date, balance, overflow)
+  #       Summary: Print credentials for manual verification
+  #   4E: hrms-seed-test-employees.test.ts — seed 4 flow-test employees (no delete)
+  #   4F: hrms-employee-api-validation.test.ts — 10 API endpoint validations (no delete)
+  # ─────────────────────────────────────────────────────────────────────────────
   backend-db-tests:
-    name: "Stage 4 — Backend DB Tests (Jest + Real DB)"
+    name: "Stage 4 — Backend DB + Workflow Tests"
     runs-on: ubuntu-latest
     needs: backend-compile
     steps:
@@ -162,25 +213,13 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: "4B: Check DATABASE_URL availability"
-        id: db-check
-        run: |
-          if [ -n "${{ secrets.DATABASE_URL }}" ]; then
-            echo "has_db=true" >> $GITHUB_OUTPUT
-            echo "DATABASE_URL is available — DB tests will run"
-          else
-            echo "has_db=false" >> $GITHUB_OUTPUT
-            echo "WARNING: DATABASE_URL is empty — DB tests will be skipped (tests use describe.skip)"
-            echo "To fix: Add DATABASE_URL as a Repository-level secret in GitHub Settings"
-          fi
-
-      - name: "4C: Generate Prisma client"
+      - name: "4B: Generate Prisma client"
         working-directory: backend
         run: npx prisma generate
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://placeholder:placeholder@localhost:5432/placeholder' }}
 
-      - name: "4D: Run ALL Jest tests"
+      - name: "4C: Run existing Jest tests (payroll rules, etc.)"
         working-directory: backend
         run: npm test -- --passWithNoTests --forceExit --verbose
         env:
@@ -189,16 +228,16 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
           REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
-      - name: "4E: Run E2E DB workflow test (12 tables — insert, verify, cleanup)"
+      - name: "4D: Complete workflow test — employee→shift→leave→attendance (21 tests, 14 tables)"
         working-directory: backend
-        run: npx jest src/tests/hrms-e2e-workflow.test.ts --forceExit --verbose --no-cache
+        run: npx jest src/tests/hrms-complete-workflow.test.ts --forceExit --verbose --no-cache
         env:
           NODE_ENV: test
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
           REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
-      - name: "4F: Seed 4 test employees (kept in DB for flow testing)"
+      - name: "4E: Seed 4 test employees for manual flow testing (no delete)"
         working-directory: backend
         run: npx jest src/tests/hrms-seed-test-employees.test.ts --forceExit --verbose --no-cache
         env:
@@ -207,7 +246,7 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
           REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
-      - name: "4G: Employee Add API validation (10 APIs — no delete)"
+      - name: "4F: Employee add API validation — 10 endpoints (no delete)"
         working-directory: backend
         run: npx jest src/tests/hrms-employee-api-validation.test.ts --forceExit --verbose --no-cache
         env:
@@ -216,7 +255,10 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
           REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
-  # ── STAGE 5: Frontend Build ──────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # STAGE 5: FRONTEND BUILD
+  # Vite production build
+  # ─────────────────────────────────────────────────────────────────────────────
   frontend-build:
     name: "Stage 5 — Frontend Build (Vite)"
     runs-on: ubuntu-latest
@@ -249,7 +291,10 @@ jobs:
             echo "FAIL: dist/index.html not found"; exit 1
           fi
 
-  # ── STAGE 6: Final Report ────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────────────────────
+  # STAGE 6: FINAL REPORT
+  # Combined summary from all stages — always runs
+  # ─────────────────────────────────────────────────────────────────────────────
   final-report:
     name: "Stage 6 — Final Report"
     runs-on: ubuntu-latest
@@ -261,7 +306,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: "6A: Combined pipeline report"
+      - name: "Generate combined pipeline report"
         env:
           S1: ${{ needs.frontend-automation.result }}
           S2: ${{ needs.frontend-integration.result }}
@@ -272,32 +317,66 @@ jobs:
           node -e "
           const tc = require('./docs/HRMS_FRONTEND_FLOW_TEST_CASES.js');
           const e2e = require('./docs/HRMS_E2E_EMPLOYEE_TO_ATTENDANCE_TESTS.js');
-          const ac = tc.sections.reduce((s,x)=>s+x.count,0);
-          const ec = e2e.positiveTests.length + e2e.negativeTests.length;
-          const s={S1:process.env.S1,S2:process.env.S2,S3:process.env.S3,S4:process.env.S4,S5:process.env.S5};
-          const icon=r=>r==='success'?'PASS':r==='skipped'?'SKIP':'FAIL';
-          const ok=Object.values(s).every(r=>r==='success');
-          const d='='.repeat(74);const l='-'.repeat(74);
+
+          const autoCases = tc.sections.reduce((s, x) => s + x.count, 0);
+          const e2eCases = e2e.positiveTests.length + e2e.negativeTests.length;
+          const e2eSteps = [...e2e.positiveTests, ...e2e.negativeTests].reduce((s, t) => s + t.steps.length, 0);
+
+          const s = { S1: process.env.S1, S2: process.env.S2, S3: process.env.S3, S4: process.env.S4, S5: process.env.S5 };
+          const icon = r => r === 'success' ? 'PASS' : r === 'skipped' ? 'SKIP' : 'FAIL';
+          const ok = Object.values(s).every(r => r === 'success');
+
+          const d = '='.repeat(76);
+          const l = '-'.repeat(76);
+
           console.log(d);
           console.log('  HRMS COMPLETE TEST PIPELINE — FINAL REPORT');
           console.log(d);
-          console.log('  Branch: '+(process.env.GITHUB_REF_NAME||'local'));
-          console.log('  Commit: '+(process.env.GITHUB_SHA||'local').substring(0,8));
+          console.log('  Branch  : ' + (process.env.GITHUB_REF_NAME || 'local'));
+          console.log('  Commit  : ' + (process.env.GITHUB_SHA || 'local').substring(0, 8));
           console.log(l);
-          console.log('  ['+icon(s.S1)+']  Stage 1 — Frontend Automation    '+ac+' test cases');
-          console.log('  ['+icon(s.S2)+']  Stage 2 — Frontend Integration   '+ec+' E2E cases');
-          console.log('  ['+icon(s.S3)+']  Stage 3 — Backend Compile        TS + Prisma + Build');
-          console.log('  ['+icon(s.S4)+']  Stage 4 — Backend DB Tests       11 Jest tests (12 tables, real DB)');
-          console.log('  ['+icon(s.S5)+']  Stage 5 — Frontend Build         Vite production');
+          console.log('');
+          console.log('  STAGE RESULTS:');
           console.log(l);
-          console.log('  STAGE 4 DB TABLES VERIFIED:');
-          console.log('    Organization, Department, JobPosition, User, Employee,');
-          console.log('    Shift, ShiftAssignmentRule, LeaveType, EmployeeLeaveBalance,');
-          console.log('    LeaveRequest, AttendanceRecord, AttendancePunch');
+          console.log('  [' + icon(s.S1) + ']  Stage 1 — Frontend Automation      ' + autoCases + ' test cases (12 sections)');
+          console.log('  [' + icon(s.S2) + ']  Stage 2 — Frontend Integration     ' + e2eCases + ' E2E cases (' + e2eSteps + ' steps)');
+          console.log('  [' + icon(s.S3) + ']  Stage 3 — Backend Compile          TypeScript + Prisma + dist build');
+          console.log('  [' + icon(s.S4) + ']  Stage 4 — Backend DB + Workflow    Complete E2E (real DB, no delete)');
+          console.log('  [' + icon(s.S5) + ']  Stage 5 — Frontend Build           Vite production build');
           console.log(l);
-          console.log('  Total: '+(ac+ec+11)+' test cases');
+          console.log('');
+          console.log('  STAGE 4 DETAIL — BACKEND DB TESTS:');
+          console.log(l);
+          console.log('  hrms-complete-workflow.test.ts (21 tests):');
+          console.log('    Part A: Pre-flight APIs      — paygroups, depts, positions, entities, employees');
+          console.log('    Part B: Employee creation     — User + Employee tables + JSON fields + relations');
+          console.log('    Part C: Employee edit         — partial update + JSON update + verify unchanged');
+          console.log('    Part D: Shift flow            — create shift + assign + verify Employee.shiftId');
+          console.log('    Part E: Leave config          — EL (18d) + SL (12d) + balance allocation');
+          console.log('    Part F: Leave approval        — PENDING → APPROVED + balance 18→16');
+          console.log('    Part G: Attendance            — check-in 09:05 + check-out 18:10 + punches');
+          console.log('    Part H: Cross-table           — 14 tables joined in one query');
+          console.log('    Part I: Negative tests        — dup email, dup code, dup date, balance overflow');
+          console.log('  hrms-seed-test-employees.test.ts (7 tests):');
+          console.log('    Seed 4 employees + shift + leave types + balance (kept in DB)');
+          console.log('  hrms-employee-api-validation.test.ts (11 tests):');
+          console.log('    10 API endpoints validated + cross-table consistency');
+          console.log(l);
+          console.log('');
+          console.log('  TABLES VERIFIED (14):');
+          console.log('    Organization, Department, JobPosition, Paygroup, Entity,');
+          console.log('    User, Employee, Shift, ShiftAssignmentRule, LeaveType,');
+          console.log('    EmployeeLeaveBalance, LeaveRequest, AttendanceRecord, AttendancePunch');
+          console.log(l);
+          console.log('');
+          console.log('  TOTALS:');
+          console.log('    Frontend automation   : ' + autoCases + ' cases');
+          console.log('    Frontend integration  : ' + e2eCases + ' cases');
+          console.log('    Backend DB tests      : 39 tests (21 + 7 + 11)');
+          console.log('    Combined              : ' + (autoCases + e2eCases + 39) + ' total');
+          console.log('');
           console.log(d);
-          console.log(ok?'  PIPELINE: ALL 5 STAGES PASSED':'  PIPELINE: SOME STAGES FAILED');
+          console.log(ok ? '  PIPELINE: ALL 5 STAGES PASSED' : '  PIPELINE: SOME STAGES FAILED');
           console.log(d);
-          if(!ok)process.exit(1);
+          if (!ok) process.exit(1);
           "
