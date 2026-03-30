@@ -207,6 +207,15 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
           REDIS_URL: ${{ secrets.REDIS_URL || '' }}
 
+      - name: "4G: Employee Add API validation (10 APIs — no delete)"
+        working-directory: backend
+        run: npx jest src/tests/hrms-employee-api-validation.test.ts --forceExit --verbose --no-cache
+        env:
+          NODE_ENV: test
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'test-jwt-secret' }}
+          REDIS_URL: ${{ secrets.REDIS_URL || '' }}
+
   # ── STAGE 5: Frontend Build ──────────────────────────────────────────────────
   frontend-build:
     name: "Stage 5 — Frontend Build (Vite)"
