@@ -78,7 +78,7 @@ export default function EmployeeImportPage() {
     try {
       const res = await employeeService.bulkImport(file, organizationId, {
         createSalaryRecords: true,
-        skipConfiguratorSync: false,
+        skipConfiguratorSync: true,
       });
 
       setResult({

@@ -767,7 +767,7 @@ export default function EmployeesPage() {
       // Use bulk import API — send Excel file directly to backend
       const result = await employeeService.bulkImport(importFile, effectiveOrganizationId, {
         createSalaryRecords: true,
-        skipConfiguratorSync: false,
+        skipConfiguratorSync: true,
       });
 
       setImportResult({
