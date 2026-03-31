@@ -287,8 +287,8 @@ export class ConfiguratorService {
       });
       const data = res.data;
       const list = Array.isArray(data) ? data : (data?.data ?? data?.roles ?? []);
-      // Use loose equality (==) for company_id to handle string/number mismatch
-      return list.filter((r: any) => r.company_id == companyId && r.is_active !== false);
+      // Include company-specific roles AND global roles (company_id is null/undefined)
+      return list.filter((r: any) => (r.company_id == companyId || r.company_id == null) && r.is_active !== false);
     } catch {
       return [];
     }
