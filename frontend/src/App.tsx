@@ -9,7 +9,6 @@ import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import DashboardPage from './pages/DashboardPage';
 import ProfilePage from './pages/ProfilePage';
-import DepartmentsPage from './pages/DepartmentsPage';
 import EmployeesPage from './pages/EmployeesPage';
 import PositionsPage from './pages/PositionsPage';
 import EventConfigurationPage from './pages/EventConfigurationPage';
@@ -46,6 +45,7 @@ import ExcessTimeRequestPage from './pages/ExcessTimeRequestPage';
 import ExcessTimeApprovalPage from './pages/ExcessTimeApprovalPage';
 import ApplyEventPage from './pages/ApplyEventPage';
 import FaceAttendancePage from './pages/FaceAttendancePage';
+import DeviceSettingPage from './pages/DeviceSettingPage';
 import AttendancePolicyPage from './pages/AttendancePolicyPage';
 import LateAndOthersPage from './pages/LateAndOthersPage';
 import LateAndOthersFormPage from './pages/LateAndOthersFormPage';
@@ -110,6 +110,7 @@ import VestingSchedulePage from './pages/VestingSchedulePage';
 import ExerciseRequestsPage from './pages/ExerciseRequestsPage';
 import EsopLedgerPage from './pages/EsopLedgerPage';
 import EsopMyHoldingsPage from './pages/EsopMyHoldingsPage';
+import EsopPage from './pages/EsopPage';
 import LeaveApprovalPage from './pages/LeaveApprovalPage';
 import EventRequestPage from './pages/EventRequestPage';
 import EventBalanceEntryPage from './pages/EventBalanceEntryPage';
@@ -211,7 +212,7 @@ function App() {
             element={
               <ProtectedRoute>
                 <DashboardLayout>
-                  <DepartmentsPage />
+                  <DepartmentMastersPage />
                 </DashboardLayout>
               </ProtectedRoute>
             }
@@ -705,7 +706,7 @@ function App() {
             }
           />
           <Route
-            path="/attendance/apply-event"
+            path="/leave/apply-event"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
@@ -714,6 +715,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/attendance/apply-event" element={<Navigate to="/leave/apply-event" replace />} />
           <Route
             path="/attendance/face"
             element={
@@ -725,7 +727,27 @@ function App() {
             }
           />
           <Route
-            path="/attendance/my-requests/excess-time-request"
+            path="/device-setting"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <DeviceSettingPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/attendance/device-setting"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <DeviceSettingPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/leave/excess-time-request"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
@@ -734,8 +756,9 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/attendance/my-requests/excess-time-request" element={<Navigate to="/leave/excess-time-request" replace />} />
           <Route
-            path="/attendance/excess-time-approval"
+            path="/leave/excess-time-approval"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
@@ -744,6 +767,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/attendance/excess-time-approval" element={<Navigate to="/leave/excess-time-approval" replace />} />
           <Route
             path="/attendance-policy"
             element={
@@ -915,7 +939,7 @@ function App() {
             }
           />
           <Route
-            path="/event/requests"
+            path="/leave/requests"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
@@ -924,8 +948,9 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/event/requests" element={<Navigate to="/leave/requests" replace />} />
           <Route
-            path="/event/balance-entry"
+            path="/leave/balance-entry"
             element={
               <ProtectedRoute>
                 <DashboardLayout>
@@ -934,8 +959,8 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="/leave/apply" element={<Navigate to="/attendance/apply-event" replace />} />
-          <Route path="/leave" element={<Navigate to="/attendance/apply-event" replace />} />
+          <Route path="/event/balance-entry" element={<Navigate to="/leave/balance-entry" replace />} />
+          <Route path="/leave/apply" element={<Navigate to="/leave/apply-event" replace />} />
           <Route
             path="/time-attendance"
             element={
@@ -1146,6 +1171,10 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/payroll-master/employee-separation" element={<Navigate to="/payroll/employee-separation" replace />} />
+          <Route path="/payroll-master/fnf-settlement" element={<Navigate to="/payroll/fnf-settlement" replace />} />
+          <Route path="/payroll-master/loans" element={<Navigate to="/payroll/loans" replace />} />
+          <Route path="/payroll-master/employee-rejoin" element={<Navigate to="/payroll/employee-rejoin" replace />} />
           <Route
             path="/payroll/employee-separation"
             element={
@@ -1287,6 +1316,7 @@ function App() {
             }
           />
           <Route path="/esop" element={<ProtectedRoute><DashboardLayout><EsopDashboardPage /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/esop/add" element={<ProtectedRoute><DashboardLayout><EsopPage /></DashboardLayout></ProtectedRoute>} />
           <Route path="/esop/dashboard" element={<ProtectedRoute><DashboardLayout><EsopDashboardPage /></DashboardLayout></ProtectedRoute>} />
           <Route path="/esop/pools" element={<ProtectedRoute><DashboardLayout><EsopPoolsPage /></DashboardLayout></ProtectedRoute>} />
           <Route path="/esop/vesting-plans" element={<ProtectedRoute><DashboardLayout><VestingPlansPage /></DashboardLayout></ProtectedRoute>} />

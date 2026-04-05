@@ -1528,6 +1528,7 @@ export class LeaveRequestService {
       if (employee) {
         // Dynamic RBAC scoping via Config API permissions
         const scope = getDataScope(userId!, '/leave');
+        console.log('[leaveRequestService.getAll] userId:', userId, '| scope:', scope, '| employeeId:', employee.id);
         if (scope === 'org') {
           // can_edit on /leave → org-wide access (HR/OrgAdmin level)
           if (query.organizationId) {

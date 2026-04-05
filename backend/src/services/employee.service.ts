@@ -2,7 +2,10 @@
 import { AppError } from '../middlewares/errorHandler';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { configuratorService } from './configurator.service';
+import { configPrisma } from '../utils/config-prisma';
+import { configUsersService } from './config-users.service';
+import { configAuthService } from './config-auth.service';
+import { configOrgDataService } from './config-org-data.service';
 import {
   CreateEmployeeInput,
   UpdateEmployeeInput,
@@ -14,6 +17,73 @@ import { config } from '../config/config';
 import { emailService } from './email.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Enrich employee records with department/subDepartment/costCentre names from Config DB.
+ * Replaces the HRMS department/costCentre FK joins with Config DB lookups.
+ */
+async function enrichWithConfigOrgData(employees: any[], organizationId?: string): Promise<void> {
+  if (!employees.length) return;
+  // Get configuratorCompanyId from organization
+  const orgId = organizationId || employees[0]?.organizationId;
+  if (!orgId) return;
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { configuratorCompanyId: true },
+  });
+  if (!org?.configuratorCompanyId) return;
+
+  const companyId = org.configuratorCompanyId;
+
+  // Collect unique configurator IDs
+  const deptIds = new Set<number>();
+  const subDeptIds = new Set<number>();
+  const ccIds = new Set<number>();
+  for (const emp of employees) {
+    if (emp.departmentConfiguratorId) deptIds.add(emp.departmentConfiguratorId);
+    if (emp.subDepartmentConfiguratorId) subDeptIds.add(emp.subDepartmentConfiguratorId);
+    if (emp.costCentreConfiguratorId) ccIds.add(emp.costCentreConfiguratorId);
+  }
+
+  // Batch fetch from Config DB
+  const [depts, subDepts, ccs] = await Promise.all([
+    deptIds.size > 0 ? configOrgDataService.getDepartments(companyId) : [],
+    subDeptIds.size > 0 ? configOrgDataService.getSubDepartments(companyId) : [],
+    ccIds.size > 0 ? configOrgDataService.getCostCentres(companyId) : [],
+  ]);
+
+  const deptMap = new Map(depts.map((d: any) => [d.id, { id: d.id, name: d.name, code: d.code }]));
+  const subDeptMap = new Map(subDepts.map((s: any) => [s.id, { id: s.id, name: s.name }]));
+  const ccMap = new Map(ccs.map((c: any) => [c.id, { id: c.id, name: c.name, code: c.code }]));
+
+  // Enrich each employee
+  for (const emp of employees) {
+    if (emp.departmentConfiguratorId && deptMap.has(emp.departmentConfiguratorId)) {
+      emp.department = deptMap.get(emp.departmentConfiguratorId);
+    }
+    if (emp.subDepartmentConfiguratorId && subDeptMap.has(emp.subDepartmentConfiguratorId)) {
+      emp.subDepartment = subDeptMap.get(emp.subDepartmentConfiguratorId);
+    }
+    if (emp.costCentreConfiguratorId && ccMap.has(emp.costCentreConfiguratorId)) {
+      emp.costCentre = ccMap.get(emp.costCentreConfiguratorId);
+    }
+  }
+
+  // Bulk import / free-text designation: show profileExtensions.designation when no JobPosition link
+  for (const emp of employees) {
+    const ext = emp.profileExtensions as Record<string, unknown> | null | undefined;
+    const des =
+      ext && typeof ext.designation === 'string' && ext.designation.trim() ? ext.designation.trim() : '';
+    if (des && !(emp.position && (emp.position as { title?: string }).title)) {
+      emp.position = {
+        id: (emp.position as { id?: string } | null)?.id ?? null,
+        title: des,
+        code: (emp.position as { code?: string } | null)?.code ?? null,
+        level: (emp.position as { level?: string } | null)?.level ?? null,
+      };
+    }
+  }
+}
 
 export class EmployeeService {
   /**
@@ -279,67 +349,51 @@ export class EmployeeService {
       }
     }
 
-    // Resolve departmentId when it's Config id (numeric string)
+    // Resolve departmentId — Config numeric ID stored directly, no HRMS department table
     let resolvedDepartmentId: string | null = null;
     let departmentConfiguratorId: number | null = null;
     if (data.departmentId) {
       if (UUID_REGEX.test(data.departmentId)) {
-        const department = await prisma.department.findUnique({
-          where: { id: data.departmentId },
-        });
-        if (!department || department.organizationId !== data.organizationId) {
-          throw new AppError('Department not found or does not belong to this organization', 404);
-        }
         resolvedDepartmentId = data.departmentId;
-        departmentConfiguratorId = department.configuratorDepartmentId ?? null;
       } else {
-        const configId = parseInt(data.departmentId, 10);
-        const hrmsDept = await prisma.department.findFirst({
-          where: { organizationId: data.organizationId, configuratorDepartmentId: configId },
-        });
-        if (!hrmsDept) {
-          throw new AppError(
-            'Department from Config not found in HRMS. Run sync:config-to-hrms to sync departments first.',
-            404
-          );
-        }
-        resolvedDepartmentId = hrmsDept.id;
-        departmentConfiguratorId = configId;
+        departmentConfiguratorId = parseInt(data.departmentId, 10);
       }
     }
 
-    // Resolve costCentreId when it's Config id (numeric string)
+    // Resolve costCentreId — Config numeric ID stored directly, no HRMS cost centre table
     let resolvedCostCentreId: string | null = null;
     let costCentreConfiguratorId: number | null = null;
     if (data.costCentreId) {
       if (UUID_REGEX.test(data.costCentreId)) {
-        const cc = await prisma.costCentre.findUnique({
-          where: { id: data.costCentreId },
-        });
-        if (!cc || cc.organizationId !== data.organizationId) {
-          throw new AppError('Cost centre not found or does not belong to this organization', 404);
-        }
         resolvedCostCentreId = data.costCentreId;
-        costCentreConfiguratorId = cc.configuratorCostCentreId ?? null;
       } else {
-        const configId = parseInt(data.costCentreId, 10);
-        const hrmsCc = await prisma.costCentre.findFirst({
-          where: { organizationId: data.organizationId, configuratorCostCentreId: configId },
-        });
-        if (!hrmsCc) {
-          throw new AppError(
-            'Cost centre from Config not found in HRMS. Run sync:config-to-hrms to sync cost centres first.',
-            404
-          );
-        }
-        resolvedCostCentreId = hrmsCc.id;
-        costCentreConfiguratorId = configId;
+        costCentreConfiguratorId = parseInt(data.costCentreId, 10);
       }
     }
 
-    // Check if position exists (if provided) and determine user role
-    let userRole: 'EMPLOYEE' | 'HR_MANAGER' | 'MANAGER' = 'EMPLOYEE';
-    if (data.positionId) {
+    // Determine user role: prefer Config DB role_type, fallback to position title
+    let userRole: 'EMPLOYEE' | 'HR_MANAGER' | 'MANAGER' | 'SUPER_ADMIN' | 'ORG_ADMIN' = 'EMPLOYEE';
+    if (data.configuratorRoleId) {
+      // Map from Config DB roles table role_type
+      try {
+        const roleRes = await configAuthService.getUserRole(data.configuratorRoleId);
+        if (roleRes) {
+          const roleType = (roleRes.role_type || '').trim().toUpperCase().replace(/\s+/g, '_');
+          const roleTypeMap: Record<string, string> = {
+            'EMPLOYEE': 'EMPLOYEE',
+            'MANAGER': 'MANAGER',
+            'HR_ADMIN': 'HR_MANAGER',
+            'HR_MANAGER': 'HR_MANAGER',
+            'SUPER_ADMIN': 'SUPER_ADMIN',
+            'ORG_ADMIN': 'ORG_ADMIN',
+          };
+          const mapped = roleTypeMap[roleType];
+          if (mapped) userRole = mapped as any;
+        }
+      } catch (err: any) {
+        console.warn('Failed to map Config DB role_type during create:', err?.message);
+      }
+    } else if (data.positionId) {
       const position = await prisma.jobPosition.findUnique({
         where: { id: data.positionId },
         select: { title: true, organizationId: true },
@@ -353,17 +407,16 @@ export class EmployeeService {
         throw new AppError('Position must belong to the same organization', 400);
       }
 
-      // Map position title to user role
+      // Fallback: map position title to user role
       const title = position.title.toLowerCase();
-      if (title.includes('hr admin') || title.includes('hr manager') || title.includes('hr administrator') || 
+      if (title.includes('hr admin') || title.includes('hr manager') || title.includes('hr administrator') ||
           title.includes('human resources manager') || title.includes('human resource manager')) {
         userRole = 'HR_MANAGER';
       } else if (title.includes('manager') && !title.includes('hr')) {
         userRole = 'MANAGER';
       } else if (title.includes('team lead') || title.includes('team leader') || title.includes('lead')) {
-        userRole = 'MANAGER'; // Team leads should be managers to see their team
+        userRole = 'MANAGER';
       }
-      // Default to EMPLOYEE for other positions
     }
 
     // Check if reporting manager exists (if provided)
@@ -412,46 +465,54 @@ export class EmployeeService {
             select: { configuratorCompanyId: true },
           });
           if (orgForConfig?.configuratorCompanyId != null && createdByUserId) {
-            const tokenUser = await prisma.user.findUnique({
-              where: { id: createdByUserId },
-              select: { configuratorAccessToken: true },
-            });
-            if (tokenUser?.configuratorAccessToken) {
-              try {
-                // Resolve reporting manager's configuratorUserId for manager_id field
-                let managerConfiguratorUserId: number | null = null;
-                if (data.reportingManagerId) {
-                  const managerEmp = await prisma.employee.findUnique({
-                    where: { id: data.reportingManagerId },
-                    select: { configuratorUserId: true },
-                  });
-                  managerConfiguratorUserId = managerEmp?.configuratorUserId ?? null;
-                }
-                const rawPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
-                const configUser = await configuratorService.createUser(tokenUser.configuratorAccessToken, {
-                  email: data.email,
-                  first_name: data.firstName,
-                  last_name: data.lastName ?? 'N/A',
-                  phone: data.phone ?? '',
-                  company_id: orgForConfig.configuratorCompanyId,
-                  project_id: config.configuratorHrmsProjectId || 0,
-                  role_id: data.configuratorRoleId ?? 0,
-                  cost_centre_id: data.costCentreConfiguratorId ?? 0,
-                  department_id: data.departmentConfiguratorId ?? 0,
-                  sub_department_id: data.subDepartmentConfiguratorId ?? 0,
-                  password: rawPassword,
-                  manager_id: managerConfiguratorUserId,
+            try {
+              // Direct Config DB access — no token needed
+              // Resolve reporting manager's configuratorUserId for manager_id field
+              let managerConfiguratorUserId: number | null = null;
+              if (data.reportingManagerId) {
+                const managerEmp = await prisma.employee.findUnique({
+                  where: { id: data.reportingManagerId },
+                  select: { configuratorUserId: true },
                 });
-                configuratorUserId = configUser.id;
-                // Use encrypted_password from Configurator as the stored passwordHash
-                if (configUser.encrypted_password) {
-                  passwordHash = configUser.encrypted_password;
-                }
-              } catch (err: any) {
-                console.warn('Config user create failed:', err?.response?.status, err?.response?.data ?? err?.message);
+                managerConfiguratorUserId = managerEmp?.configuratorUserId ?? null;
               }
-            } else {
-              console.warn('[EmployeeService] No configuratorAccessToken for user', createdByUserId, '— cannot create Configurator user');
+              const rawPassword = `Temp@${Math.random().toString(36).slice(-8)}`;
+              // Resolve creator's configuratorUserId for created_by field
+              let creatorConfigId: number | null = null;
+              if (createdByUserId) {
+                const creatorUser = await prisma.user.findUnique({
+                  where: { id: createdByUserId },
+                  select: { configuratorUserId: true, email: true },
+                });
+                creatorConfigId = creatorUser?.configuratorUserId ?? null;
+              }
+              const configUser = await configUsersService.createUser({
+                email: data.email,
+                first_name: data.firstName,
+                last_name: data.lastName ?? 'N/A',
+                phone: data.phone ?? '',
+                company_id: orgForConfig.configuratorCompanyId,
+                project_id: config.configuratorHrmsProjectId || 0,
+                role_id: data.configuratorRoleId ?? 0,
+                cost_centre_id: data.costCentreConfiguratorId ?? 0,
+                department_id: data.departmentConfiguratorId ?? 0,
+                sub_department_id: data.subDepartmentConfiguratorId ?? 0,
+                password: rawPassword,
+                manager_id: managerConfiguratorUserId,
+                code: employeeCode,
+                created_by: creatorConfigId,
+              });
+              configuratorUserId = configUser.id;
+              // Store the Config company ID on employee
+              if (!data.configuratorCompanyId) {
+                data.configuratorCompanyId = orgForConfig.configuratorCompanyId;
+              }
+              // Use encrypted_password from Config DB as the stored passwordHash
+              if (configUser.encrypted_password) {
+                passwordHash = configUser.encrypted_password;
+              }
+            } catch (err: any) {
+              console.warn('Config user create failed:', err?.message);
             }
           }
         }
@@ -498,6 +559,8 @@ export class EmployeeService {
       departmentConfiguratorId: departmentConfiguratorId ?? data.departmentConfiguratorId ?? undefined,
       costCentreConfiguratorId: costCentreConfiguratorId ?? data.costCentreConfiguratorId ?? undefined,
       subDepartmentConfiguratorId: data.subDepartmentConfiguratorId ?? undefined,
+      branchConfiguratorId: data.branchConfiguratorId ?? undefined,
+      workLocation: data.workLocation ?? undefined,
       configuratorCompanyId: data.configuratorCompanyId ?? undefined,
       dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
       dateOfJoining: new Date(data.dateOfJoining),
@@ -545,6 +608,18 @@ export class EmployeeService {
         });
       } else {
         throw err;
+      }
+    }
+
+    // Sync employee code back to Config DB users.code
+    // This handles the case where frontend pre-created the Config user (no code yet)
+    // or backend auto-generated the code after Config user was created
+    const finalConfigUserId = configuratorUserId ?? (employee as any).configuratorUserId ?? null;
+    if (finalConfigUserId) {
+      try {
+        await configUsersService.updateUser(finalConfigUserId, { code: employee.employeeCode });
+      } catch (err: any) {
+        console.warn('[employee.create] Failed to sync employeeCode to Config DB users.code:', err?.message);
       }
     }
 
@@ -891,6 +966,9 @@ export class EmployeeService {
       prisma.employee.count({ where }),
     ]);
 
+    // Enrich department/subDepartment/costCentre names from Config DB
+    await enrichWithConfigOrgData(employees, query.organizationId || rbac?.organizationId);
+
     return {
       employees,
       pagination: {
@@ -983,6 +1061,9 @@ export class EmployeeService {
     if (!employee) {
       throw new AppError('Employee not found', 404);
     }
+
+    // Enrich department/subDepartment/costCentre names from Config DB
+    await enrichWithConfigOrgData([employee], employee.organizationId);
 
     const profileExtensions = (employee as { profileExtensions?: { academicQualifications?: unknown[]; previousEmployments?: unknown[]; familyMembers?: unknown[] } }).profileExtensions;
     return {
@@ -1135,7 +1216,7 @@ export class EmployeeService {
       });
     }
 
-    // Resolve departmentId when it's Config id (numeric string)
+    // Resolve departmentId — Config numeric ID stored directly, no HRMS department table
     let resolvedDepartmentId: string | null | undefined = undefined;
     let departmentConfiguratorId: number | null | undefined = undefined;
     if (data.departmentId !== undefined) {
@@ -1143,31 +1224,13 @@ export class EmployeeService {
         resolvedDepartmentId = null;
         departmentConfiguratorId = null;
       } else if (UUID_REGEX.test(data.departmentId)) {
-        const department = await prisma.department.findUnique({
-          where: { id: data.departmentId },
-        });
-        if (!department || department.organizationId !== existing.organizationId) {
-          throw new AppError('Department not found or does not belong to this organization', 404);
-        }
         resolvedDepartmentId = data.departmentId;
-        departmentConfiguratorId = department.configuratorDepartmentId ?? null;
       } else {
-        const configId = parseInt(data.departmentId, 10);
-        const hrmsDept = await prisma.department.findFirst({
-          where: { organizationId: existing.organizationId, configuratorDepartmentId: configId },
-        });
-        if (!hrmsDept) {
-          throw new AppError(
-            'Department from Config not found in HRMS. Run sync:config-to-hrms to sync departments first.',
-            404
-          );
-        }
-        resolvedDepartmentId = hrmsDept.id;
-        departmentConfiguratorId = configId;
+        departmentConfiguratorId = parseInt(data.departmentId, 10);
       }
     }
 
-    // Resolve costCentreId when it's Config id (numeric string)
+    // Resolve costCentreId — Config numeric ID stored directly, no HRMS cost centre table
     let resolvedCostCentreId: string | null | undefined = undefined;
     let costCentreConfiguratorId: number | null | undefined = undefined;
     if (data.costCentreId !== undefined) {
@@ -1175,27 +1238,9 @@ export class EmployeeService {
         resolvedCostCentreId = null;
         costCentreConfiguratorId = null;
       } else if (UUID_REGEX.test(data.costCentreId)) {
-        const cc = await prisma.costCentre.findUnique({
-          where: { id: data.costCentreId },
-        });
-        if (!cc || cc.organizationId !== existing.organizationId) {
-          throw new AppError('Cost centre not found or does not belong to this organization', 404);
-        }
         resolvedCostCentreId = data.costCentreId;
-        costCentreConfiguratorId = cc.configuratorCostCentreId ?? null;
       } else {
-        const configId = parseInt(data.costCentreId, 10);
-        const hrmsCc = await prisma.costCentre.findFirst({
-          where: { organizationId: existing.organizationId, configuratorCostCentreId: configId },
-        });
-        if (!hrmsCc) {
-          throw new AppError(
-            'Cost centre from Config not found in HRMS. Run sync:config-to-hrms to sync cost centres first.',
-            404
-          );
-        }
-        resolvedCostCentreId = hrmsCc.id;
-        costCentreConfiguratorId = configId;
+        costCentreConfiguratorId = parseInt(data.costCentreId, 10);
       }
     }
 
@@ -1211,6 +1256,18 @@ export class EmployeeService {
 
       if (position.organizationId !== existing.organizationId) {
         throw new AppError('Position must belong to the same organization', 400);
+      }
+    }
+
+    // Resolve reportingManagerConfiguratorUserId to HRMS employee ID if no reportingManagerId given
+    const rmConfigUserId = (data as any).reportingManagerConfiguratorUserId as number | undefined;
+    if (!data.reportingManagerId && rmConfigUserId) {
+      const managerEmp = await prisma.employee.findFirst({
+        where: { configuratorUserId: rmConfigUserId, organizationId: existing.organizationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (managerEmp) {
+        data.reportingManagerId = managerEmp.id;
       }
     }
 
@@ -1240,8 +1297,21 @@ export class EmployeeService {
       }
     }
 
-    // Extract role and configuratorRoleId from data (for User / Config, not Employee)
-    const { role, departmentId: _deptId, costCentreId: _ccId, configuratorRoleId: _configRoleId, ...employeeData } = data;
+    // Extract fields that are NOT Employee table columns before spreading into update payload
+    const {
+      role,
+      departmentId: _deptId,
+      costCentreId: _ccId,
+      configuratorRoleId: _configRoleId,
+      configuratorCompanyId: _companyId,
+      ...employeeData
+    } = data;
+    // Also strip extra fields that may come from the frontend but aren't in the Employee model
+    delete (employeeData as any).configuratorUserId;
+    delete (employeeData as any).encryptedPassword;
+    delete (employeeData as any).rawTemporaryPassword;
+    delete (employeeData as any).reportingManagerConfiguratorUserId;
+    delete (employeeData as any).organizationId;
 
     // Update Config user (PUT /api/v1/users/{user_id}) when any relevant field changes
     const userForConfig = existing.userId ? await prisma.user.findUnique({
@@ -1253,15 +1323,11 @@ export class EmployeeService {
       data.costCentreConfiguratorId != null || data.subDepartmentConfiguratorId != null ||
       data.reportingManagerId !== undefined;
     if (userForConfig?.configuratorUserId != null && updatedByUserId && configFieldsChanged) {
-      const tokenUser = await prisma.user.findUnique({
-        where: { id: updatedByUserId },
-        select: { configuratorAccessToken: true },
-      });
       const orgForConfig = await prisma.organization.findUnique({
         where: { id: existing.organizationId },
         select: { configuratorCompanyId: true },
       });
-      if (tokenUser?.configuratorAccessToken && orgForConfig?.configuratorCompanyId != null) {
+      if (orgForConfig?.configuratorCompanyId != null) {
         try {
           // Resolve reporting manager's configuratorUserId for manager_id field
           let managerConfiguratorUserId: number | null = null;
@@ -1272,48 +1338,59 @@ export class EmployeeService {
             });
             managerConfiguratorUserId = managerEmp?.configuratorUserId ?? null;
           }
-          await configuratorService.updateUser(tokenUser.configuratorAccessToken, userForConfig.configuratorUserId, {
+          // Direct Config DB access — no token needed
+          // Only send fields that are explicitly changed (undefined = don't touch)
+          const configUpdatePayload: any = {
             email: data.email ?? existing.email,
             first_name: data.firstName ?? existing.firstName,
             last_name: data.lastName ?? existing.lastName,
             phone: data.phone ?? existing.phone ?? '',
             company_id: orgForConfig.configuratorCompanyId,
-            role_id: data.configuratorRoleId ?? 0,
             is_active: userForConfig.isActive ?? true,
-            department_id: data.departmentConfiguratorId ?? null,
-            cost_centre_id: data.costCentreConfiguratorId ?? null,
-            sub_department_id: data.subDepartmentConfiguratorId ?? null,
-            manager_id: managerConfiguratorUserId,
-          });
+          };
+          // Only update manager_id if reporting manager was explicitly changed
+          if (data.reportingManagerId !== undefined) {
+            configUpdatePayload.manager_id = managerConfiguratorUserId;
+          }
+          if (data.configuratorRoleId != null) configUpdatePayload.role_id = data.configuratorRoleId;
+          if (data.departmentConfiguratorId !== undefined) configUpdatePayload.department_id = data.departmentConfiguratorId;
+          if (data.costCentreConfiguratorId !== undefined) configUpdatePayload.cost_centre_id = data.costCentreConfiguratorId;
+          if (data.subDepartmentConfiguratorId !== undefined) configUpdatePayload.sub_department_id = data.subDepartmentConfiguratorId;
+          await configUsersService.updateUser(userForConfig.configuratorUserId, configUpdatePayload);
         } catch (err: any) {
           console.warn('Config user update (PUT) failed:', err?.message);
         }
       }
     }
 
-    // Resolve HRMS role: use explicit role from request, or fetch dynamically from Configurator API
+    // Resolve HRMS role: use explicit role from request, or map from Config DB role_type
     let resolvedRole = role;
     if (!resolvedRole && data.configuratorRoleId && existing.userId) {
-      // Fetch role code from Configurator API to keep HRMS user.role in sync
-      const tokenUser = await prisma.user.findUnique({
-        where: { id: updatedByUserId },
-        select: { configuratorAccessToken: true },
-      });
-      if (tokenUser?.configuratorAccessToken) {
-        try {
-          const roleRes = await configuratorService.getUserRole(tokenUser.configuratorAccessToken, data.configuratorRoleId);
-          const code = roleRes?.code || roleRes?.name;
-          if (code) {
-            const upper = code.trim().toUpperCase().replace(/\s+/g, '_');
+      // Fetch role from Config DB roles table and use role_type for mapping
+      try {
+        const roleRes = await configAuthService.getUserRole(data.configuratorRoleId);
+        if (roleRes) {
+          const roleType = (roleRes.role_type || '').trim().toUpperCase().replace(/\s+/g, '_');
+          // Map Config DB role_type to HRMS UserRole enum
+          const roleTypeMap: Record<string, string> = {
+            'EMPLOYEE': 'EMPLOYEE',
+            'MANAGER': 'MANAGER',
+            'HR_ADMIN': 'HR_MANAGER',
+            'HR_MANAGER': 'HR_MANAGER',
+            'SUPER_ADMIN': 'SUPER_ADMIN',
+            'ORG_ADMIN': 'ORG_ADMIN',
+          };
+          const mapped = roleTypeMap[roleType];
+          if (mapped) {
             const { UserRole } = await import('@prisma/client');
             const validRoles = Object.values(UserRole);
-            // Direct match or suffix match (e.g., HRMS_HR_MANAGER → HR_MANAGER)
-            const matched = validRoles.find(r => upper === r || upper.endsWith('_' + r));
-            if (matched) resolvedRole = matched as any;
+            if (validRoles.includes(mapped as any)) {
+              resolvedRole = mapped as any;
+            }
           }
-        } catch (err: any) {
-          console.warn('Failed to fetch Configurator role code:', err?.message);
         }
+      } catch (err: any) {
+        console.warn('Failed to fetch Config DB role for role_type mapping:', err?.message);
       }
     }
 
@@ -1339,10 +1416,12 @@ export class EmployeeService {
       ...(departmentConfiguratorId !== undefined && { departmentConfiguratorId: departmentConfiguratorId }),
       ...(costCentreConfiguratorId !== undefined && { costCentreConfiguratorId: costCentreConfiguratorId }),
       ...(data.subDepartmentConfiguratorId !== undefined && { subDepartmentConfiguratorId: data.subDepartmentConfiguratorId }),
+      ...(data.branchConfiguratorId !== undefined && { branchConfiguratorId: data.branchConfiguratorId }),
+      ...(data.workLocation !== undefined && { workLocation: data.workLocation }),
       positionId: employeeData.positionId ?? undefined,
-      reportingManagerId: employeeData.reportingManagerId ?? undefined,
+      reportingManagerId: data.reportingManagerId ?? undefined,
       entityId: employeeData.entityId ?? undefined,
-      locationId: employeeData.locationId ?? undefined,
+      ...(data.configuratorCompanyId != null && { configuratorCompanyId: data.configuratorCompanyId }),
       ...(resolvedCostCentreId !== undefined && { costCentreId: resolvedCostCentreId }),
       faceEncoding:
         employeeData.faceEncoding === null
@@ -1385,7 +1464,7 @@ export class EmployeeService {
    * 3. Sets deletedAt, employeeStatus = TERMINATED on employees table
    * 4. Sets isActive = false on users table
    */
-  async delete(id: string, requestingUserId?: string) {
+  async delete(id: string, _requestingUserId?: string) {
     const employee = await prisma.employee.findFirst({
       where: {
         id,
@@ -1424,25 +1503,11 @@ export class EmployeeService {
     const configuratorUserId = employee.configuratorUserId ?? employee.user?.configuratorUserId;
     if (configuratorUserId) {
       try {
-        // Get the requesting user's Configurator token for the API call
-        let accessToken: string | null = null;
-        if (requestingUserId) {
-          const reqUser = await prisma.user.findUnique({
-            where: { id: requestingUserId },
-            select: { configuratorAccessToken: true },
-          });
-          accessToken = reqUser?.configuratorAccessToken ?? null;
-        }
-        if (!accessToken) {
-          // Fall back to the employee's own token
-          accessToken = employee.user?.configuratorAccessToken ?? null;
-        }
-        if (accessToken) {
-          await configuratorService.deleteUser(accessToken, configuratorUserId);
-        }
+        // Direct Config DB access — no token needed
+        await configUsersService.deleteUser(configuratorUserId);
       } catch (err) {
         // Log but don't block the HRMS soft-delete if Configurator call fails
-        console.error('[employeeService.delete] Configurator deleteUser failed:', err);
+        console.error('[employeeService.delete] Config DB deleteUser failed:', err);
       }
     }
 
@@ -1491,19 +1556,11 @@ export class EmployeeService {
           configuratorActiveStatus: false,
         },
       });
-      // Also call Configurator delete API
-      if (requestingUserId) {
-        const reqUser = await prisma.user.findUnique({
-          where: { id: requestingUserId },
-          select: { configuratorAccessToken: true },
-        });
-        if (reqUser?.configuratorAccessToken) {
-          try {
-            await configuratorService.deleteUser(reqUser.configuratorAccessToken, configuratorUserId);
-          } catch (err) {
-            console.error('[employeeService.deleteByConfiguratorUserId] Configurator deleteUser failed:', err);
-          }
-        }
+      // Direct Config DB access — no token needed
+      try {
+        await configUsersService.deleteUser(configuratorUserId);
+      } catch (err) {
+        console.error('[employeeService.deleteByConfiguratorUserId] Config DB deleteUser failed:', err);
       }
       return { message: 'User deactivated successfully' };
     }
@@ -1637,26 +1694,47 @@ export class EmployeeService {
             title: true,
           },
         },
+        departmentConfiguratorId: true,
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
 
-    return employees.map((emp) => ({
-      id: emp.id,
-      employeeCode: emp.employeeCode,
-      name: `${emp.firstName} ${emp.lastName}`,
-      email: emp.email,
-      employeeStatus: emp.employeeStatus,
-      organizationName: emp.organization?.name ?? null,
-      department: emp.department?.name || 'N/A',
-      position: emp.position?.title || 'N/A',
-      role: emp.user?.role || 'N/A',
-      isActive: emp.user?.isActive ?? false,
-      isEmailVerified: emp.user?.isEmailVerified ?? false,
-      accountCreated: emp.user?.createdAt || null,
-    }));
+    // For employees missing HRMS department, look up Config DB department name
+    const missingDeptConfigIds = employees
+      .filter((e) => !e.department?.name && e.departmentConfiguratorId)
+      .map((e) => e.departmentConfiguratorId as number);
+    let configDeptMap = new Map<number, string>();
+    if (missingDeptConfigIds.length > 0) {
+      try {
+        const configDepts = await configPrisma.departments.findMany({
+          where: { id: { in: missingDeptConfigIds } },
+          select: { id: true, name: true },
+        });
+        configDeptMap = new Map(configDepts.map((d: any) => [d.id, d.name]));
+      } catch { /* Config DB unavailable — ignore */ }
+    }
+
+    return employees.map((emp) => {
+      const deptName = emp.department?.name
+        || (emp.departmentConfiguratorId ? configDeptMap.get(emp.departmentConfiguratorId) : null)
+        || 'N/A';
+      return {
+        id: emp.id,
+        employeeCode: emp.employeeCode,
+        name: `${emp.firstName} ${emp.lastName}`,
+        email: emp.email,
+        employeeStatus: emp.employeeStatus,
+        organizationName: emp.organization?.name ?? null,
+        department: deptName,
+        position: emp.position?.title || 'N/A',
+        role: emp.user?.role || 'N/A',
+        isActive: emp.user?.isActive ?? false,
+        isEmailVerified: emp.user?.isEmailVerified ?? false,
+        accountCreated: emp.user?.createdAt || null,
+      };
+    });
   }
 
   /**

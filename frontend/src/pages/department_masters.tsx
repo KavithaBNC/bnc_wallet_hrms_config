@@ -103,7 +103,9 @@ export default function DepartmentMastersPage() {
     (user as any)?.employee?.organization?.id ||
     (user as any)?.organizationId;
 
-  const modulePerms = getModulePermissions('/departments');
+  const permsA = getModulePermissions('/department-masters');
+  const permsB = getModulePermissions('/departments');
+  const modulePerms = permsA.can_view ? permsA : permsB;
   const canAdd = modulePerms.can_add;
   const canEdit = modulePerms.can_edit;
   const canDelete = modulePerms.can_delete;

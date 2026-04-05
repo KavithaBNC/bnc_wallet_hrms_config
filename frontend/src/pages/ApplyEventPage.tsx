@@ -164,11 +164,12 @@ export default function ApplyEventPage() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const state = (location.state as MonthlyDetailsState | null) || {};
-  const pageMode: 'Leave' | 'Permission' | 'Onduty' =
+  const initialMode: 'Leave' | 'Permission' | 'Onduty' =
     state.applyTab === 'Permission' ? 'Permission' : state.applyTab === 'Onduty' ? 'Onduty' : 'Leave';
+  const [pageMode, setPageMode] = useState<'Leave' | 'Permission' | 'Onduty'>(initialMode);
   const now = new Date();
   const contextEmployeeId = state.employeeId || user?.employee?.id;
   const contextYear = state.year ?? now.getFullYear();
@@ -677,6 +678,31 @@ export default function ApplyEventPage() {
 
       <div className="flex-1 overflow-auto p-4">
         <form onSubmit={handleSave} className="mx-auto flex w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          {/* Mode tabs: Leave / Onduty / Permission */}
+          <div className="mb-4 flex gap-1">
+            {(['Leave', 'Onduty', 'Permission'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => {
+                  if (tab !== pageMode) {
+                    setPageMode(tab);
+                    setSelectedComponentId('');
+                    setSelectedLeaveTypeId('');
+                    setError(null);
+                    setLeaveHint(null);
+                  }
+                }}
+                className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                  pageMode === tab
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {tab === 'Onduty' ? 'On Duty / WFH' : tab}
+              </button>
+            ))}
+          </div>
           {isApplyingForOther && (
             <div className="mb-4 rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
               Assigning on behalf of <strong>{targetEmployeeName || targetEmployeeId}</strong> — will be auto-approved (HR Direct Assignment)

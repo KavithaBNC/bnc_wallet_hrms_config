@@ -39,9 +39,10 @@ export const createEmployeeSchema = z.object({
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
   reportingManagerConfiguratorUserId: z.number().optional().nullable(),
-  workLocation: z.string().max(255).optional(),
+  workLocation: z.string().max(255).optional().nullable(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
+  branchConfiguratorId: z.number().optional().nullable(),
   costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
   costCentreConfiguratorId: z.number().optional().nullable(),
   subDepartmentConfiguratorId: z.number().optional().nullable(),
@@ -143,14 +144,17 @@ export const updateEmployeeSchema = z.object({
   departmentConfiguratorId: z.number().optional().nullable(),
   positionId: z.string().uuid().optional().nullable(),
   reportingManagerId: z.string().uuid().optional().nullable(),
-  workLocation: z.string().max(255).optional(),
+  workLocation: z.string().max(255).optional().nullable(),
   entityId: z.string().uuid().optional().nullable(),
   locationId: z.string().uuid().optional().nullable(),
+  branchConfiguratorId: z.number().optional().nullable(),
   costCentreId: z.union([z.string().uuid(), z.string().regex(/^\d+$/)]).optional().nullable(),
   costCentreConfiguratorId: z.number().optional().nullable(),
   subDepartmentConfiguratorId: z.number().optional().nullable(),
-  configuratorRoleId: z.number().optional().nullable(), // Config user_roles.id for PUT /api/v1/users/{id}
+  configuratorRoleId: z.number().optional().nullable(), // Config roles.id
   configuratorCompanyId: z.number().optional().nullable(), // Config company_id
+  reportingManagerConfiguratorUserId: z.number().optional().nullable(), // Config users.id of reporting manager
+  organizationId: z.string().uuid().optional(), // Organization ID (for reference, not stored directly)
   grade: z.string().max(50).optional().nullable(),
   placeOfTaxDeduction: z.enum(['METRO', 'NON_METRO']).optional().nullable(),
   jobResponsibility: z.string().max(2000).optional().nullable(),

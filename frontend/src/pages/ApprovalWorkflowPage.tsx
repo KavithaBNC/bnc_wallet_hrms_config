@@ -12,7 +12,7 @@ export default function ApprovalWorkflowPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [items, setItems] = useState<ApprovalWorkflow[]>([]);
   const [loading, setLoading] = useState(true);

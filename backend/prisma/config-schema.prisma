@@ -1,0 +1,1124 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/config-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("CONFIG_DATABASE_URL")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model agents {
+  id         Int       @id @default(autoincrement())
+  company_id Int
+  name       String    @db.VarChar(150)
+  gender     String    @db.VarChar(10)
+  status     String?   @default("Active") @db.VarChar(10)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  companies  companies @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model audit_logs {
+  id         Int      @id @default(autoincrement())
+  table_name String   @db.VarChar(100)
+  record_id  Int
+  action     String   @db.VarChar(20)
+  changed_by Int?
+  changed_at DateTime @default(now()) @db.Timestamp(6)
+  old_values Json?
+  new_values Json?
+  ip_address String?  @db.VarChar(45)
+  user_agent String?
+
+  @@index([changed_by], map: "idx_audit_logs_changed_by")
+  @@index([table_name], map: "idx_audit_logs_table_name")
+}
+
+model branch_erp_sync {
+  id                     Int       @id @default(autoincrement())
+  configurator_branch_id String    @unique @db.VarChar(255)
+  erp_branch_id          Int
+  status                 String?   @default("active") @db.VarChar(20)
+  last_synced_at         DateTime  @db.Timestamptz(6)
+  last_error             String?
+  retry_count            Int?      @default(0)
+  created_at             DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model branch_hrms_sync {
+  id                     Int      @id @default(autoincrement())
+  configurator_branch_id String   @unique @db.VarChar(64)
+  hrms_location_id       String   @db.VarChar(64)
+  status                 String   @default("active") @db.VarChar(20)
+  last_synced_at         DateTime @default(now()) @db.Timestamp(6)
+  last_error             String?
+  retry_count            Int      @default(0)
+  created_at             DateTime @default(now()) @db.Timestamp(6)
+  updated_at             DateTime @default(now()) @db.Timestamp(6)
+}
+
+model branches {
+  id               BigInt    @id @default(autoincrement())
+  company_id       Int
+  branch_name      String    @db.VarChar(255)
+  code             String?   @db.VarChar(50)
+  entity_id        Int?
+  country          String?   @db.VarChar(255)
+  state            String?   @db.VarChar(255)
+  city             String?   @db.VarChar(255)
+  address          String?   @db.VarChar(500)
+  pincode          String?   @db.VarChar(50)
+  location         String?   @db.VarChar(500)
+  status           String    @default("active") @db.VarChar(50)
+  is_deleted       Boolean   @default(false)
+  created_at       DateTime  @default(now()) @db.Timestamp(6)
+  updated_at       DateTime  @default(now()) @db.Timestamp(6)
+  name             String    @default("Unknown") @db.VarChar(255)
+  created_by       Int?
+  created_by_name  String?   @db.VarChar(255)
+  modified_by      Int?
+  modified_by_name String?   @db.VarChar(255)
+  companies        companies @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([code, company_id])
+  @@index([company_id], map: "idx_branches_company_id")
+  @@index([status], map: "idx_branches_status")
+}
+
+model call_history {
+  id                                  BigInt         @id @default(autoincrement())
+  company_id                          Int
+  caller_id                           Int
+  callee_id                           Int
+  call_type                           String         @default("voice") @db.VarChar(20)
+  started_at                          DateTime?      @default(now()) @db.Timestamp(6)
+  ended_at                            DateTime?      @db.Timestamp(6)
+  duration_sec                        Int?
+  status                              String         @default("completed") @db.VarChar(20)
+  conversation_id                     BigInt?
+  created_at                          DateTime?      @default(now()) @db.Timestamp(6)
+  users_call_history_callee_idTousers users          @relation("call_history_callee_idTousers", fields: [callee_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_call_history_caller_idTousers users          @relation("call_history_caller_idTousers", fields: [caller_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies                           companies      @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations                       conversations? @relation(fields: [conversation_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([callee_id], map: "idx_call_history_callee_id")
+  @@index([caller_id], map: "idx_call_history_caller_id")
+  @@index([company_id], map: "idx_call_history_company_id")
+  @@index([started_at(sort: Desc)], map: "idx_call_history_started_at")
+}
+
+model cities {
+  id        Int    @id @default(autoincrement())
+  city_id   Int?   @default(0)
+  city      String @db.VarChar(30)
+  state_id  Int
+  is_active Int    @default(1)
+}
+
+model communities {
+  id                Int             @id @default(autoincrement())
+  company_id        Int
+  created_by        Int
+  name              String          @db.VarChar(255)
+  description       String?
+  icon              String?         @db.VarChar(512)
+  rules             String?
+  invite_token      String?         @unique @db.VarChar(64)
+  invite_expires_at DateTime?       @db.Timestamptz(6)
+  updated_by        Int?
+  created_at        DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime        @default(now()) @db.Timestamptz(6)
+  companies         companies       @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users             users           @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conversations     conversations[]
+
+  @@index([company_id], map: "idx_communities_company_id")
+  @@index([created_by], map: "idx_communities_created_by")
+  @@index([invite_token], map: "idx_communities_invite_token")
+}
+
+model companies {
+  id                          Int                       @id @default(autoincrement())
+  name                        String                    @db.VarChar(255)
+  code                        String                    @unique @db.VarChar(50)
+  description                 String?
+  is_active                   Boolean                   @default(true)
+  address                     String?
+  email                       String?                   @db.VarChar(255)
+  phone                       String?                   @db.VarChar(50)
+  mobile                      String?                   @db.VarChar(50)
+  logo                        String?
+  country_id                  BigInt?
+  state_id                    BigInt?
+  city_id                     BigInt?
+  pincode                     String?                   @db.VarChar(20)
+  project_ids                 BigInt[]
+  project_id                  String?
+  subdomain                   String?                   @db.VarChar(255)
+  primary_domain              String?                   @db.VarChar(500)
+  legal_name                  String?                   @db.VarChar(255)
+  industry                    String?                   @db.VarChar(100)
+  company_size                String?                   @db.VarChar(50)
+  timezone                    String?                   @default("UTC") @db.VarChar(100)
+  currency                    String?                   @default("USD") @db.VarChar(10)
+  employee_id_prefix          String?                   @db.VarChar(50)
+  employee_id_starting_number Int?                      @default(10)
+  tax_id                      String?                   @db.VarChar(50)
+  registration_number         String?                   @db.VarChar(100)
+  website                     String?                   @db.VarChar(255)
+  fiscal_year_start           DateTime?                 @db.Date
+  settings                    Json?
+  created_by                  Int?
+  updated_by                  Int?
+  created_at                  DateTime                  @default(now()) @db.Timestamp(6)
+  updated_at                  DateTime                  @default(now()) @db.Timestamp(6)
+  created_by_name             String?                   @db.VarChar(255)
+  modified_by                 Int?
+  modified_by_name            String?                   @db.VarChar(255)
+  digital_twin                Int?                      @default(0)
+  agents                      agents[]
+  branches                    branches[]
+  call_history                call_history[]
+  communities                 communities[]
+  company_project_maps        company_project_maps[]
+  company_subscriptions       company_subscriptions[]
+  conversations               conversations[]
+  cost_centres                cost_centres[]
+  departments                 departments[]
+  role_module_permissions     role_module_permissions[]
+  roles                       roles[]
+  sub_departments             sub_departments[]
+  tasks                       tasks[]
+  user_blocks                 user_blocks[]
+  users                       users[]
+}
+
+model company_erp_sync {
+  id                      Int       @id @default(autoincrement())
+  configurator_company_id String    @unique @db.VarChar(255)
+  erp_company_id          Int
+  status                  String?   @default("active") @db.VarChar(20)
+  last_synced_at          DateTime  @db.Timestamptz(6)
+  last_error              String?
+  retry_count             Int?      @default(0)
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model company_hrms_sync {
+  id                      Int       @id @default(autoincrement())
+  configurator_company_id String    @unique @db.VarChar(255)
+  hrms_company_id         String    @db.VarChar(36)
+  status                  String?   @default("active") @db.VarChar(20)
+  last_synced_at          DateTime  @db.Timestamptz(6)
+  last_error              String?
+  retry_count             Int?      @default(0)
+  created_at              DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model company_project_maps {
+  id         Int       @id @default(autoincrement())
+  company_id Int
+  project_id Int
+  is_active  Boolean   @default(true)
+  subdomain  String?
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  updated_at DateTime  @default(now()) @db.Timestamp(6)
+  companies  companies @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  projects   projects  @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([company_id, project_id])
+  @@index([company_id], map: "idx_company_project_maps_company_id")
+  @@index([project_id], map: "idx_company_project_maps_project_id")
+}
+
+model company_subscriptions {
+  id                           Int                            @id @default(autoincrement())
+  company_id                   Int
+  plan_id                      Int
+  status                       String                         @db.VarChar(50)
+  start_date                   DateTime                       @db.Date
+  end_date                     DateTime                       @db.Date
+  cancelled_at                 DateTime?                      @db.Timestamptz(6)
+  notes                        String?
+  auto_renew                   Boolean?                       @default(false)
+  created_at                   DateTime?                      @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime?                      @default(now()) @db.Timestamptz(6)
+  companies                    companies                      @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subscription_plans           subscription_plans             @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subscription_change_requests subscription_change_requests[]
+  subscription_history         subscription_history[]
+  subscription_payments        subscription_payments[]
+
+  @@index([company_id], map: "idx_company_subscriptions_company_id")
+  @@index([plan_id], map: "idx_company_subscriptions_plan_id")
+  @@index([status], map: "idx_company_subscriptions_status")
+}
+
+model configurator_users {
+  id                 Int      @id @default(autoincrement())
+  email              String   @unique @db.VarChar(255)
+  password           String   @db.VarChar(255)
+  first_name         String   @db.VarChar(255)
+  last_name          String   @db.VarChar(255)
+  code               String?  @unique @db.VarChar(100)
+  phone              String?  @db.VarChar(20)
+  profile_image_url  String?  @db.VarChar(500)
+  is_active          Boolean  @default(true)
+  role               String?  @default("VIEWER") @db.VarChar(50)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+  created_by         Int?
+  created_by_name    String?  @db.VarChar(255)
+  modified_by        Int?
+  modified_by_name   String?  @db.VarChar(255)
+  encrypted_password String?
+}
+
+model conversation_participants {
+  id                   BigInt        @id @default(autoincrement())
+  conversation_id      BigInt
+  user_id              Int
+  role                 String?       @default("member") @db.VarChar(20)
+  last_read_message_id BigInt?
+  joined_at            DateTime?     @default(now()) @db.Timestamp(6)
+  left_at              DateTime?     @db.Timestamptz(6)
+  muted_until          DateTime?     @db.Timestamptz(6)
+  conversations        conversations @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([conversation_id, user_id])
+  @@index([conversation_id, left_at], map: "idx_conv_participants_conv_left")
+  @@index([user_id], map: "idx_conv_participants_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model conversations {
+  id                               BigInt                      @id @default(autoincrement())
+  company_id                       Int
+  type                             String?                     @default("private") @db.VarChar(20)
+  group_name                       String?                     @db.VarChar(150)
+  group_image                      String?                     @db.VarChar(255)
+  group_description                String?
+  community_id                     Int?
+  created_by                       Int?
+  last_message_id                  BigInt?
+  last_message_at                  DateTime?                   @db.Timestamp(6)
+  pinned_message_id                BigInt?
+  disappearing_message_seconds     Int?
+  only_admins_can_send             Boolean                     @default(false)
+  only_admins_can_edit_info        Boolean                     @default(false)
+  only_admins_can_add_participants Boolean                     @default(false)
+  updated_by                       Int?
+  created_at                       DateTime?                   @default(now()) @db.Timestamp(6)
+  updated_at                       DateTime                    @default(now()) @db.Timestamptz(6)
+  call_history                     call_history[]
+  conversation_participants        conversation_participants[]
+  communities                      communities?                @relation(fields: [community_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies                        companies                   @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                            users?                      @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  messages                         messages[]
+
+  @@index([community_id], map: "idx_conversations_community_id")
+  @@index([company_id], map: "idx_conversations_company_id")
+  @@index([last_message_at(sort: Desc)], map: "idx_conversations_last_message_at")
+  @@index([pinned_message_id], map: "idx_conversations_pinned_message_id")
+  @@index([type], map: "idx_conversations_type")
+}
+
+model cost_centre_access_audit {
+  id             Int      @id @default(autoincrement())
+  role_id        Int
+  cost_centre_id Int
+  action         String   @db.VarChar(20)
+  changed_by     Int?
+  changed_at     DateTime @default(now()) @db.Timestamp(6)
+}
+
+model cost_centre_hrms_sync {
+  id                          Int       @id @default(autoincrement())
+  configurator_cost_centre_id String    @unique @db.VarChar(255)
+  hrms_cost_centre_id         String    @db.VarChar(36)
+  status                      String?   @default("active") @db.VarChar(20)
+  last_synced_at              DateTime  @db.Timestamptz(6)
+  last_error                  String?
+  retry_count                 Int?      @default(0)
+  created_at                  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model cost_centres {
+  id                Int                 @id @default(autoincrement())
+  company_id        Int
+  name              String              @db.VarChar(255)
+  code              String              @db.VarChar(50)
+  is_active         Boolean             @default(true)
+  created_at        DateTime            @default(now()) @db.Timestamp(6)
+  updated_at        DateTime            @default(now()) @db.Timestamp(6)
+  description       String?
+  created_by        Int?
+  created_by_name   String?             @db.VarChar(255)
+  modified_by       Int?
+  modified_by_name  String?             @db.VarChar(255)
+  companies         companies           @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  departments       departments[]
+  role_cost_centres role_cost_centres[]
+
+  @@index([company_id], map: "idx_cost_centres_company_id")
+}
+
+model countries {
+  id              Int       @id @default(autoincrement())
+  country_id      Int
+  sort_order      Int       @db.SmallInt
+  country         String    @db.VarChar(100)
+  lang            String    @default("en") @db.VarChar(50)
+  iso3            String?   @db.Char(3)
+  numeric_code    String?   @db.Char(3)
+  iso2            String?   @db.Char(2)
+  phonecode       String?   @db.VarChar(255)
+  capital         String?   @db.VarChar(255)
+  currency        String?   @db.VarChar(255)
+  currency_name   String?   @db.VarChar(255)
+  currency_symbol String?   @db.VarChar(255)
+  tld             String?   @db.VarChar(255)
+  native          String?   @db.VarChar(255)
+  region          String?   @db.VarChar(255)
+  region_id       Int?
+  subregion       String?   @db.VarChar(255)
+  subregion_id    Int?
+  nationality     String?   @db.VarChar(255)
+  timezones       String?
+  translations    String?
+  latitude        Decimal?  @db.Decimal(10, 8)
+  longitude       Decimal?  @db.Decimal(11, 8)
+  emoji           String?   @db.VarChar(191)
+  emojiU          String?   @db.VarChar(191)
+  created_at      DateTime? @db.Timestamp(6)
+  updated_at      DateTime  @default(now()) @db.Timestamp(6)
+  flag            Int       @default(1)
+  wikiDataId      String?   @db.VarChar(255)
+  status          Int       @default(0)
+  phone_length    String    @default("10") @db.VarChar(500)
+  is_default      Int       @default(1) @db.SmallInt
+  is_active       Int       @default(1) @db.SmallInt
+
+  @@index([region_id], map: "idx_country_continent")
+  @@index([subregion_id], map: "idx_country_subregion")
+}
+
+model currencies {
+  id             Int       @id @default(autoincrement())
+  code           String    @unique @db.VarChar(10)
+  name           String    @db.VarChar(100)
+  symbol         String?   @db.VarChar(10)
+  decimal_places Int?      @default(2)
+  country_id     Int?
+  is_active      Boolean?  @default(true)
+  created_at     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model departments {
+  id               Int               @id @default(autoincrement())
+  company_id       Int?
+  cost_centre_id   Int?
+  cost_centre_name String?           @db.VarChar(255)
+  branch_id        Int?
+  manager_id       Int?
+  name             String            @db.VarChar(255)
+  code             String            @db.VarChar(50)
+  description      String?
+  location         String?           @db.VarChar(255)
+  is_active        Boolean           @default(true)
+  created_at       DateTime          @default(now()) @db.Timestamp(6)
+  updated_at       DateTime          @default(now()) @db.Timestamp(6)
+  created_by       Int?
+  created_by_name  String?           @db.VarChar(255)
+  modified_by      Int?
+  modified_by_name String?           @db.VarChar(255)
+  companies        companies?        @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cost_centres     cost_centres?     @relation(fields: [cost_centre_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sub_departments  sub_departments[]
+  users            users[]
+
+  @@index([company_id], map: "idx_departments_company_id")
+  @@index([cost_centre_id], map: "idx_departments_cost_centre_id")
+}
+
+model device_tokens {
+  id           Int      @id @default(autoincrement())
+  user_id      Int
+  device_token String
+  device_type  String
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+  users        users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, device_token])
+  @@index([user_id])
+}
+
+model erp_sync_logs {
+  id               Int       @id @default(autoincrement())
+  entity_type      String    @db.VarChar(50)
+  entity_id        String    @db.VarChar(255)
+  action           String    @db.VarChar(50)
+  status           String    @db.VarChar(20)
+  request_payload  Json?
+  response_payload Json?
+  error_message    String?
+  retry_count      Int?      @default(0)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model hrms_role_mapping {
+  id                     Int       @id @default(autoincrement())
+  configurator_role_code String    @db.VarChar(100)
+  hrms_role_name         String    @db.VarChar(100)
+  created_at             DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model hrms_sync_logs {
+  id               Int       @id @default(autoincrement())
+  entity_type      String    @db.VarChar(50)
+  entity_id        String    @db.VarChar(255)
+  action           String    @db.VarChar(50)
+  status           String    @db.VarChar(20)
+  request_payload  Json?
+  response_payload Json?
+  error_message    String?
+  retry_count      Int?      @default(0)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model message_reactions {
+  id         BigInt    @id @default(autoincrement())
+  message_id BigInt
+  user_id    Int
+  emoji      String    @db.VarChar(10)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  messages   messages  @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([message_id], map: "idx_message_reactions_message_id")
+}
+
+model message_reads {
+  id         BigInt    @id @default(autoincrement())
+  message_id BigInt
+  user_id    Int
+  read_at    DateTime? @default(now()) @db.Timestamp(6)
+  messages   messages  @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([message_id], map: "idx_message_reads_message_id")
+  @@index([user_id], map: "idx_message_reads_user_id")
+}
+
+model message_stars {
+  id         BigInt   @id @default(autoincrement())
+  message_id BigInt
+  user_id    Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  messages   messages @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_message_stars_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model messages {
+  id                   BigInt              @id @default(autoincrement())
+  conversation_id      BigInt
+  sender_id            Int
+  message_type         String              @db.VarChar(20)
+  message_text         String?
+  file_url             String?             @db.VarChar(255)
+  file_name            String?             @db.VarChar(255)
+  file_size            BigInt?
+  mime_type            String?             @db.VarChar(100)
+  thumbnail_url        String?             @db.VarChar(255)
+  reply_to             BigInt?
+  latitude             Float?
+  longitude            Float?
+  location_address     String?
+  location_place_name  String?             @db.VarChar(255)
+  is_deleted           Boolean?            @default(false)
+  deleted_for_everyone Boolean?            @default(false)
+  created_at           DateTime?           @default(now()) @db.Timestamp(6)
+  message_reactions    message_reactions[]
+  message_reads        message_reads[]
+  message_stars        message_stars[]
+  conversations        conversations       @relation(fields: [conversation_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  messages             messages?           @relation("messagesTomessages", fields: [reply_to], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_messages       messages[]          @relation("messagesTomessages")
+  users                users               @relation(fields: [sender_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  polls                polls[]
+
+  @@index([conversation_id, created_at(sort: Desc)], map: "idx_messages_conv_created")
+  @@index([conversation_id], map: "idx_messages_conversation_id")
+  @@index([created_at], map: "idx_messages_created_at")
+  @@index([sender_id], map: "idx_messages_sender_id")
+}
+
+model module_erp_sync {
+  id                       Int       @id @default(autoincrement())
+  configurator_module_id   String    @db.VarChar(255)
+  configurator_module_code String    @db.VarChar(100)
+  erp_module_id            Int
+  status                   String?   @default("active") @db.VarChar(20)
+  last_synced_at           DateTime  @db.Timestamptz(6)
+  last_error               String?
+  retry_count              Int?      @default(0)
+  created_at               DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model notifications {
+  id         Int       @id @default(autoincrement())
+  title      String    @db.VarChar(255)
+  message    String?
+  type       String?   @default("info") @db.VarChar(50)
+  is_read    Boolean?  @default(false)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([is_read], map: "idx_notifications_is_read")
+}
+
+model poll_votes {
+  id           BigInt    @id @default(autoincrement())
+  poll_id      BigInt
+  user_id      Int
+  option_index Int
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  polls        polls     @relation(fields: [poll_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users        users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([poll_id], map: "idx_poll_votes_poll_id")
+  @@index([user_id], map: "idx_poll_votes_user_id")
+}
+
+model polls {
+  id             BigInt       @id @default(autoincrement())
+  message_id     BigInt
+  question       String
+  options        String
+  allow_multiple Boolean?     @default(false)
+  end_time       DateTime?    @db.Timestamp(6)
+  created_at     DateTime?    @default(now()) @db.Timestamp(6)
+  poll_votes     poll_votes[]
+  messages       messages     @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model project_modules {
+  id                        Int                         @id @default(autoincrement())
+  project_id                Int
+  code                      String                      @db.VarChar(50)
+  name                      String                      @db.VarChar(255)
+  description               String?
+  is_active                 Boolean                     @default(true)
+  parent_module             String?                     @db.VarChar(500)
+  page_name_mobile_app      String?                     @default("") @db.VarChar(255)
+  module_position           Int?                        @default(0)
+  created_at                DateTime                    @default(now()) @db.Timestamp(6)
+  updated_at                DateTime                    @default(now()) @db.Timestamp(6)
+  parent_module_id          Int?
+  page_name                 String?                     @db.VarChar(255)
+  position                  Int?
+  page_name_mobile          String?                     @db.VarChar(255)
+  icon                      String?
+  created_by                Int?
+  created_by_name           String?                     @db.VarChar(255)
+  modified_by               Int?
+  modified_by_name          String?                     @db.VarChar(255)
+  projects                  projects                    @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  role_module_permissions   role_module_permissions[]
+  subscription_plan_modules subscription_plan_modules[]
+
+  @@index([project_id], map: "idx_project_modules_project_id")
+}
+
+model projects {
+  id                         Int                          @id @default(autoincrement())
+  name                       String                       @db.VarChar(255)
+  code                       String                       @unique @db.VarChar(50)
+  description                String?
+  company_id                 Int?
+  is_active                  Boolean                      @default(true)
+  db_type                    String?                      @db.VarChar(50)
+  db_host                    String?                      @db.VarChar(255)
+  db_port                    Int?
+  db_name                    String?                      @db.VarChar(255)
+  db_username                String?                      @db.VarChar(255)
+  db_password                String?                      @db.VarChar(255)
+  created_at                 DateTime                     @default(now()) @db.Timestamp(6)
+  updated_at                 DateTime                     @default(now()) @db.Timestamp(6)
+  project_domain             String?                      @db.VarChar(255)
+  created_by                 Int?
+  created_by_name            String?                      @db.VarChar(255)
+  modified_by                Int?
+  modified_by_name           String?                      @db.VarChar(255)
+  company_project_maps       company_project_maps[]
+  project_modules            project_modules[]
+  role_module_permissions    role_module_permissions[]
+  subscription_plan_projects subscription_plan_projects[]
+
+  @@index([company_id], map: "idx_projects_company_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model role_assignment_audit {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  role_id     Int
+  action      String   @db.VarChar(20)
+  assigned_by Int?
+  ip_address  String?  @db.VarChar(45)
+  reason      String?
+  assigned_at DateTime @default(now()) @db.Timestamp(6)
+}
+
+model role_branches {
+  id         Int       @id @default(autoincrement())
+  role_id    Int
+  branch_id  BigInt
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  roles      roles     @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model role_cost_centres {
+  id             Int          @id @default(autoincrement())
+  role_id        Int
+  cost_centre_id Int
+  created_at     DateTime     @default(now()) @db.Timestamp(6)
+  cost_centres   cost_centres @relation(fields: [cost_centre_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roles          roles        @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model role_module_permissions {
+  id               Int             @id @default(autoincrement())
+  company_id       Int
+  role_id          Int
+  project_id       Int
+  module_id        Int
+  is_enabled       Boolean?        @default(true)
+  created_at       DateTime?       @default(now()) @db.Timestamp(6)
+  updated_at       DateTime?       @default(now()) @db.Timestamp(6)
+  can_add          Boolean         @default(false)
+  can_edit         Boolean         @default(false)
+  can_delete       Boolean         @default(false)
+  can_view         Boolean         @default(false)
+  created_by       Int?
+  created_by_name  String?         @db.VarChar(255)
+  modified_by      Int?
+  modified_by_name String?         @db.VarChar(255)
+  companies        companies       @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project_modules  project_modules @relation(fields: [module_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  projects         projects        @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  roles            roles           @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([role_id, project_id], map: "idx_rmp_role_project")
+  @@index([company_id], map: "idx_role_module_permissions_company_id")
+  @@index([role_id], map: "idx_role_module_permissions_role_id")
+}
+
+model roles {
+  id                      Int                       @id @default(autoincrement())
+  company_id              Int?
+  name                    String                    @db.VarChar(100)
+  code                    String                    @db.VarChar(50)
+  description             String?
+  role_type               String?                   @db.VarChar(255)
+  is_active               Boolean                   @default(true)
+  branch_ids              String?
+  all_access              Int?                      @default(0) @db.SmallInt
+  costcentre_id           String?                   @default("0")
+  department_id           String?                   @default("0")
+  sub_department_id       String?                   @default("0")
+  permission_id           Int?
+  created_by              Int?
+  updated_by              Int?
+  created_at              DateTime                  @default(now()) @db.Timestamp(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamp(6)
+  project_id              Int?
+  branches_ids            String?                   @db.VarChar(500)
+  created_by_name         String?                   @db.VarChar(255)
+  modified_by             Int?
+  modified_by_name        String?                   @db.VarChar(255)
+  role_branches           role_branches[]
+  role_cost_centres       role_cost_centres[]
+  role_module_permissions role_module_permissions[]
+  companies               companies?                @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user_roles              user_roles[]
+
+  @@index([company_id], map: "idx_roles_company_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model schema_migrations {
+  id                Int      @id @default(autoincrement())
+  migration_name    String   @db.VarChar(255)
+  migration_version String   @db.VarChar(50)
+  applied_at        DateTime @default(now()) @db.Timestamp(6)
+  applied_by        String   @db.VarChar(100)
+  execution_time_ms Int?
+  status            String   @db.VarChar(20)
+  error_message     String?
+  checksum          String?  @db.VarChar(64)
+}
+
+model states {
+  id         Int       @id @default(autoincrement())
+  state_id   Int?      @default(0)
+  state      String    @db.VarChar(40)
+  country_id Int       @default(1)
+  is_default Int?      @default(0)
+  is_active  Int       @default(1)
+  sort_order Int       @default(9999)
+  lang       String    @default("en") @db.VarChar(10)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @db.Timestamp(6)
+}
+
+model sub_departments {
+  id               Int          @id @default(autoincrement())
+  company_id       Int?
+  department_id    Int?
+  name             String       @db.VarChar(255)
+  code             String       @db.VarChar(50)
+  costcenter_id    String?      @db.VarChar(50)
+  is_active        Boolean      @default(true)
+  created_at       DateTime     @default(now()) @db.Timestamp(6)
+  updated_at       DateTime     @default(now()) @db.Timestamp(6)
+  created_by       Int?
+  created_by_name  String?      @db.VarChar(255)
+  modified_by      Int?
+  modified_by_name String?      @db.VarChar(255)
+  companies        companies?   @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  departments      departments? @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([department_id], map: "idx_sub_departments_department_id")
+}
+
+model subscription_change_requests {
+  id                                                                                  Int                   @id @default(autoincrement())
+  company_subscription_id                                                             Int
+  request_type                                                                        String                @db.VarChar(50)
+  current_plan_id                                                                     Int
+  new_plan_id                                                                         Int
+  status                                                                              String?               @default("PENDING") @db.VarChar(50)
+  scheduled_date                                                                      DateTime?             @db.Timestamp(6)
+  applied_at                                                                          DateTime?             @db.Timestamp(6)
+  requested_by_user_id                                                                Int?
+  created_at                                                                          DateTime?             @default(now()) @db.Timestamp(6)
+  updated_at                                                                          DateTime?             @default(now()) @db.Timestamp(6)
+  company_subscriptions                                                               company_subscriptions @relation(fields: [company_subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subscription_plans_subscription_change_requests_current_plan_idTosubscription_plans subscription_plans    @relation("subscription_change_requests_current_plan_idTosubscription_plans", fields: [current_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subscription_plans_subscription_change_requests_new_plan_idTosubscription_plans     subscription_plans    @relation("subscription_change_requests_new_plan_idTosubscription_plans", fields: [new_plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model subscription_history {
+  id                      Int                   @id @default(autoincrement())
+  company_subscription_id Int
+  action                  String                @db.VarChar(100)
+  performed_by_user_id    Int?
+  metadata                Json?
+  created_at              DateTime?             @default(now()) @db.Timestamptz(6)
+  company_subscriptions   company_subscriptions @relation(fields: [company_subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model subscription_payments {
+  id                      Int                   @id @default(autoincrement())
+  company_subscription_id Int
+  amount                  Decimal               @db.Decimal(12, 2)
+  currency                String?               @default("USD") @db.VarChar(10)
+  paid_at                 DateTime?             @default(now()) @db.Timestamptz(6)
+  reference               String?               @db.VarChar(255)
+  created_at              DateTime?             @default(now()) @db.Timestamptz(6)
+  company_subscriptions   company_subscriptions @relation(fields: [company_subscription_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model subscription_plan_modules {
+  id                 Int                @id @default(autoincrement())
+  plan_id            Int
+  module_id          Int
+  created_at         DateTime?          @default(now()) @db.Timestamp(6)
+  project_modules    project_modules    @relation(fields: [module_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  subscription_plans subscription_plans @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model subscription_plan_projects {
+  id                 Int                @id @default(autoincrement())
+  plan_id            Int
+  project_id         Int
+  created_at         DateTime?          @default(now()) @db.Timestamptz(6)
+  subscription_plans subscription_plans @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  projects           projects           @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model subscription_plans {
+  id                                                                                            Int                            @id @default(autoincrement())
+  name                                                                                          String                         @db.VarChar(255)
+  code                                                                                          String                         @unique @db.VarChar(100)
+  description                                                                                   String?
+  price                                                                                         Decimal                        @db.Decimal(12, 2)
+  currency                                                                                      String?                        @default("USD") @db.VarChar(10)
+  duration_type                                                                                 String                         @db.VarChar(20)
+  is_active                                                                                     Boolean?                       @default(true)
+  price_monthly                                                                                 Float?                         @default(0)
+  price_yearly                                                                                  Float?                         @default(0)
+  allowed_projects_count                                                                        Int?                           @default(999)
+  allowed_modules_count                                                                         Int?                           @default(999)
+  max_users_count                                                                               Int?                           @default(999)
+  max_branch_count                                                                              Int?                           @default(1)
+  support_type                                                                                  String?                        @default("EMAIL") @db.VarChar(50)
+  tier                                                                                          Int?                           @default(0)
+  created_at                                                                                    DateTime?                      @default(now()) @db.Timestamptz(6)
+  updated_at                                                                                    DateTime?                      @default(now()) @db.Timestamptz(6)
+  company_subscriptions                                                                         company_subscriptions[]
+  subscription_change_requests_subscription_change_requests_current_plan_idTosubscription_plans subscription_change_requests[] @relation("subscription_change_requests_current_plan_idTosubscription_plans")
+  subscription_change_requests_subscription_change_requests_new_plan_idTosubscription_plans     subscription_change_requests[] @relation("subscription_change_requests_new_plan_idTosubscription_plans")
+  subscription_plan_modules                                                                     subscription_plan_modules[]
+  subscription_plan_projects                                                                    subscription_plan_projects[]
+}
+
+model system_metrics {
+  id              Int      @id @default(autoincrement())
+  metric_name     String   @db.VarChar(100)
+  metric_value    Decimal  @db.Decimal(15, 2)
+  metric_type     String   @db.VarChar(50)
+  metric_category String?  @db.VarChar(50)
+  recorded_at     DateTime @default(now()) @db.Timestamp(6)
+  created_at      DateTime @default(now()) @db.Timestamp(6)
+}
+
+model task_assignments {
+  id          Int       @id @default(autoincrement())
+  task_id     Int
+  user_id     Int
+  assigned_at DateTime? @default(now()) @db.Timestamp(6)
+  tasks       tasks     @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([task_id], map: "idx_task_assignments_task_id")
+  @@index([user_id], map: "idx_task_assignments_user_id")
+}
+
+model tasks {
+  id                Int                @id @default(autoincrement())
+  company_id        Int
+  created_by        Int
+  title             String             @db.VarChar(255)
+  description       String?
+  status            String             @default("pending") @db.VarChar(50)
+  priority          String?            @default("medium") @db.VarChar(20)
+  due_date          DateTime?          @db.Timestamp(6)
+  estimated_hours   Float?
+  estimated_minutes Int?
+  updated_by        Int?
+  created_at        DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?          @default(now()) @db.Timestamp(6)
+  assigned_to       Int?
+  deleted_at        DateTime?          @db.Timestamp(6)
+  task_assignments  task_assignments[]
+  companies         companies          @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users             users              @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([company_id], map: "idx_tasks_company_id")
+  @@index([created_at(sort: Desc)], map: "idx_tasks_created_at")
+  @@index([created_by], map: "idx_tasks_created_by")
+  @@index([due_date], map: "idx_tasks_due_date")
+  @@index([status], map: "idx_tasks_status")
+}
+
+model user_audit {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  action        String   @db.VarChar(50)
+  field_changed String?  @db.VarChar(100)
+  old_value     String?
+  new_value     String?
+  changed_by    Int?
+  ip_address    String?  @db.VarChar(45)
+  reason        String?
+  changed_at    DateTime @default(now()) @db.Timestamp(6)
+  users         users    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model user_blocks {
+  id                                  Int       @id @default(autoincrement())
+  company_id                          Int
+  blocker_id                          Int
+  blocked_id                          Int
+  created_at                          DateTime  @default(now()) @db.Timestamptz(6)
+  users_user_blocks_blocked_idTousers users     @relation("user_blocks_blocked_idTousers", fields: [blocked_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users_user_blocks_blocker_idTousers users     @relation("user_blocks_blocker_idTousers", fields: [blocker_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  companies                           companies @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([blocker_id], map: "idx_user_blocks_blocker_id")
+  @@index([company_id], map: "idx_user_blocks_company_id")
+}
+
+model user_erp_sync {
+  id                   Int       @id @default(autoincrement())
+  configurator_user_id String    @db.VarChar(255)
+  erp_user_id          Int
+  status               String?   @default("active") @db.VarChar(20)
+  last_synced_at       DateTime  @db.Timestamptz(6)
+  last_error           String?
+  retry_count          Int?      @default(0)
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model user_hrms_sync {
+  id                   Int       @id @default(autoincrement())
+  configurator_user_id String    @db.VarChar(255)
+  hrms_user_id         String    @db.VarChar(36)
+  status               String?   @default("active") @db.VarChar(20)
+  last_synced_at       DateTime  @db.Timestamptz(6)
+  last_error           String?
+  retry_count          Int?      @default(0)
+  created_at           DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model user_presence {
+  user_id   Int       @id
+  is_online Boolean?  @default(false)
+  last_seen DateTime? @db.Timestamp(6)
+  users     users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model user_project_roles {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  project_id Int
+  role_id    Int
+  company_id Int
+  is_active  Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+model user_roles {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  role_id    Int
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  roles      roles    @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([role_id], map: "idx_user_roles_role_id")
+  @@index([user_id], map: "idx_user_roles_user_id")
+}
+
+model user_sessions {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  session_token String   @unique @db.VarChar(255)
+  ip_address    String?  @db.VarChar(45)
+  user_agent    String?
+  expires_at    DateTime @db.Timestamp(6)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+  updated_at    DateTime @default(now()) @db.Timestamp(6)
+  users         users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model users {
+  id                                         Int                         @id @default(autoincrement())
+  company_id                                 Int?
+  email                                      String                      @unique @db.VarChar(255)
+  password                                   String                      @db.VarChar(255)
+  first_name                                 String                      @db.VarChar(100)
+  last_name                                  String                      @db.VarChar(100)
+  phone                                      String?                     @db.VarChar(20)
+  profile_image_url                          String?                     @db.VarChar(500)
+  code                                       String?                     @db.VarChar(50)
+  role_id                                    Int[]
+  branch_id                                  Int?
+  department_id                              Int?
+  is_active                                  Boolean                     @default(true)
+  login_status                               Boolean?
+  login_pin                                  String?                     @db.VarChar(255)
+  deleted_at                                 DateTime?                   @db.Timestamp(6)
+  password_reset_token                       String?                     @db.VarChar(255)
+  password_reset_expires_at                  DateTime?                   @db.Timestamptz(6)
+  pin_reset_token                            String?                     @db.VarChar(255)
+  pin_reset_expires_at                       DateTime?                   @db.Timestamptz(6)
+  is_email_verified                          Boolean                     @default(false)
+  email_verification_token                   String?                     @db.VarChar(512)
+  last_login_at                              DateTime?                   @db.Timestamptz(6)
+  login_attempts                             Int                         @default(0)
+  locked_until                               DateTime?                   @db.Timestamptz(6)
+  two_factor_enabled                         Boolean                     @default(false)
+  two_factor_secret                          String?                     @db.VarChar(512)
+  refresh_token                              String?
+  created_by                                 Int?
+  updated_by                                 Int?
+  created_at                                 DateTime                    @default(now()) @db.Timestamp(6)
+  updated_at                                 DateTime                    @default(now()) @db.Timestamp(6)
+  message_notifications                      Boolean?                    @default(true)
+  group_notifications                        Boolean?                    @default(true)
+  call_notifications                         Boolean?                    @default(true)
+  notification_sound                         Boolean?                    @default(true)
+  notification_vibrate                       Boolean?                    @default(true)
+  project_id                                 Int?
+  project_ids                                String?
+  sub_department_id                          Int?
+  created_by_name                            String?                     @db.VarChar(255)
+  modified_by                                Int?
+  modified_by_name                           String?                     @db.VarChar(255)
+  manager_id                                 Int?
+  refresh_token_expires_at                   DateTime?                   @db.Timestamptz(6)
+  encrypted_password                         String?                     @db.VarChar(512)
+  remarks                                    String?
+  separation_type                            String?                     @db.VarChar
+  user_old_id                                Int?
+  old_name                                   String?                     @db.VarChar
+  cost_centre_id                             Int?
+  full_name_                                 String?                     @map("full_name ") @db.VarChar(255)
+  otp                                        String?                     @db.VarChar(4)
+  otp_expiry                                 DateTime?                   @db.Timestamp(6)
+  otp_attempts                               Int                         @default(0)
+  otp_verified                               Boolean                     @default(false)
+  call_history_call_history_callee_idTousers call_history[]              @relation("call_history_callee_idTousers")
+  call_history_call_history_caller_idTousers call_history[]              @relation("call_history_caller_idTousers")
+  communities                                communities[]
+  conversation_participants                  conversation_participants[]
+  conversations                              conversations[]
+  device_tokens                              device_tokens[]
+  message_reactions                          message_reactions[]
+  message_reads                              message_reads[]
+  message_stars                              message_stars[]
+  messages                                   messages[]
+  poll_votes                                 poll_votes[]
+  task_assignments                           task_assignments[]
+  tasks                                      tasks[]
+  user_audit                                 user_audit[]
+  user_blocks_user_blocks_blocked_idTousers  user_blocks[]               @relation("user_blocks_blocked_idTousers")
+  user_blocks_user_blocks_blocker_idTousers  user_blocks[]               @relation("user_blocks_blocker_idTousers")
+  user_presence                              user_presence?
+  user_roles                                 user_roles[]
+  user_sessions                              user_sessions[]
+  companies                                  companies?                  @relation(fields: [company_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  departments                                departments?                @relation(fields: [department_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branch_id], map: "idx_users_branch_id")
+  @@index([company_id], map: "idx_users_company_id")
+  @@index([email], map: "idx_users_email")
+  @@index([is_active], map: "idx_users_is_active")
+  @@index([role_id], map: "idx_users_role_id")
+}

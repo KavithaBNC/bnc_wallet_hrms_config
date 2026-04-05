@@ -57,7 +57,7 @@ export default function EsopPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);

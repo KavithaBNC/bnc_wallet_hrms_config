@@ -56,7 +56,7 @@ export default function LateAndOthersFormPage() {
   const isEdit = Boolean(id);
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);

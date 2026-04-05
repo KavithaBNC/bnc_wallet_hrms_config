@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { departmentService } from '../services/department.service';
-import { configuratorService } from '../services/configurator.service';
+import { configOrgDataService } from '../services/config-org-data.service';
 import { prisma } from '../utils/prisma';
 import { generateDepartmentExcel, processDepartmentUpload } from '../services/department-masters-bulk.service';
 
@@ -11,7 +11,7 @@ export class DepartmentController {
    */
   async getConfiguratorList(req: Request, res: Response, next: NextFunction) {
     try {
-      const { organizationId, costCentreId, search } = req.query as { organizationId?: string; costCentreId?: string; search?: string };
+      const { organizationId, search } = req.query as { organizationId?: string; costCentreId?: string; search?: string };
       if (!organizationId) {
         return res.status(400).json({ status: 'fail', message: 'organizationId required' });
       }
@@ -19,21 +19,11 @@ export class DepartmentController {
         where: { id: organizationId },
         select: { configuratorCompanyId: true },
       });
-      if (!org?.configuratorCompanyId || !req.user?.userId) {
+      if (!org?.configuratorCompanyId) {
         return res.status(200).json({ status: 'success', data: { departments: [] } });
       }
-      const user = await prisma.user.findUnique({
-        where: { id: req.user.userId },
-        select: { configuratorAccessToken: true },
-      });
-      if (!user?.configuratorAccessToken) {
-        return res.status(200).json({ status: 'success', data: { departments: [] } });
-      }
-      const ccId = costCentreId ? parseInt(costCentreId, 10) : undefined;
-      const configList = await configuratorService.getDepartments(user.configuratorAccessToken, {
-        companyId: org.configuratorCompanyId,
-        costCentreId: Number.isNaN(ccId) ? undefined : ccId,
-      });
+      // Direct Config DB access — no token needed
+      const configList = await configOrgDataService.getDepartments(org.configuratorCompanyId);
       let departments = configList.map((d: any) => ({
         id: String(typeof d === 'object' ? d.id : d),
         name: typeof d === 'object' ? (d.name ?? d.Name ?? '') : String(d),

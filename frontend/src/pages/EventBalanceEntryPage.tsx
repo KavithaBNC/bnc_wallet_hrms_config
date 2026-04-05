@@ -53,7 +53,7 @@ export default function EventBalanceEntryPage() {
   const eventPerms = getModulePermissions('/event-configuration');
   const isHr = eventPerms.can_edit;
 
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const currentYear = new Date().getFullYear();
 
   const [loadingUser, setLoadingUser] = useState(false);

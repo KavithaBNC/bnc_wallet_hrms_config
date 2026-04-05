@@ -1296,7 +1296,7 @@ const AttendancePage = () => {
     }
   }, [location.state, user]);
 
-  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   // Auto-hide leave-applied success banner after 6 seconds
   useEffect(() => {
     if (!showLeaveAppliedBanner) return;
@@ -1308,10 +1308,11 @@ const AttendancePage = () => {
   // Managers: filtered to their direct reports only (reportingManagerId)
   // HR/Admin: all active employees in the organization
   useEffect(() => {
-    if (!isHRForCalendar || viewMode !== 'team' || !orgId) return;
+    if (!isHRForCalendar || viewMode !== 'team') return;
     let cancelled = false;
     setLoadingEmployees(true);
-    const query: Record<string, unknown> = { organizationId: orgId, limit: 500, employeeStatus: 'ACTIVE' };
+    const query: Record<string, unknown> = { limit: 500, employeeStatus: 'ACTIVE' };
+    if (orgId) query.organizationId = orgId;
     if (isTeamLevelOnly && user?.employee?.id) {
       query.reportingManagerId = user.employee.id;
     }
@@ -1331,7 +1332,7 @@ const AttendancePage = () => {
   // Fetch current attendance policy (Late & Others). Used for read-time shortfall/Late/Early display.
   // Call this after changing policy in UI so calendar reflects the new setting without full page reload.
   const fetchLateEarlyPolicy = useCallback(async () => {
-    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     if (!orgId) {
       setLateEarlyPolicy(null);
       return;
@@ -1403,7 +1404,7 @@ const AttendancePage = () => {
   const fetchRecords = async (options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
     try {
-      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+      const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
       if (!organizationId) {
         console.warn('Organization ID not available, skipping fetchRecords');
         setRecords([]);
@@ -1493,7 +1494,7 @@ const AttendancePage = () => {
     const silent = options?.silent === true;
     if (!canViewTeamAttendance || !user?.employee?.id) return;
     
-    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     if (!organizationId) {
       console.warn('Organization ID not available, skipping fetchMyRecords');
       setMyRecords([]);
@@ -1604,7 +1605,7 @@ const AttendancePage = () => {
   };
 
   const handleSyncBiometric = async () => {
-    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const orgId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     if (!orgId) {
       setError('Organization not found.');
       return;
@@ -1627,7 +1628,7 @@ const AttendancePage = () => {
 
   const fetchCompOffSummary = async (options?: { silent?: boolean }) => {
     const silent = options?.silent === true;
-    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     const currentUserEmployeeId = user?.employee?.id;
     const targetEmployeeId =
       canChooseEmployeeCompOffSummary && viewMode === 'team' && selectedEmployeeId
@@ -1654,7 +1655,7 @@ const AttendancePage = () => {
 
   // Fetch approved comp-off requests for calendar overlay
   const fetchApprovedCompOffs = async () => {
-    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     if (!organizationId) {
       setApprovedCompOffs([]);
       return;
@@ -1678,7 +1679,7 @@ const AttendancePage = () => {
   };
 
   const fetchCalendarLeaveRequests = async () => {
-    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     if (!organizationId) {
       setCalendarLeaveRequests([]);
       return;
@@ -1737,7 +1738,7 @@ const AttendancePage = () => {
   };
 
   const handleCreateCompOffRequest = async () => {
-    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+    const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
     if (!organizationId) {
       setCompOffMessage({ type: 'error', text: 'Organization not found.' });
       return;

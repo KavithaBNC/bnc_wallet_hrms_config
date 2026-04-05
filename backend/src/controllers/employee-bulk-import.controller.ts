@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
+import * as XLSX from 'xlsx';
 import { employeeBulkImportService } from '../services/employee-bulk-import.service';
-import { configuratorService } from '../services/configurator.service';
-import { prisma } from '../utils/prisma';
 import { AppError } from '../middlewares/errorHandler';
 
 export class EmployeeBulkImportController {
@@ -80,34 +79,24 @@ export class EmployeeBulkImportController {
   }
 
   /**
-   * Download employee import template from Configurator.
+   * Download employee import template — generated locally (no RAG API needed).
    * GET /api/v1/employees/import-template
    */
-  async downloadTemplate(req: Request, res: Response, next: NextFunction) {
+  async downloadTemplate(_req: Request, res: Response, next: NextFunction) {
     try {
-      const tokenUser = await prisma.user.findUnique({
-        where: { id: req.user!.userId },
-        select: { configuratorAccessToken: true, organizationId: true },
-      });
-
-      if (!tokenUser?.configuratorAccessToken) {
-        throw new AppError('No Configurator access token available. Please login again.', 401);
-      }
-
-      // Look up the organization's configuratorCompanyId
-      let companyId = 0;
-      if (tokenUser.organizationId) {
-        const org = await prisma.organization.findUnique({
-          where: { id: tokenUser.organizationId },
-          select: { configuratorCompanyId: true },
-        });
-        companyId = org?.configuratorCompanyId ?? 0;
-      }
-
-      const buffer = await configuratorService.downloadEmployeeImportTemplate(
-        tokenUser.configuratorAccessToken,
-        companyId,
-      );
+      // Generate a blank template with the expected column headers
+      const headers = [
+        'first_name', 'last_name', 'email', 'phone', 'password',
+        'department', 'sub_department', 'cost_centre', 'manager',
+        'employee_code', 'designation', 'date_of_joining', 'date_of_birth',
+        'gender', 'marital_status', 'blood_group', 'nationality',
+        'role', 'paygroup', 'entity', 'place_of_tax_deduction',
+        'basic_salary', 'hra', 'conveyance', 'medical', 'special_allowance',
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+      const buffer = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }));
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="employee_import_template_${new Date().toISOString().slice(0, 10)}.xlsx"`);

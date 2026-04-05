@@ -26,7 +26,7 @@ export default function AddTransferPromotionPage() {
   const { id: recordId } = useParams<{ id: string }>();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const isEdit = Boolean(recordId);
 
   const [paygroups, setPaygroups] = useState<Paygroup[]>([]);

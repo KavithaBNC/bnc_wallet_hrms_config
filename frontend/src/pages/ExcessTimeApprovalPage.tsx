@@ -32,7 +32,7 @@ export default function ExcessTimeApprovalPage() {
   const { user, logout } = useAuthStore();
   const attendancePerms = getModulePermissions('/attendance');
   const canAccess = attendancePerms.can_view;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requests, setRequests] = useState<CompOffRequestItem[]>([]);

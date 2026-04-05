@@ -27,7 +27,7 @@ export default function VariableInputEntryPage() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
 
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const { paygroupId, paygroupName, month, year } =
     (location.state as {
       paygroupId?: string;

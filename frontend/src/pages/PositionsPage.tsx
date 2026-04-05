@@ -28,7 +28,7 @@ export default function PositionsPage() {
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Get organizationId from logged-in user (check both possible shapes)
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   // Try to load user data if organizationId is missing
   useEffect(() => {

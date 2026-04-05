@@ -42,14 +42,14 @@ export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
   allConfigUsers: [],
 
   /**
-   * Fetch employees from Configurator API: POST /api/v1/users/list
-   * Supports filters: cost_centre_id, department_id, sub_department_id
-   * Client-side filtering for: search, is_active
+   * Fetch employees from HRMS backend (Config DB): GET /api/v1/configurator-data/users
+   * Supports filters: cost_centre_id, department_id, sub_department_id, is_active
+   * Client-side filtering for: search, excludeEmail
    */
   fetchEmployees: async (params?: any) => {
     set({ loading: true, error: null });
     try {
-      // Build Configurator API filter payload
+      // Build filter payload
       const filters: { cost_centre_id?: number; department_id?: number; sub_department_id?: number } = {};
       if (params?.costCentreId && params.costCentreId !== 'ALL') {
         const ccId = parseInt(params.costCentreId, 10);
@@ -66,11 +66,10 @@ export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
 
       let list: any[];
       if (params?.employeeStatus === 'INACTIVE') {
-        // Inactive users come from a separate Configurator API
-        console.log('[employeeStore.fetchEmployees] Calling POST /api/v1/users/inactive-users');
+        console.log('[employeeStore.fetchEmployees] Fetching inactive users via HRMS backend');
         list = await configuratorDataService.listInactiveUsers();
       } else {
-        console.log('[employeeStore.fetchEmployees] Calling POST /api/v1/users/list with filters:', filters);
+        console.log('[employeeStore.fetchEmployees] Fetching users via HRMS backend with filters:', filters);
         list = await configuratorDataService.listConfiguratorUsers(
           Object.keys(filters).length > 0 ? filters : undefined
         );
@@ -85,6 +84,16 @@ export const useEmployeeStore = create<EmployeeStore>((set, _get) => ({
       if (params?.excludeEmail) {
         const excludeEmail = params.excludeEmail.toLowerCase();
         list = list.filter((u) => (u.email || '').toLowerCase() !== excludeEmail);
+      }
+
+      // Client-side: paygroup filter
+      if (params?.paygroupId && params.paygroupId !== 'ALL') {
+        list = list.filter((u) => u.paygroup?.id === params.paygroupId);
+      }
+
+      // Client-side: entity filter
+      if (params?.entityId && params.entityId !== 'ALL') {
+        list = list.filter((u) => u.entity?.id === params.entityId);
       }
 
       // Client-side: search filter (name, email, phone, code)

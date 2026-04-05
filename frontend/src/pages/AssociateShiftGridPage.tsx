@@ -25,7 +25,7 @@ export default function AssociateShiftGridPage() {
   const [searchParams] = useSearchParams();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   // Support both single associateId (legacy) and multiple associateIds (comma-separated)
   const associateIdParam = searchParams.get('associateId');

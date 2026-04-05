@@ -45,7 +45,7 @@ export default function EventRequestPage() {
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
   const employeeId = user?.employee?.id;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [requests, setRequests] = useState<LeaveRequestItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,7 +145,7 @@ export default function EventRequestPage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-semibold text-gray-900">My Applied Events</h2>
           <button
-            onClick={() => navigate('/attendance/apply-event')}
+            onClick={() => navigate('/leave/apply-event')}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             + Apply Event

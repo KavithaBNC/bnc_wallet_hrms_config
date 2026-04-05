@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { authService } from '../services/auth.service';
-import { configuratorService, type ConfiguratorRoleModuleWithPage } from '../services/configurator.service';
+import type { ConfiguratorRoleModuleWithPage } from '../services/configurator.service';
+import { configAuthService } from '../services/config-auth.service';
+import { configModulesService, type ConfigRoleModuleWithPage } from '../services/config-modules.service';
 import { AppError } from '../middlewares/errorHandler';
 import { generateTokenPair, JwtPayload } from '../utils/jwt';
 import { prisma } from '../utils/prisma';
@@ -132,10 +134,24 @@ const MODULE_NAME_TO_PATH: Record<string, string> = {
   // Other missing
   'salary templates': '/salary-templates',
   'department_masters': '/department-masters',
+  // Config DB page_name paths (start with /) that need remapping
+  '/event': '/leave',
+  '/event/apply-event': '/leave/apply-event',
+  '/event/requests': '/leave/requests',
+  '/event/approvals': '/leave/approvals',
+  '/event/balance-entry': '/leave/balance-entry',
+  '/event/excess-time-request': '/leave/excess-time-request',
+  '/event/excess-time-approval': '/leave/excess-time-approval',
+  '/payroll-master/employee-separation': '/payroll/employee-separation',
+  '/payroll-master/fnf-settlement': '/payroll/fnf-settlement',
+  '/payroll-master/loans': '/payroll/loans',
+  '/payroll-master/employee-rejoin': '/payroll/employee-rejoin',
+  '/event-configuration/leave-type': '/event-configuration/attendance-components',
+  '/event-configuration/leave-types': '/event-configuration/attendance-components',
 };
 
 /** Map raw role-module-permission rows to frontend-friendly module objects */
-function mapRoleModulesToFrontend(roleModules: ConfiguratorRoleModuleWithPage[]) {
+function mapRoleModulesToFrontend(roleModules: (ConfiguratorRoleModuleWithPage | ConfigRoleModuleWithPage)[]) {
   return roleModules
     .filter((m) => m.is_enabled)
     .map((m) => {
@@ -154,6 +170,10 @@ function mapRoleModulesToFrontend(roleModules: ConfiguratorRoleModuleWithPage[])
         page_name: pageName,
         page_name_mobile: m.page_name_mobile || '',
         is_enabled: m.is_enabled,
+        can_view: m.can_view === true,
+        can_add: m.can_add === true,
+        can_edit: m.can_edit === true,
+        can_delete: m.can_delete === true,
         role_id: m.role_id,
         company_id: m.company_id,
         project_id: m.project_id,
@@ -196,16 +216,16 @@ export class AuthController {
       if (company_name_or_code && !username && !password) {
         console.log('[configuratorLogin] Step 1 — verifying company');
 
-        // Try Configurator API first
+        // Try Config DB directly first
         let verifyResult: any = null;
         try {
-          verifyResult = await configuratorService.verifyCompany(company_name_or_code);
-          console.log('[configuratorLogin] Company verified:', verifyResult?.success);
+          verifyResult = await configAuthService.verifyCompany(company_name_or_code);
+          console.log('[configuratorLogin] Company verified via Config DB:', verifyResult?.success);
         } catch (err: any) {
-          console.log('[configuratorLogin] Configurator verify failed, falling back to local DB:', err.message);
+          console.log('[configuratorLogin] Config DB verify failed, falling back to local DB:', err.message);
         }
 
-        // If Configurator returned success, use that
+        // If Config DB returned success, use that
         if (verifyResult?.success === true) {
           return res.status(200).json(verifyResult);
         }
@@ -288,19 +308,32 @@ export class AuthController {
         company_id = config.configuratorDefaultCompanyId;
       }
       console.log('[configuratorLogin] Step 2 login —', username, 'company_id:', company_id, 'company_name:', company_name_or_code);
-      const loginRes = await configuratorService.login({ username, password, company_name_or_code, company_id });
+      // Direct Config DB login (no RAG API)
+      const configLoginRes = await configAuthService.login(username, password, company_id, company_name_or_code);
 
-      const decoded = configuratorService.decodeToken(loginRes.access_token);
-      const configuratorUserId = decoded?.sub ? parseInt(decoded.sub, 10) : null;
-      const email = decoded?.email || username;
-      // Extract company_id from API response (preferred) or request body or token
-      const resolvedCompanyId = loginRes.company?.id ?? company_id ?? decoded?.company_id;
-      console.log('[configuratorLogin] Login OK — company_id:', resolvedCompanyId);
-      const configRoles = loginRes.user?.roles ?? [];
+      const configuratorUserId = configLoginRes.user.id;
+      const email = configLoginRes.user.email || username;
+      const resolvedCompanyId = configLoginRes.company?.id ?? company_id;
+      console.log('[configuratorLogin] Login OK via Config DB — company_id:', resolvedCompanyId);
+      const configRoles = configLoginRes.roles ?? [];
       const primaryConfigRole = configRoles[0];
-      // Configurator puts role info in projects array, not user.roles
-      const configProjects: any[] = Array.isArray((loginRes as any).projects) ? (loginRes as any).projects : [];
-      const hrmsConfigProject = configProjects.find((p: any) => p.code === 'HRMS001' || p.name === 'HRMS') || configProjects[0];
+      // Also check user_project_roles for HRMS project
+      const hrmsProjectRoles = await configAuthService.getUserProjectRoles(
+        configuratorUserId,
+        config.configuratorHrmsProjectId,
+        resolvedCompanyId ?? config.configuratorDefaultCompanyId
+      );
+      const hrmsConfigProject: { role_id: number; role_code?: string; role_name?: string } | undefined = hrmsProjectRoles.length > 0
+        ? { role_id: hrmsProjectRoles[0].role_id }
+        : undefined;
+      // Build a compat loginRes object for downstream code
+      const loginRes = {
+        access_token: '', // No longer needed — direct DB access
+        refresh_token: '',
+        user: configLoginRes.user,
+        company: configLoginRes.company,
+        user_role_id: configLoginRes.user.role_id?.[0],
+      };
 
       // Prefer email lookup (from token) - it's the actual logged-in user
       let hrmsUser = await prisma.user.findFirst({
@@ -332,7 +365,7 @@ export class AuthController {
         if (!roleCode) {
           const roleId = primaryConfigRole?.id ?? hrmsConfigProject?.role_id ?? (loginRes as any).user_role_id;
           if (typeof roleId === 'number') {
-            const roleRes = await configuratorService.getUserRole(loginRes.access_token, roleId);
+            const roleRes = await configAuthService.getUserRole(roleId);
             roleCode = roleRes?.code || roleRes?.name;
           }
         }
@@ -351,6 +384,28 @@ export class AuthController {
             data: updates,
           });
           if (updates.role) (hrmsUser as any).role = updates.role;
+        }
+
+        // If employee not linked via userId, look up by configuratorUserId
+        if (!hrmsUser.employee && configuratorUserId != null) {
+          const empByConfigId = await prisma.employee.findFirst({
+            where: { configuratorUserId, deletedAt: null },
+            select: {
+              id: true,
+              organizationId: true,
+              firstName: true,
+              lastName: true,
+              profilePictureUrl: true,
+              employeeStatus: true,
+              employeeCode: true,
+              department: { select: { name: true } },
+              position: { select: { title: true } },
+              organization: { select: { id: true, name: true } },
+            },
+          });
+          if (empByConfigId) {
+            (hrmsUser as any).employee = empByConfigId;
+          }
         }
       }
 
@@ -414,7 +469,8 @@ export class AuthController {
           if (!configRole) {
             const roleId = primaryConfigRole?.id ?? hrmsConfigProject?.role_id ?? (loginRes as any).user_role_id ?? (loginRes.user as any)?.role_id;
             if (typeof roleId === 'number') {
-              const roleRes = await configuratorService.getUserRole(loginRes.access_token, roleId);
+              // Direct Config DB access — no token needed
+              const roleRes = await configAuthService.getUserRole(roleId);
               configRole = roleRes?.code || roleRes?.name;
             }
           }
@@ -509,63 +565,51 @@ export class AuthController {
       const rawRole = (hrmsUser as any).role as string;
       const roleFromConfig = normalizeToHrmsRole(rawRole) ?? rawRole;
 
-      // Fetch modules for the logged-in user.
-      // Priority: 1) my-modules API (user's assigned modules), 2) role-module permissions, 3) empty
+      // ── Load modules from Config DB ──────────────────────────────────────────
+      // role_id   → Config DB users.role_id[0]  (Int[] column)
+      // company_id → Config DB users.company_id
+      // project_id → env CONFIGURATOR_HRMS_PROJECT_ID (=2)
+      // Query: role_module_permissions WHERE role_id=X AND project_id=2 AND company_id=Y
+      // ─────────────────────────────────────────────────────────────────────────
+      const userRoleIdArr = configLoginRes.user.role_id; // Int[] from users.role_id
+      const primaryRoleId: number | undefined =
+        Array.isArray(userRoleIdArr) && userRoleIdArr.length > 0 ? userRoleIdArr[0] : undefined;
+      // company_id comes from the logged-in user's own record in Config DB — never hardcoded
+      const loginCompanyId: number =
+        configLoginRes.user.company_id ?? resolvedCompanyId ?? 0;
+      const projectId: number = config.configuratorHrmsProjectId; // CONFIGURATOR_HRMS_PROJECT_ID=2
+
+      console.log('[configuratorLogin] Module lookup — role_id:', primaryRoleId,
+        'company_id:', loginCompanyId, 'project_id:', projectId);
+
       let modules: any[] = [];
       try {
-        // Try direct my-modules endpoint first (returns user's modules for the HRMS project)
-        const directModules = await configuratorService.getModules(loginRes.access_token);
-        if (directModules.length > 0) {
-          console.log('[configuratorLogin] Got', directModules.length, 'modules from my-modules API');
-          modules = directModules.map((m) => {
-            // Resolve path: use page_name if set, otherwise look up by module name
-            const resolvedPath = m.page_name || m.path || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
-            return {
-              id: m.id,
-              module_id: m.id,
-              name: m.name,
-              code: m.code,
-              path: resolvedPath,
-              page_name: resolvedPath,
-              is_active: m.is_active,
-              is_enabled: true,
-            };
-          });
+        if (primaryRoleId != null && projectId > 0) {
+          const roleModules = await configModulesService.getRoleModulesByProject(
+            primaryRoleId, projectId, loginCompanyId
+          );
+          modules = mapRoleModulesToFrontend(roleModules);
+          console.log('[configuratorLogin] Loaded', modules.length, 'modules');
         } else {
-          // Fallback: role-module permissions
-          const roleId = loginRes.user?.roles?.[0]?.id
-            ?? hrmsConfigProject?.role_id
-            ?? (loginRes as any).user_role_id
-            ?? (loginRes.user as any)?.role_id
-            ?? config.configuratorRoleIds[String(hrmsUser.role)];
-          if (roleId != null) {
-            const roleModules = await configuratorService.getRoleModulesByProject(
-              loginRes.access_token,
-              roleId
-            );
-            modules = mapRoleModulesToFrontend(roleModules);
-          }
+          console.warn('[configuratorLogin] Cannot load modules — role_id:', primaryRoleId,
+            'project_id:', projectId, '. Check CONFIGURATOR_HRMS_PROJECT_ID in .env and users.role_id in Config DB.');
         }
       } catch (modErr: any) {
-        console.warn('[configuratorLogin] Modules fetch failed, returning empty:', modErr?.message);
+        console.warn('[configuratorLogin] Modules fetch failed:', modErr?.message);
       }
 
-      // Build permission cache from Configurator role-module-permissions
+      // Build permission cache
       try {
-        const cacheRoleId = loginRes.user?.roles?.[0]?.id
-          ?? hrmsConfigProject?.role_id
-          ?? (loginRes as any).user_role_id
-          ?? (loginRes.user as any)?.role_id
-          ?? config.configuratorRoleIds[String(hrmsUser.role)];
-        if (cacheRoleId != null) {
-          const roleModulesRaw = await configuratorService.getRoleModulesByProject(
-            loginRes.access_token,
-            cacheRoleId
+        if (primaryRoleId != null && projectId > 0) {
+          const roleModulesRaw = await configModulesService.getRoleModulesByProject(
+            primaryRoleId, projectId, loginCompanyId
           );
           const permMap: Record<string, ModulePermissions> = {};
           for (const m of roleModulesRaw) {
             const pageName = (m.page_name || '').trim();
-            const path = pageName.startsWith('/') ? pageName : MODULE_NAME_TO_PATH[pageName.toLowerCase()] || '';
+            const path = pageName.startsWith('/')
+              ? (MODULE_NAME_TO_PATH[pageName.toLowerCase()] || pageName)
+              : (MODULE_NAME_TO_PATH[pageName.toLowerCase()] || '');
             if (path) {
               permMap[path] = {
                 is_enabled: m.is_enabled === true,
@@ -577,14 +621,13 @@ export class AuthController {
             }
           }
           setUserPermissions(hrmsUser.id, permMap);
-          console.log('[configuratorLogin] Permission cache set for user', hrmsUser.id, '—', Object.keys(permMap).length, 'modules');
+          console.log('[configuratorLogin] Permission cache set —', Object.keys(permMap).length, 'paths:', JSON.stringify(permMap));
         } else {
-          console.warn('[configuratorLogin] Could not resolve cacheRoleId — permission cache NOT built for user', hrmsUser.id);
-          // Set empty cache so checkPermission doesn't fail with "not loaded"
           setUserPermissions(hrmsUser.id, {});
         }
       } catch (cacheErr: any) {
         console.warn('[configuratorLogin] Permission cache build failed:', cacheErr?.message);
+        setUserPermissions(hrmsUser.id, {});
       }
 
       const payload: JwtPayload = {
@@ -619,13 +662,36 @@ export class AuthController {
         }
       }
 
+      // Build user response from Config DB users table (primary source)
       const userResponse = {
-        id: hrmsUser.id,
-        email: hrmsUser.email,
-        role: roleFromConfig,
-        isEmailVerified: hrmsUser.isEmailVerified,
-        organizationId: hrmsUser.employee?.organizationId ?? (hrmsUser as any).organizationId ?? null,
-        employee: hrmsUser.employee,
+        id: configuratorUserId,                          // Config DB users.id
+        hrms_user_id: hrmsUser.id,                       // HRMS users.id (for internal use)
+        email: configLoginRes.user.email,
+        first_name: configLoginRes.user.first_name,
+        last_name: configLoginRes.user.last_name,
+        role_id: configLoginRes.user.role_id,            // Int[] from Config DB users.role_id
+        company_id: configLoginRes.user.company_id,      // Config DB users.company_id
+        department_id: configLoginRes.user.department_id,
+        cost_centre_id: configLoginRes.user.cost_centre_id,
+        code: configLoginRes.user.code,                  // employee code stored in Config DB
+        is_active: configLoginRes.user.is_active,
+        role: roleFromConfig,                            // normalized HRMS role string
+        // Include employee data so frontend can resolve organizationId (used by attendance, payroll, etc.)
+        employee: hrmsUser.employee
+          ? {
+              id: hrmsUser.employee.id,
+              organizationId: hrmsUser.employee.organizationId,
+              firstName: hrmsUser.employee.firstName,
+              lastName: hrmsUser.employee.lastName,
+              employeeCode: hrmsUser.employee.employeeCode,
+              employeeStatus: hrmsUser.employee.employeeStatus,
+              organization: hrmsUser.employee.organization,
+              department: hrmsUser.employee.department,
+              position: hrmsUser.employee.position,
+              profilePictureUrl: hrmsUser.employee.profilePictureUrl,
+            }
+          : null,
+        organizationId: hrmsUser.employee?.organizationId ?? hrmsUser.organizationId ?? null,
       };
 
       return res.status(200).json({
@@ -639,6 +705,7 @@ export class AuthController {
           },
           modules,
           configuratorCompanyId: resolvedCompanyId ?? null,
+          configuratorProjectId: projectId ?? null,
           configuratorAccessToken: loginRes.access_token ?? null,
         },
       });
@@ -661,13 +728,9 @@ export class AuthController {
    */
   async getConfiguratorModules(req: Request, res: Response, next: NextFunction) {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        throw new AppError('Authorization header with Bearer token is required', 401);
-      }
-      const token = authHeader.split(' ')[1];
       const projectId = req.query.project_id ? Number(req.query.project_id) : undefined;
-      const modules = await configuratorService.getModules(token, projectId);
+      // Direct Config DB query — no token needed
+      const modules = await configModulesService.getModules(projectId);
 
       return res.status(200).json({
         status: 'success',
@@ -679,22 +742,21 @@ export class AuthController {
   }
 
   /**
-   * Configurator token refresh
+   * Configurator token refresh — no longer needed with direct DB access.
+   * Kept for backward compatibility; returns a no-op success response.
    * POST /api/v1/auth/configurator/refresh
    */
-  async configuratorRefreshToken(req: Request, res: Response, next: NextFunction) {
+  async configuratorRefreshToken(_req: Request, res: Response, next: NextFunction) {
     try {
-      const { refresh_token } = req.body;
-      const resData = await configuratorService.refreshToken(refresh_token);
-
+      // Direct Config DB access — token refresh is no longer needed
       return res.status(200).json({
         status: 'success',
-        message: 'Token refreshed successfully',
+        message: 'Token refresh is no longer required (direct DB access)',
         data: {
-          access_token: resData.access_token,
-          refresh_token: resData.refresh_token,
-          token_type: resData.token_type || 'bearer',
-          user: resData.user,
+          access_token: 'direct-db',
+          refresh_token: 'direct-db',
+          token_type: 'bearer',
+          user: null,
         },
       });
     } catch (error) {
@@ -847,48 +909,38 @@ export class AuthController {
 
       const user = await prisma.user.findUnique({
         where: { id: req.user.userId },
-        select: {
-          role: true,
-          configuratorAccessToken: true,
-        },
+        select: { role: true, configuratorRoleId: true },
       });
 
-      if (!user || !user.configuratorAccessToken) {
+      if (!user) {
         return res.status(200).json({ status: 'success', data: { modules: [] } });
       }
 
-      // Try my-modules API first (user's assigned modules)
-      const directModules = await configuratorService.getModules(user.configuratorAccessToken);
-      if (directModules.length > 0) {
-        const modules = directModules.map((m) => {
-          const resolvedPath = m.page_name || m.path || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
-          return {
-            id: m.id,
-            module_id: m.id,
-            name: m.name,
-            code: m.code,
-            path: resolvedPath,
-            page_name: resolvedPath,
-            is_active: m.is_active,
-            is_enabled: true,
-          };
-        });
+      // Get role_id — prefer stored configuratorRoleId, then env fallback
+      const roleId = user.configuratorRoleId ?? config.configuratorRoleIds[String(user.role)];
+
+      if (roleId != null) {
+        // Return only modules enabled for this role
+        const roleModules = await configModulesService.getRoleModulesByProject(roleId);
+        const modules = mapRoleModulesToFrontend(roleModules);
         return res.status(200).json({ status: 'success', data: { modules } });
       }
 
-      // Fallback: role-module permissions
-      const roleId = config.configuratorRoleIds[String(user.role)];
-      if (roleId == null) {
-        return res.status(200).json({ status: 'success', data: { modules: [] } });
-      }
-
-      const roleModules = await configuratorService.getRoleModulesByProject(
-        user.configuratorAccessToken,
-        roleId
-      );
-
-      const modules = mapRoleModulesToFrontend(roleModules);
-
+      // No role — fall back to all project modules
+      const directModules = await configModulesService.getModules();
+      const modules = directModules.map((m) => {
+        const resolvedPath = m.page_name || MODULE_NAME_TO_PATH[(m.name || '').toLowerCase()] || '';
+        return {
+          id: m.id,
+          module_id: m.id,
+          name: m.name,
+          code: m.code,
+          path: resolvedPath,
+          page_name: resolvedPath,
+          is_active: m.is_active,
+          is_enabled: true,
+        };
+      });
       return res.status(200).json({ status: 'success', data: { modules } });
     } catch (error) {
       return next(error);

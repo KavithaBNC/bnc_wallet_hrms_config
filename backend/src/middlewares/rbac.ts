@@ -24,6 +24,8 @@ export const employeeListAccess = async (
   const canEditEmployees = userHasPermission(userId, '/employees', 'can_edit');
   const canViewEmployees = userHasPermission(userId, '/employees', 'can_view');
 
+  console.log('[RBAC employeeListAccess] userId:', userId, '| canEditOrgs:', canEditOrgs, '| canEditEmployees:', canEditEmployees, '| canViewEmployees:', canViewEmployees);
+
   // Get user's organization ID for data isolation
   let userOrganizationId: string | null = null;
 

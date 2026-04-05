@@ -48,7 +48,7 @@ export default function VariableInputPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [paygroups, setPaygroups] = useState<Paygroup[]>([]);
   const [selectedPaygroup, setSelectedPaygroup] = useState<string>('');

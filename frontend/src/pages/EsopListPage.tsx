@@ -14,7 +14,7 @@ export default function EsopListPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [records, setRecords] = useState<EsopRecord[]>([]);
   const [loading, setLoading] = useState(true);

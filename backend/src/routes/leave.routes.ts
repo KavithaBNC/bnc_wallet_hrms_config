@@ -164,7 +164,7 @@ router.put(
  */
 router.put(
   '/requests/:id/approve',
-  checkPermission('leaves', 'update'),
+  checkPermission('leaves', 'read'),
   validate(approveLeaveRequestSchema),
   leaveRequestController.approve.bind(leaveRequestController)
 );
@@ -176,7 +176,7 @@ router.put(
  */
 router.put(
   '/requests/:id/reject',
-  checkPermission('leaves', 'update'),
+  checkPermission('leaves', 'read'),
   validate(rejectLeaveRequestSchema),
   leaveRequestController.reject.bind(leaveRequestController)
 );

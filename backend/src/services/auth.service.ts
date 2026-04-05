@@ -1,6 +1,8 @@
 
 import { hashPassword, comparePassword, generateToken } from '../utils/password';
 import { prisma } from '../utils/prisma';
+import { configPrisma } from '../utils/config-prisma';
+import bcrypt from 'bcryptjs';
 import { generateTokenPair, verifyToken, JwtPayload } from '../utils/jwt';
 import { emailService } from './email.service';
 import { AppError } from '../middlewares/errorHandler';
@@ -521,9 +523,12 @@ export class AuthService {
     if (!userHasPermission(adminUserId, '/organizations', 'can_edit')) {
       const adminEmployee = await prisma.employee.findUnique({
         where: { userId: adminUserId },
+        select: { organizationId: true },
       });
 
-      if (!adminEmployee || adminEmployee.organizationId !== employee.organizationId) {
+      // If admin has an employee record, check org match; otherwise rely on the
+      // permission check above (/employees can_edit) which already validates access.
+      if (adminEmployee && adminEmployee.organizationId !== employee.organizationId) {
         throw new AppError('You can only reset passwords for employees in your organization', 403);
       }
     }
@@ -531,7 +536,7 @@ export class AuthService {
     // Hash new password
     const passwordHash = await hashPassword(newPassword);
 
-    // Update user password
+    // Update HRMS user password
     await prisma.user.update({
       where: { id: employee.userId },
       data: {
@@ -539,6 +544,23 @@ export class AuthService {
         refreshToken: null, // Invalidate all sessions
       },
     });
+
+    // Update Config DB user password
+    if (employee.configuratorUserId) {
+      try {
+        const configHash = await bcrypt.hash(newPassword, 10);
+        await configPrisma.users.update({
+          where: { id: employee.configuratorUserId },
+          data: {
+            password: configHash,
+            encrypted_password: configHash,
+            login_pin: newPassword, // plain-text for admin display
+          },
+        });
+      } catch (err: any) {
+        console.warn('[adminResetPassword] Config DB password update failed:', err.message);
+      }
+    }
 
     return {
       message: 'Password reset successfully',

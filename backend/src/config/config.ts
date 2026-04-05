@@ -8,6 +8,7 @@ interface AppConfig {
   baseUrl: string;
   corsOrigin: string;
   databaseUrl: string;
+  configDatabaseUrl: string;
   redisUrl: string;
   jwtSecret: string;
   jwtAccessExpiration: string;
@@ -52,6 +53,7 @@ export const config: AppConfig = {
 
   // Database
   databaseUrl: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/hrms_live',
+  configDatabaseUrl: process.env.CONFIG_DATABASE_URL || '',
 
   // Redis
   redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',

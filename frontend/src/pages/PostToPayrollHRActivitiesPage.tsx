@@ -12,7 +12,7 @@ import type { PostToPayrollMapping } from '../services/postToPayroll.service';
 export default function PostToPayrollHRActivitiesPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const organizationName = user?.employee?.organization?.name;
 
   const [month, setMonth] = useState(() => {

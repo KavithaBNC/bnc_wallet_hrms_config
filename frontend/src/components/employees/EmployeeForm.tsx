@@ -8,7 +8,6 @@ import api from '../../services/api';
 import { subDepartmentService } from '../../services/sub-department.service';
 import configuratorDataService from '../../services/configurator-data.service';
 import entityService from '../../services/entity.service';
-import locationService from '../../services/location.service';
 import { employeeSalaryService } from '../../services/payroll.service';
 import { esopSimpleService, EsopRecord } from '../../services/esop.service';
 import Modal from '../common/Modal';
@@ -16,7 +15,6 @@ import SearchableSelect from '../common/SearchableSelect';
 import { toDisplayEmail, toDisplayName } from '../../utils/display';
 import PositionForm from '../positions/PositionForm';
 import EntityForm from '../entities/EntityForm';
-import LocationForm from '../locations/LocationForm';
 import { FaceCapture } from './FaceCapture';
 
 export type EmployeeFormTabKey =
@@ -84,7 +82,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [configDepartments, setConfigDepartments] = useState<{ id: number; name: string }[]>([]);
   const [availableManagers, setAvailableManagers] = useState<Employee[]>([]);
   const [entities, setEntities] = useState<{ id: string; name: string; code?: string }[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
   const [costCentres, setCostCentres] = useState<{ id: string; name: string; code?: string }[]>([]);
   const [approvalSubmitted, setApprovalSubmitted] = useState(false);
@@ -92,7 +89,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
   const [showDepartmentModal, setShowDepartmentModal] = useState(false);
   const [showPositionModal, setShowPositionModal] = useState(false);
   const [showEntityModal, setShowEntityModal] = useState(false);
-  const [showLocationModal, setShowLocationModal] = useState(false);
   const [showSubDepartmentModal, setShowSubDepartmentModal] = useState(false);
   const [newSubDepartmentName, setNewSubDepartmentName] = useState('');
   const [subDepartmentError, setSubDepartmentError] = useState('');
@@ -303,7 +299,7 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     subDepartment: ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment) || '',
     positionId: employee?.positionId || '',
     entityId: (employee as any)?.entityId || (employee as any)?.location?.entityId || '',
-    locationId: (employee as any)?.locationId || '',
+    locationId: (employee as any)?.branchConfiguratorId ? String((employee as any).branchConfiguratorId) : '',
     costCentreId: (employee as any)?.costCentreId || '',
     costCentre: (employee as any)?.costCentre?.name || (employee as any)?.profileExtensions?.costCentre || '',
     managerId: employee?.reportingManagerId || '',
@@ -418,14 +414,16 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       const eId = (employee as { entityId?: string; location?: { entityId?: string } }).entityId
         || (employee as { location?: { entityId?: string } }).location?.entityId
         || '';
-      const locId = (employee as { locationId?: string }).locationId || '';
+      // Use branchConfiguratorId (config DB) for the location dropdown
+      const branchId = (employee as any)?.branchConfiguratorId;
+      const locId = branchId ? String(branchId) : '';
       setFormData((prev) =>
         prev.entityId !== eId || prev.locationId !== locId
           ? { ...prev, entityId: eId, locationId: locId }
           : prev
       );
     }
-  }, [employee?.id, (employee as any)?.entityId, (employee as any)?.locationId]);
+  }, [employee?.id, (employee as any)?.entityId, (employee as any)?.branchConfiguratorId]);
 
   useEffect(() => {
     fetchDepartments(organizationId);
@@ -520,6 +518,8 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         // Fallback to local HRMS sub-departments only
         try {
           const list = await subDepartmentService.getByOrganization(organizationId);
+          // Populate configSubDepartments from local list so name→ID resolution works
+          setConfigSubDepartments(list.map((s) => ({ id: Number(s.id), name: s.name })));
           let names = list.map((s) => s.name).sort((a, b) => a.localeCompare(b));
           const empSubDept = ((employee as any)?.profileExtensions?.subDepartment ?? (employee as any)?.subDepartment)?.toString?.()?.split(',')[0]?.trim();
           if (empSubDept && !names.some((n) => n.toLowerCase() === empSubDept.toLowerCase())) {
@@ -544,12 +544,17 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
         const list = await configuratorDataService.getBranches();
         const branchList = list.map((b) => ({ id: b.id, name: b.name }));
         setBranches(branchList);
-        // Prefill location for edit mode: match workLocation text to branch name
-        if (employee && (employee as any)?.workLocation && !formData.locationId) {
-          const wl = ((employee as any).workLocation as string).toLowerCase();
-          const match = branchList.find(b => b.name.toLowerCase() === wl);
-          if (match) {
-            setFormData(prev => ({ ...prev, locationId: String(match.id) }));
+        // Prefill location for edit mode: use branchConfiguratorId or fallback to workLocation name match
+        if (employee && !formData.locationId) {
+          const branchId = (employee as any)?.branchConfiguratorId;
+          if (branchId && branchList.some(b => b.id === branchId)) {
+            setFormData(prev => ({ ...prev, locationId: String(branchId) }));
+          } else if ((employee as any)?.workLocation) {
+            const wl = ((employee as any).workLocation as string).toLowerCase();
+            const match = branchList.find(b => b.name.toLowerCase() === wl);
+            if (match) {
+              setFormData(prev => ({ ...prev, locationId: String(match.id) }));
+            }
           }
         }
       } catch {
@@ -725,24 +730,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     return () => { cancelled = true; };
   }, [employee?.id, (employee as any)?.configuratorUserId]);
 
-  // Fetch locations for selected entity
-  useEffect(() => {
-    if (!formData.entityId?.trim()) {
-      setLocations([]);
-      return;
-    }
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const list = await locationService.getByEntity(organizationId, formData.entityId);
-        if (!cancelled) setLocations(list.map((l) => ({ id: l.id, name: l.name, code: l.code ?? undefined })));
-      } catch {
-        if (!cancelled) setLocations([]);
-      }
-    };
-    load();
-    return () => { cancelled = true; };
-  }, [organizationId, formData.entityId]);
 
   // When "Same as permanent" is ON, keep present address in sync with permanent
   useEffect(() => {
@@ -890,25 +877,33 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
     try {
       const configUsers = await configuratorDataService.listConfiguratorUsers();
       const managers: Employee[] = configUsers
-        .filter((u: any) => u.is_active === true)
+        // is_active may be boolean true or integer 1
+        .filter((u: any) => u.is_active === true || u.is_active === 1)
         .filter((u: any) => !employee || u.email?.toLowerCase() !== employee.email?.toLowerCase())
         .map((u: any) => ({
           id: u.user_id ? String(u.user_id) : '',
           employeeCode: u.code || '',
-          firstName: (u.full_name || '').split(' ')[0] || '',
-          lastName: (u.full_name || '').split(' ').slice(1).join(' ') || '',
+          firstName: (u.full_name || u.first_name || '').split(' ')[0] || '',
+          lastName: (u.full_name || '').split(' ').slice(1).join(' ') || (u.last_name || ''),
           email: u.email || '',
           employeeStatus: 'ACTIVE' as EmployeeStatus,
           configuratorUserId: u.user_id,
         } as any));
       setAvailableManagers(managers);
 
-      // Prefill managerId for edit mode: match reporting manager's email to Configurator user_id
-      if (employee?.reportingManager?.email) {
-        const rmEmail = employee.reportingManager.email.toLowerCase();
-        const matchedManager = managers.find(m => m.email?.toLowerCase() === rmEmail);
+      // Prefill managerId for edit mode: match reporting manager by email or configuratorUserId
+      if (employee?.reportingManager) {
+        const rmEmail = employee.reportingManager.email?.toLowerCase();
+        const rmConfigId = (employee.reportingManager as any)?.configuratorUserId;
+        const matchedManager = managers.find(m =>
+          (rmEmail && m.email?.toLowerCase() === rmEmail) ||
+          (rmConfigId && m.configuratorUserId === rmConfigId)
+        );
         if (matchedManager) {
           setFormData(prev => ({ ...prev, managerId: matchedManager.id }));
+        } else if (rmConfigId) {
+          // Fallback: set directly from the stored configuratorUserId
+          setFormData(prev => ({ ...prev, managerId: String(rmConfigId) }));
         }
       }
     } catch (error) {
@@ -1131,7 +1126,9 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
           return isNaN(num) ? null : num;
         })(),
         entityId: formData.entityId && formData.entityId.trim() ? formData.entityId : null,
-        locationId: formData.locationId && formData.locationId.trim() ? formData.locationId : null,
+        // Store config branch ID + name instead of HRMS locationId (UUID)
+        branchConfiguratorId: formData.locationId ? Number(formData.locationId) || null : null,
+        workLocation: formData.locationId ? (branches.find((b) => b.id === Number(formData.locationId))?.name ?? null) : null,
         costCentreId: (() => {
           const text = formData.costCentre?.trim();
           if (!text) return null;
@@ -2094,7 +2091,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
                 className="mt-1 block w-full h-10 bg-white text-black rounded-md border border-black shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                 <option value="">Location</option>
                 {branches.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
-                {locations.filter((l) => !branches.some((b) => (b.name ?? '').toLowerCase() === (l.name ?? '').toLowerCase())).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </div>
             <div>
@@ -4176,30 +4172,6 @@ const EmployeeForm: React.FC<EmployeeFormProps> = ({
       </Modal>
     )}
 
-    {/* Location Modal */}
-    {showLocationModal && formData.entityId?.trim() && (
-      <Modal
-        isOpen={showLocationModal}
-        onClose={() => setShowLocationModal(false)}
-        title="Create Location"
-        size="2xl"
-      >
-        <LocationForm
-          organizationId={organizationId}
-          entityId={formData.entityId}
-          entityName={entities.find(e => e.id === formData.entityId)?.name}
-          onSuccess={async (createdLocation) => {
-            const list = await locationService.getByEntity(organizationId, formData.entityId);
-            setLocations(list.map((l) => ({ id: l.id, name: l.name, code: l.code ?? undefined })));
-            if (createdLocation) {
-              setFormData(prev => ({ ...prev, locationId: createdLocation.id }));
-            }
-            setShowLocationModal(false);
-          }}
-          onCancel={() => setShowLocationModal(false)}
-        />
-      </Modal>
-    )}
 
     {/* Add Sub-Department Modal */}
     {showSubDepartmentModal && (

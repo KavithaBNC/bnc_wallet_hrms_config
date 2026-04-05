@@ -5,17 +5,13 @@
  */
 
 import * as XLSX from 'xlsx';
-import axios from 'axios';
 import { prisma } from '../utils/prisma';
-import { configuratorService } from './configurator.service';
-import { config } from '../config/config';
+import { configOrgDataService } from './config-org-data.service';
 import { AppError } from '../middlewares/errorHandler';
-
-const CONFIGURATOR_BASE = config.configuratorApiUrl;
 
 /* ─── Helpers ──────────────────────────────────────────────────────── */
 
-async function getConfigContext(organizationId: string, userId: string, frontendToken?: string) {
+async function getConfigContext(organizationId: string, _userId: string, _frontendToken?: string) {
   const org = await prisma.organization.findUnique({
     where: { id: organizationId },
     select: { configuratorCompanyId: true },
@@ -23,73 +19,23 @@ async function getConfigContext(organizationId: string, userId: string, frontend
   if (!org?.configuratorCompanyId) {
     throw new AppError('Organization not linked to Configurator', 400);
   }
-
-  // Prefer the fresh token sent from the frontend (which has auto-refresh)
-  if (frontendToken) {
-    return { companyId: org.configuratorCompanyId, accessToken: frontendToken };
-  }
-
-  // Fallback: use the token stored in the DB
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { configuratorAccessToken: true },
-  });
-  if (!user?.configuratorAccessToken) {
-    throw new AppError('Configurator token not found. Please login again.', 401);
-  }
-  return { companyId: org.configuratorCompanyId, accessToken: user.configuratorAccessToken };
+  // Direct Config DB access — no token needed
+  return { companyId: org.configuratorCompanyId };
 }
 
 /**
- * Fetch helpers that THROW on error (unlike configuratorService which silently returns []).
- * Critical for bulk upload — we need to know if the API call failed vs returned empty.
+ * Fetch helpers — direct Config DB queries, no API calls needed.
  */
-async function fetchCostCentres(accessToken: string, companyId: number): Promise<any[]> {
-  try {
-    const res = await axios.post(`${CONFIGURATOR_BASE}/api/v1/cost-centres/list`,
-      { company_id: companyId },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
-    );
-    const data = res.data;
-    const list = Array.isArray(data) ? data : (data?.data ?? data?.cost_centres ?? data?.results ?? []);
-    return list.filter((item: any) => item.is_active !== false);
-  } catch (err: any) {
-    const status = err?.response?.status;
-    if (status === 401) throw new AppError('Configurator token expired. Please log out and log back in.', 401);
-    throw new AppError(`Failed to fetch cost centres from Configurator (${status || err.code})`, 500);
-  }
+async function fetchCostCentres(companyId: number): Promise<any[]> {
+  return configOrgDataService.getCostCentres(companyId);
 }
 
-async function fetchDepartments(accessToken: string, companyId: number): Promise<any[]> {
-  try {
-    const res = await axios.post(`${CONFIGURATOR_BASE}/api/v1/departments/list`,
-      { company_id: companyId },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
-    );
-    const data = res.data;
-    const list = Array.isArray(data) ? data : (data?.data ?? data?.departments ?? data?.results ?? []);
-    return list.filter((item: any) => item.is_active !== false);
-  } catch (err: any) {
-    const status = err?.response?.status;
-    if (status === 401) throw new AppError('Configurator token expired. Please log out and log back in.', 401);
-    throw new AppError(`Failed to fetch departments from Configurator (${status || err.code})`, 500);
-  }
+async function fetchDepartments(companyId: number): Promise<any[]> {
+  return configOrgDataService.getDepartments(companyId);
 }
 
-async function fetchSubDepartments(accessToken: string, companyId: number): Promise<any[]> {
-  try {
-    const res = await axios.post(`${CONFIGURATOR_BASE}/api/v1/sub-departments/list`,
-      { company_id: companyId },
-      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
-    );
-    const data = res.data;
-    const list = Array.isArray(data) ? data : (data?.data ?? data?.sub_departments ?? data?.results ?? []);
-    return list.filter((item: any) => item.is_active !== false);
-  } catch (err: any) {
-    const status = err?.response?.status;
-    if (status === 401) throw new AppError('Configurator token expired. Please log out and log back in.', 401);
-    throw new AppError(`Failed to fetch sub-departments from Configurator (${status || err.code})`, 500);
-  }
+async function fetchSubDepartments(companyId: number): Promise<any[]> {
+  return configOrgDataService.getSubDepartments(companyId);
 }
 
 interface BulkResult {
@@ -103,8 +49,8 @@ interface BulkResult {
 /* ─── Cost Centre ──────────────────────────────────────────────────── */
 
 export async function generateCostCentreExcel(organizationId: string, userId: string, configToken?: string): Promise<Buffer> {
-  const { companyId, accessToken } = await getConfigContext(organizationId, userId, configToken);
-  const existing = await fetchCostCentres(accessToken, companyId);
+  const { companyId } = await getConfigContext(organizationId, userId, configToken);
+  const existing = await fetchCostCentres(companyId);
 
   // Header-only template — no sample data to avoid accidental uploads
   const ws = XLSX.utils.aoa_to_sheet([['S.No', 'Name', 'Code']]);
@@ -129,7 +75,7 @@ export async function generateCostCentreExcel(organizationId: string, userId: st
 export async function processCostCentreUpload(
   buffer: Buffer, organizationId: string, userId: string, configToken?: string,
 ): Promise<BulkResult> {
-  const { companyId, accessToken } = await getConfigContext(organizationId, userId, configToken);
+  const { companyId } = await getConfigContext(organizationId, userId, configToken);
 
   // Parse Excel
   const wb = XLSX.read(buffer, { type: 'buffer' });
@@ -139,7 +85,7 @@ export async function processCostCentreUpload(
   if (!rows.length) throw new AppError('Excel file is empty. Please fill in data before uploading.', 400);
 
   // Fetch existing for duplicate check
-  const existing = await fetchCostCentres(accessToken, companyId);
+  const existing = await fetchCostCentres(companyId);
   const existingNames = new Set(existing.map((c: any) => (c.name ?? c.Name ?? '').toLowerCase().trim()));
 
   const result: BulkResult = { total: rows.length, created: 0, skipped: 0, failed: 0, failures: [] };
@@ -163,7 +109,8 @@ export async function processCostCentreUpload(
     }
 
     try {
-      await configuratorService.createCostCentre(accessToken, {
+      // Direct Config DB access — no token needed
+      await configOrgDataService.createCostCentre({
         name,
         code: code || name.replace(/\s+/g, '_').toUpperCase(),
         company_id: companyId,
@@ -172,7 +119,7 @@ export async function processCostCentreUpload(
       result.created++;
     } catch (err: any) {
       result.failed++;
-      result.failures.push({ row: rowNum, name, message: err?.response?.data?.detail || err?.message || 'Creation failed' });
+      result.failures.push({ row: rowNum, name, message: err?.message || 'Creation failed' });
     }
   }
 
@@ -182,9 +129,9 @@ export async function processCostCentreUpload(
 /* ─── Department ───────────────────────────────────────────────────── */
 
 export async function generateDepartmentExcel(organizationId: string, userId: string, configToken?: string): Promise<Buffer> {
-  const { companyId, accessToken } = await getConfigContext(organizationId, userId, configToken);
-  const existingDepts = await fetchDepartments(accessToken, companyId);
-  const existingCC = await fetchCostCentres(accessToken, companyId);
+  const { companyId } = await getConfigContext(organizationId, userId, configToken);
+  const existingDepts = await fetchDepartments(companyId);
+  const existingCC = await fetchCostCentres(companyId);
 
   // Header-only template — no sample data to avoid accidental uploads
   const ws = XLSX.utils.aoa_to_sheet([['S.No', 'Name', 'Cost Centre Name']]);
@@ -215,7 +162,7 @@ export async function generateDepartmentExcel(organizationId: string, userId: st
 export async function processDepartmentUpload(
   buffer: Buffer, organizationId: string, userId: string, configToken?: string,
 ): Promise<BulkResult> {
-  const { companyId, accessToken } = await getConfigContext(organizationId, userId, configToken);
+  const { companyId } = await getConfigContext(organizationId, userId, configToken);
 
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const sheetName = wb.SheetNames[0];
@@ -224,8 +171,8 @@ export async function processDepartmentUpload(
   if (!rows.length) throw new AppError('Excel file is empty. Please fill in data before uploading.', 400);
 
   // Fetch existing for duplicate check and cost centre resolution
-  const existingDepts = await fetchDepartments(accessToken, companyId);
-  const existingCC = await fetchCostCentres(accessToken, companyId);
+  const existingDepts = await fetchDepartments(companyId);
+  const existingCC = await fetchCostCentres(companyId);
 
   const existingDeptNames = new Set(existingDepts.map((d: any) => (d.name ?? '').toLowerCase().trim()));
   const ccLookup = new Map(existingCC.map((c: any) => [(c.name ?? c.Name ?? '').toLowerCase().trim(), c.id]));
@@ -264,7 +211,8 @@ export async function processDepartmentUpload(
     }
 
     try {
-      await configuratorService.createDepartment(accessToken, {
+      // Direct Config DB access — no token needed
+      await configOrgDataService.createDepartment({
         name,
         code: name.replace(/\s+/g, '_').toUpperCase(),
         cost_centre_id: ccId,
@@ -274,7 +222,7 @@ export async function processDepartmentUpload(
       result.created++;
     } catch (err: any) {
       result.failed++;
-      result.failures.push({ row: rowNum, name, message: err?.response?.data?.detail || err?.message || 'Creation failed' });
+      result.failures.push({ row: rowNum, name, message: err?.message || 'Creation failed' });
     }
   }
 
@@ -284,9 +232,9 @@ export async function processDepartmentUpload(
 /* ─── Sub-Department ───────────────────────────────────────────────── */
 
 export async function generateSubDepartmentExcel(organizationId: string, userId: string, configToken?: string): Promise<Buffer> {
-  const { companyId, accessToken } = await getConfigContext(organizationId, userId, configToken);
-  const existingSubs = await fetchSubDepartments(accessToken, companyId);
-  const existingDepts = await fetchDepartments(accessToken, companyId);
+  const { companyId } = await getConfigContext(organizationId, userId, configToken);
+  const existingSubs = await fetchSubDepartments(companyId);
+  const existingDepts = await fetchDepartments(companyId);
 
   // Header-only template — no sample data to avoid accidental uploads
   const ws = XLSX.utils.aoa_to_sheet([['S.No', 'Name', 'Department Name']]);
@@ -317,7 +265,7 @@ export async function generateSubDepartmentExcel(organizationId: string, userId:
 export async function processSubDepartmentUpload(
   buffer: Buffer, organizationId: string, userId: string, configToken?: string,
 ): Promise<BulkResult> {
-  const { companyId, accessToken } = await getConfigContext(organizationId, userId, configToken);
+  const { companyId } = await getConfigContext(organizationId, userId, configToken);
 
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const sheetName = wb.SheetNames[0];
@@ -326,8 +274,8 @@ export async function processSubDepartmentUpload(
   if (!rows.length) throw new AppError('Excel file is empty. Please fill in data before uploading.', 400);
 
   // Fetch existing for duplicate check and department resolution
-  const existingSubs = await fetchSubDepartments(accessToken, companyId);
-  const existingDepts = await fetchDepartments(accessToken, companyId);
+  const existingSubs = await fetchSubDepartments(companyId);
+  const existingDepts = await fetchDepartments(companyId);
 
   const existingSubNames = new Set(existingSubs.map((s: any) => (s.name ?? '').toLowerCase().trim()));
   const deptLookup = new Map(existingDepts.map((d: any) => [(d.name ?? '').toLowerCase().trim(), d.id]));
@@ -366,7 +314,8 @@ export async function processSubDepartmentUpload(
     }
 
     try {
-      await configuratorService.createSubDepartment(accessToken, {
+      // Direct Config DB access — no token needed
+      await configOrgDataService.createSubDepartment({
         name,
         code: name.replace(/\s+/g, '_').toUpperCase(),
         department_id: deptId,
@@ -376,7 +325,7 @@ export async function processSubDepartmentUpload(
       result.created++;
     } catch (err: any) {
       result.failed++;
-      result.failures.push({ row: rowNum, name, message: err?.response?.data?.detail || err?.message || 'Creation failed' });
+      result.failures.push({ row: rowNum, name, message: err?.message || 'Creation failed' });
     }
   }
 

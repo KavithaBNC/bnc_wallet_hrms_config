@@ -349,7 +349,7 @@ router.post(
  */
 router.put(
   '/comp-off/requests/:id/approve',
-  checkPermission('attendance', 'update'),
+  checkPermission('attendance', 'read'),
   validate(approveCompOffRequestSchema),
   attendanceController.approveCompOffRequest.bind(attendanceController)
 );
@@ -361,7 +361,7 @@ router.put(
  */
 router.put(
   '/comp-off/requests/:id/reject',
-  checkPermission('attendance', 'update'),
+  checkPermission('attendance', 'read'),
   validate(rejectCompOffRequestSchema),
   attendanceController.rejectCompOffRequest.bind(attendanceController)
 );
@@ -444,7 +444,7 @@ router.get(
  */
 router.put(
   '/regularization/:id/approve',
-  checkPermission('attendance', 'update'),
+  checkPermission('attendance', 'read'),
   validate(approveRegularizationSchema),
   attendanceRegularizationController.approve.bind(attendanceRegularizationController)
 );
@@ -456,7 +456,7 @@ router.put(
  */
 router.put(
   '/regularization/:id/reject',
-  checkPermission('attendance', 'update'),
+  checkPermission('attendance', 'read'),
   validate(rejectRegularizationSchema),
   attendanceRegularizationController.reject.bind(attendanceRegularizationController)
 );

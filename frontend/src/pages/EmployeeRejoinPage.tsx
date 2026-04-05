@@ -49,7 +49,7 @@ function formatDate(d: string) {
 export default function EmployeeRejoinPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const organizationName = user?.employee?.organization?.name;
 
   const [separations, setSeparations] = useState<EmployeeSeparation[]>([]);

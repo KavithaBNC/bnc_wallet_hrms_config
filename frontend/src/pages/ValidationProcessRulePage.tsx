@@ -64,7 +64,7 @@ export default function ValidationProcessRulePage() {
   const listLabel = isHrActivities ? 'Validation Process' : 'Validation Process Rule';
   const parentPath = isHrActivities ? '/hr-activities' : '/others-configuration';
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [rules, setRules] = useState<ValidationProcessRuleRow[]>([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });

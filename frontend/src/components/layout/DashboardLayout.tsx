@@ -137,12 +137,17 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   ),
-  '/attendance/my-requests/excess-time-request': (
+  '/device-setting': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+    </svg>
+  ),
+  '/leave/excess-time-request': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
-  '/attendance/excess-time-approval': (
+  '/leave/excess-time-approval': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
     </svg>
@@ -182,12 +187,22 @@ const ICONS_BY_PATH: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   ),
+  '/leave/apply-event': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  '/leave/requests': (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+    </svg>
+  ),
   '/leave/approvals': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
-  '/event/balance-entry': (
+  '/leave/balance-entry': (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V7a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v12a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
     </svg>
@@ -497,9 +512,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const canManageOrgs = orgPerms.can_edit;
 
   // Modules from Config DB (localStorage, set at login / loadUser)
-  // Builds parent-child hierarchy from page_name / path structure:
-  //   page_name="/time-attendance/shift-master" → parent="/time-attendance", child="/time-attendance/shift-master"
-  //   page_name="/employees" → top-level (no slash after first segment)
+  // Uses Config DB parent_module_id to build parent-child hierarchy.
+  // Falls back to path-segment parsing when parent_module_id is absent.
   const visibleNavItems = useMemo(() => {
     const configModules = getAssignedModules();
 
@@ -507,26 +521,49 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const slugToLabel = (slug: string | undefined) =>
       slug ? slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
 
-    // Step 1: Build flat items from API, determine parentPath from path segments
-    const items: { path: string; label: string; parentPath?: string; canView: boolean }[] = [
-      { path: '/dashboard', label: 'Dashboard', canView: true },
-    ];
+    // Build module-id → resolved-path map for parent lookup from Config DB hierarchy
+    const idToPath = new Map<number, string>();
+    const idToLabel = new Map<number, string>();
+    for (const m of configModules) {
+      const mid = (m as any).module_id ?? m.id;
+      if (mid != null && m.path) {
+        idToPath.set(mid, m.path);
+        idToLabel.set(mid, m.name || m.code || '');
+      }
+    }
+
+    // Step 1: Build flat items from Config DB modules — fully dynamic
+    const items: { path: string; label: string; parentPath?: string; canView: boolean }[] = [];
     const parentPathsNeeded = new Map<string, string>(); // parentPath → label
 
     for (const m of configModules) {
-      const path = m.path || `/${(m.code || '').toLowerCase().replace(/_/g, '-')}`;
-      if (!path || path === '/' || path === '/dashboard') continue;
+      const path = m.path;
+      if (!path || path === '/') continue;
 
-      // Parse path segments to determine parent-child relationship
       const segments = path.replace(/^\//, '').split('/').filter(Boolean);
       let parentPath: string | undefined;
 
-      if (segments.length >= 2) {
-        // Has parent: e.g. "/time-attendance/shift-master" → parent="/time-attendance"
+      // Priority 1: Use Config DB parent_module_id to find parent path
+      if (m.parent_module_id) {
+        const resolvedParent = idToPath.get(m.parent_module_id);
+        if (resolvedParent) {
+          parentPath = resolvedParent;
+        }
+      }
+
+      // Priority 2: Fall back to path-segment-based parent
+      if (!parentPath && segments.length >= 2) {
         parentPath = '/' + segments[0];
-        // Track that we need this parent to exist
+      }
+
+      // Track needed parents
+      if (parentPath) {
         if (!parentPathsNeeded.has(parentPath)) {
-          parentPathsNeeded.set(parentPath, slugToLabel(segments[0]));
+          // Use parent module label if available, else slug
+          const parentLabel = m.parent_module_id
+            ? (idToLabel.get(m.parent_module_id) || slugToLabel(parentPath.replace(/^\//, '').split('/')[0]))
+            : slugToLabel(segments[0]);
+          parentPathsNeeded.set(parentPath, parentLabel);
         }
       }
 
@@ -542,8 +579,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const existingPaths = new Set(items.map((i) => i.path));
     for (const [pPath, pLabel] of parentPathsNeeded) {
       if (!existingPaths.has(pPath)) {
-        // Check if any module in the list IS the parent (same path, no parentPath)
-        // If not, create a synthetic parent entry
         const existingParent = items.find((i) => i.path === pPath);
         if (!existingParent) {
           items.push({ path: pPath, label: pLabel, parentPath: undefined, canView: true });
@@ -587,36 +622,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const topLevelNavItems = useMemo(() => visibleNavItems.filter((m) => !m.parentPath), [visibleNavItems]);
 
+  // DEBUG: Log all sidebar items with their paths (check browser console F12)
+  useEffect(() => {
+    console.log('[Sidebar] All visibleNavItems:', visibleNavItems.map((m) => ({ path: m.path, label: m.label, parentPath: m.parentPath })));
+  }, [visibleNavItems]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
 
-  // Page access: allow if path is in assigned modules (Config DB) or dashboard/profile/user-module
-  const isDashboardOrProfile = location.pathname === '/dashboard' || location.pathname === '/profile' || location.pathname === '/user-module' || location.pathname.startsWith('/user-module/');
-  const assignedPaths = useMemo(
-    () => new Set(visibleNavItems.flatMap((m) => [m.path, m.parentPath].filter(Boolean))),
-    [visibleNavItems]
-  );
-  const hasPathAccess = useMemo(() => {
-    return (path: string) => {
-      const inAssigned = assignedPaths.has(path) ||
-        Array.from(assignedPaths).some((p) => p && path.startsWith(p + '/'));
-      if (!inAssigned) return false;
-      // Also check can_view permission for the page
-      const perms = getModulePermissions(path);
-      return perms.can_view;
-    };
-  }, [assignedPaths]);
-  const allowed = isDashboardOrProfile || hasPathAccess(location.pathname);
-
-  useEffect(() => {
-    if (!isDashboardOrProfile && !allowed) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [isDashboardOrProfile, allowed, navigate]);
-
-  const content = !allowed ? null : children;
+  // No frontend redirect — if a route exists in App.tsx, it renders.
+  // Permission enforcement is handled by backend APIs (401/403).
+  // Sidebar visibility already controls what the user sees.
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -795,7 +813,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             No modules assigned. Contact your admin to assign modules in Configurator (role_module_permissions).
           </div>
         )}
-        {content}
+        {children}
       </div>
     </div>
   );

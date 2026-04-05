@@ -60,12 +60,12 @@ export const CONFIGURATOR_CODE_TO_CARD: Record<
     description: 'Manage leave requests and policies',
   },
   DEPARTMENTS: {
-    path: '/departments',
+    path: '/department-masters',
     icon: '🏢',
     description: 'Organize departments',
   },
   DEPARTMENT: {
-    path: '/departments',
+    path: '/department-masters',
     icon: '🏢',
     description: 'Organize departments',
   },
@@ -201,6 +201,9 @@ const DEFAULT_PERMISSIONS: ModulePermissions = {
   can_delete: false,
 };
 
+/** Paths that are always accessible regardless of Config DB role_module_permissions — empty, all controlled via Config DB */
+const ALWAYS_ACCESSIBLE_PATHS = new Set<string>();
+
 /** Full-access permissions used as fallback when modulePermissions hasn't been loaded yet */
 const FULL_ACCESS_PERMISSIONS: ModulePermissions = {
   is_enabled: true,
@@ -220,6 +223,9 @@ const FULL_ACCESS_PERMISSIONS: ModulePermissions = {
  */
 export function getModulePermissions(path: string): ModulePermissions {
   try {
+    // Always-accessible modules get full access regardless of Config DB permissions
+    if (ALWAYS_ACCESSIBLE_PATHS.has(path)) return FULL_ACCESS_PERMISSIONS;
+
     const raw = localStorage.getItem('modulePermissions');
     // No permissions map yet (e.g. session from before this feature was deployed) → allow all
     if (!raw) return FULL_ACCESS_PERMISSIONS;

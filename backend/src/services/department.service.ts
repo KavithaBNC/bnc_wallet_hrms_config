@@ -1,6 +1,6 @@
 import { AppError } from '../middlewares/errorHandler';
 import { prisma } from '../utils/prisma';
-import { configuratorService } from './configurator.service';
+import { configOrgDataService } from './config-org-data.service';
 import {
   CreateDepartmentInput,
   UpdateDepartmentInput,
@@ -73,7 +73,8 @@ export class DepartmentService {
               })
             : null,
         ]);
-        const configDept = await configuratorService.createDepartment(configSync.accessToken, {
+        // Direct Config DB access — no token needed
+        const configDept = await configOrgDataService.createDepartment({
           name: data.name,
           code: data.code ?? undefined,
           company_id: configSync.companyId,
@@ -127,14 +128,9 @@ export class DepartmentService {
         select: { configuratorCompanyId: true },
       });
       if (org?.configuratorCompanyId != null) {
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { configuratorAccessToken: true },
-        });
-        if (user?.configuratorAccessToken) {
-          const configList = await configuratorService.getDepartments(user.configuratorAccessToken, {
-            companyId: org.configuratorCompanyId,
-          });
+        {
+          // Direct Config DB access — no token needed
+          const configList = await configOrgDataService.getDepartments(org.configuratorCompanyId);
           const departments = configList.map((d: any) => ({
             id: String(typeof d === 'object' ? d.id : d),
             name: typeof d === 'object' ? (d.name ?? d.Name ?? '') : String(d),

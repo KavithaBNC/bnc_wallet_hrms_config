@@ -271,7 +271,7 @@ export default function ValidationProcessRuleFormPage() {
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
   const organizationId =
-    user?.employee?.organizationId || user?.employee?.organization?.id;
+    user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [form, setForm] = useState<ValidationProcessRuleFormState>(
     initialFormState,

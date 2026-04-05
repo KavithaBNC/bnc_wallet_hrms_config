@@ -22,7 +22,7 @@ type TabMode = 'my' | 'team';
 
 export default function ExcessTimeRequestPage() {
   const { user, logout } = useAuthStore();
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const attendancePerms = getModulePermissions('/attendance');
   const isHRScope = attendancePerms.can_view;
   const selfEmployeeId = user?.employee?.id;

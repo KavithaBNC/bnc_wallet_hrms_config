@@ -43,13 +43,13 @@ export default function EmployeesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ACTIVE');
-  const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
-  const [costCentreFilter, setCostCentreFilter] = useState<string>('ALL');
-  const [subDepartmentFilter, setSubDepartmentFilter] = useState<string>('ALL');
-  // Configurator dropdown data
-  const [configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
-  const [configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
-  const [configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
+  const [departmentFilter, _setDepartmentFilter] = useState<string>('ALL');
+  const [costCentreFilter, _setCostCentreFilter] = useState<string>('ALL');
+  const [subDepartmentFilter, _setSubDepartmentFilter] = useState<string>('ALL');
+  // Configurator dropdown data (populated but reserved for future filter UI)
+  const [_configCostCentres, setConfigCostCentres] = useState<ConfigCostCentre[]>([]);
+  const [_configDepartments, setConfigDepartments] = useState<ConfigDepartment[]>([]);
+  const [_configSubDepartments, setConfigSubDepartments] = useState<ConfigSubDepartment[]>([]);
   const [_configUserRoles, setConfigUserRoles] = useState<{ role_id: number; name: string }[]>([]);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
@@ -57,8 +57,10 @@ export default function EmployeesPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const { positions: _positions, fetchPositions } = usePositionStore();
   const { departments: _departments, fetchDepartments } = useDepartmentStore();
-  const [_orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
-  const [_orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [orgEntities, setOrgEntities] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [orgPaygroups, setOrgPaygroups] = useState<{ id: string; name: string; code?: string | null }[]>([]);
+  const [paygroupFilter, setPaygroupFilter] = useState<string>('ALL');
+  const [entityFilter, setEntityFilter] = useState<string>('ALL');
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   // View modal state for Configurator users (fallback when no HRMS record)
   const [viewingUser, setViewingUser] = useState<any | null>(null);
@@ -254,7 +256,7 @@ export default function EmployeesPage() {
   // Fetch employee list from Configurator API: POST /api/v1/users/list
   // Uses company_id + project_id from localStorage (set at login).
   // Server-side filters: cost_centre_id, department_id, sub_department_id
-  // Client-side filters: search, employeeStatus (is_active)
+  // Client-side filters: search, employeeStatus (is_active), paygroup, entity
   useEffect(() => {
     if (location.pathname !== '/employees') return;
     const params: any = {
@@ -267,9 +269,15 @@ export default function EmployeesPage() {
     if (costCentreFilter !== 'ALL') params.costCentreId = costCentreFilter;
     if (departmentFilter !== 'ALL') params.departmentId = departmentFilter;
     if (subDepartmentFilter !== 'ALL') params.subDepartmentId = subDepartmentFilter;
-    if (user?.email) params.excludeEmail = user.email;
+    // HRMS filters (UUID)
+    if (paygroupFilter !== 'ALL') params.paygroupId = paygroupFilter;
+    if (entityFilter !== 'ALL') params.entityId = entityFilter;
+    // Employee role (self-scope) should see own record, so don't exclude self
+    const empPerms = getModulePermissions('/employees');
+    const isSelfScope = !empPerms.can_edit && !empPerms.can_view;
+    if (user?.email && !isSelfScope) params.excludeEmail = user.email;
     fetchEmployees(params);
-  }, [location.pathname, currentPage, pageSize, debouncedSearchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, fetchEmployees, user?.email]);
+  }, [location.pathname, currentPage, pageSize, debouncedSearchTerm, statusFilter, costCentreFilter, departmentFilter, subDepartmentFilter, paygroupFilter, entityFilter, fetchEmployees, user?.email]);
 
   // When viewing ALL status, fetch active count for accurate dashboard stats
   useEffect(() => {
@@ -1490,6 +1498,32 @@ export default function EmployeesPage() {
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
               <option value="ALL">All Status</option>
+            </select>
+          </div>
+          <div className="flex flex-col w-52">
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Pay Group</label>
+            <select
+              value={paygroupFilter}
+              onChange={(e) => { setPaygroupFilter(e.target.value); setCurrentPage(1); }}
+              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="ALL">All Pay Groups</option>
+              {orgPaygroups.map((pg) => (
+                <option key={pg.id} value={pg.id}>{pg.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col w-52">
+            <label className="text-sm font-medium text-gray-500 mb-1.5">Entity</label>
+            <select
+              value={entityFilter}
+              onChange={(e) => { setEntityFilter(e.target.value); setCurrentPage(1); }}
+              className="h-10 w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="ALL">All Entities</option>
+              {orgEntities.map((ent) => (
+                <option key={ent.id} value={ent.id}>{ent.name}</option>
+              ))}
             </select>
           </div>
           <div className="flex flex-col w-52">

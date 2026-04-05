@@ -273,7 +273,7 @@ export default function EmployeeImportPage() {
                     )}
                     <button
                       onClick={handleUpload}
-                      disabled={!file || state === 'validating'}
+                      disabled={!file}
                       className="px-6 py-2.5 text-sm font-medium bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

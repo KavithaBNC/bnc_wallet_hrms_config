@@ -2,7 +2,7 @@ import { AppError } from '../middlewares/errorHandler';
 import { prisma } from '../utils/prisma';
 import type { CreateEmployeeSeparationInput, UpdateEmployeeSeparationInput, QueryEmployeeSeparationsInput } from '../utils/employee-separation.validation';
 import { EmployeeStatus } from '@prisma/client';
-import { configuratorService } from './configurator.service';
+import { configUsersService } from './config-users.service';
 
 /** Map DB row (snake_case) to API shape (camelCase) */
 type DbRow = {
@@ -38,7 +38,7 @@ function toSeparation(row: DbRow) {
 }
 
 export class EmployeeSeparationService {
-  async create(data: CreateEmployeeSeparationInput, loggedInUserId?: string) {
+  async create(data: CreateEmployeeSeparationInput, _loggedInUserId?: string) {
     // Resolve employeeId from configuratorUserId if not provided directly
     let isConfiguratorOnly = false;
     if (!data.employeeId && data.configuratorUserId) {
@@ -54,40 +54,11 @@ export class EmployeeSeparationService {
       }
     }
 
-    // If Configurator-only user, call Configurator API directly and return
+    // If Configurator-only user, separate directly in Config DB and return
     if (isConfiguratorOnly && data.configuratorUserId) {
       console.log(`[EmployeeSeparation] Configurator-only user separation for configuratorUserId=${data.configuratorUserId}`);
 
-      // Get admin's access token
-      let accessToken: string | null = null;
-      let companyId: number | null = null;
-
-      if (loggedInUserId) {
-        const adminUser = await prisma.user.findUnique({
-          where: { id: loggedInUserId },
-          select: { configuratorAccessToken: true, configuratorCompanyId: true },
-        });
-        accessToken = adminUser?.configuratorAccessToken ?? null;
-        companyId = adminUser?.configuratorCompanyId ?? null;
-      }
-
-      // Get companyId from organization if not from admin user
-      if (!companyId) {
-        const org = await prisma.organization.findUnique({
-          where: { id: data.organizationId },
-          select: { configuratorCompanyId: true },
-        });
-        companyId = org?.configuratorCompanyId ?? null;
-      }
-
-      if (!accessToken) {
-        throw new AppError('Admin user does not have a Configurator access token. Please re-login.', 401);
-      }
-      if (!companyId) {
-        throw new AppError('Organization does not have a Configurator company ID configured.', 400);
-      }
-
-      // Map HRMS separation type to Configurator API values
+      // Map HRMS separation type to Configurator values
       const separationTypeMap: Record<string, string> = {
         RESIGNATION: 'resignation',
         TERMINATION: 'termination',
@@ -98,81 +69,35 @@ export class EmployeeSeparationService {
       };
       const configSeparationType = separationTypeMap[data.separationType] ?? 'resignation';
 
-      // Try with current token; if 401, refresh token and retry once
-      let currentToken = accessToken;
-      let lastError: any = null;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const apiResponse = await configuratorService.separateUser(currentToken, {
-            company_id: companyId,
-            user_id: data.configuratorUserId,
-            remarks: data.remarks ?? '',
-            separation_type: configSeparationType,
-          });
-          console.log(`[EmployeeSeparation] Configurator separate API SUCCESS for user_id=${data.configuratorUserId}, company_id=${companyId}`, apiResponse);
-          return {
-            id: '',
-            employeeId: '',
-            organizationId: data.organizationId,
-            resignationApplyDate: data.resignationApplyDate,
-            noticePeriod: data.noticePeriod,
-            noticePeriodReason: data.noticePeriodReason ?? null,
-            relievingDate: data.relievingDate,
-            reasonOfLeaving: data.reasonOfLeaving ?? null,
-            separationType: data.separationType,
-            remarks: data.remarks ?? null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            employee: null,
-            configuratorResult: { called: true, success: true },
-          };
-        } catch (err: any) {
-          lastError = err;
-          const status = err?.statusCode ?? err?.response?.status;
-          // On 401, try to refresh the Configurator token
-          if (attempt === 0 && status === 401 && loggedInUserId) {
-            console.log('[EmployeeSeparation] Configurator token expired, attempting refresh...');
-            try {
-              const adminUserFull = await prisma.user.findUnique({
-                where: { id: loggedInUserId },
-                select: { configuratorRefreshToken: true },
-              });
-              if (adminUserFull?.configuratorRefreshToken) {
-                const refreshed = await configuratorService.refreshToken(adminUserFull.configuratorRefreshToken);
-                if (refreshed?.access_token) {
-                  currentToken = refreshed.access_token;
-                  await prisma.user.update({
-                    where: { id: loggedInUserId },
-                    data: {
-                      configuratorAccessToken: refreshed.access_token,
-                      ...(refreshed.refresh_token ? { configuratorRefreshToken: refreshed.refresh_token } : {}),
-                    },
-                  });
-                  console.log('[EmployeeSeparation] Configurator token refreshed, retrying...');
-                  continue;
-                }
-              }
-            } catch (refreshErr) {
-              console.error('[EmployeeSeparation] Token refresh failed:', refreshErr instanceof Error ? refreshErr.message : refreshErr);
-            }
-          }
-          break;
-        }
+      try {
+        // Direct Config DB access — no token needed
+        await configUsersService.separateUser({
+          user_id: data.configuratorUserId,
+          remarks: data.remarks ?? '',
+          separation_type: configSeparationType,
+        });
+        console.log(`[EmployeeSeparation] Config DB separate SUCCESS for user_id=${data.configuratorUserId}`);
+        return {
+          id: '',
+          employeeId: '',
+          organizationId: data.organizationId,
+          resignationApplyDate: data.resignationApplyDate,
+          noticePeriod: data.noticePeriod,
+          noticePeriodReason: data.noticePeriodReason ?? null,
+          relievingDate: data.relievingDate,
+          reasonOfLeaving: data.reasonOfLeaving ?? null,
+          separationType: data.separationType,
+          remarks: data.remarks ?? null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          employee: null,
+          configuratorResult: { called: true, success: true },
+        };
+      } catch (err: any) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error('[EmployeeSeparation] Config DB separate FAILED:', errMsg);
+        throw new AppError(`Config DB separation failed: ${errMsg}`, err?.statusCode ?? 500);
       }
-      // Extract error message properly
-      console.error('[EmployeeSeparation] Configurator separate API raw error:', JSON.stringify(lastError, Object.getOwnPropertyNames(lastError ?? {})));
-      let errMsg = 'Unknown error';
-      if (lastError instanceof Error) {
-        errMsg = lastError.message;
-      } else if (typeof lastError === 'string') {
-        errMsg = lastError;
-      } else if (lastError?.response?.data) {
-        errMsg = lastError.response.data.detail ?? lastError.response.data.message ?? JSON.stringify(lastError.response.data);
-      } else {
-        errMsg = JSON.stringify(lastError);
-      }
-      console.error('[EmployeeSeparation] Configurator separate API FAILED:', errMsg);
-      throw new AppError(`Configurator separation failed: ${errMsg}`, lastError?.statusCode ?? 500);
     }
 
     if (!data.employeeId) throw new AppError('Employee ID or Configurator User ID is required', 400);
@@ -236,32 +161,19 @@ export class EmployeeSeparationService {
       data: { isActive: false },
     });
 
-    // Notify Configurator API about the separation
+    // Notify Config DB about the separation — direct access, no token needed
     let configuratorResult: { called: boolean; success?: boolean; error?: string } = { called: false };
     try {
-      const adminUserId = loggedInUserId ?? updatedEmp.userId;
-      const adminUser = await prisma.user.findUnique({
-        where: { id: adminUserId },
-        select: { configuratorAccessToken: true, configuratorCompanyId: true },
-      });
-
       const separatedEmployee = await prisma.employee.findUnique({
         where: { id: data.employeeId },
         select: { configuratorUserId: true },
       });
       const separatedUser = await prisma.user.findUnique({
         where: { id: updatedEmp.userId },
-        select: { configuratorUserId: true, configuratorCompanyId: true },
+        select: { configuratorUserId: true },
       });
 
-      const org = await prisma.organization.findUnique({
-        where: { id: data.organizationId },
-        select: { configuratorCompanyId: true },
-      });
-
-      const accessToken = adminUser?.configuratorAccessToken;
       const userId = data.configuratorUserId ?? separatedEmployee?.configuratorUserId ?? separatedUser?.configuratorUserId;
-      const companyId = org?.configuratorCompanyId ?? adminUser?.configuratorCompanyId ?? separatedUser?.configuratorCompanyId;
 
       const separationTypeMap2: Record<string, string> = {
         RESIGNATION: 'resignation', TERMINATION: 'termination', RETIREMENT: 'retirement',
@@ -269,25 +181,25 @@ export class EmployeeSeparationService {
       };
       const configSepType = separationTypeMap2[data.separationType] ?? 'resignation';
 
-      console.log(`[EmployeeSeparation] Configurator API — token=${!!accessToken}, companyId=${companyId}, userId=${userId}, separationType=${configSepType}`);
+      console.log(`[EmployeeSeparation] Config DB — userId=${userId}, separationType=${configSepType}`);
 
-      if (accessToken && companyId && userId) {
+      if (userId) {
         configuratorResult.called = true;
-        await configuratorService.separateUser(accessToken, {
-          company_id: companyId,
+        // Direct Config DB access — no token needed
+        await configUsersService.separateUser({
           user_id: userId,
           remarks: data.remarks ?? '',
           separation_type: configSepType,
         });
         configuratorResult.success = true;
-        console.log(`[EmployeeSeparation] Configurator separate API SUCCESS for user_id=${userId}, company_id=${companyId}`);
+        console.log(`[EmployeeSeparation] Config DB separate SUCCESS for user_id=${userId}`);
       } else {
-        console.warn(`[EmployeeSeparation] Skipped Configurator API – token=${!!accessToken}, companyId=${companyId}, userId=${userId}`);
+        console.warn(`[EmployeeSeparation] Skipped Config DB separate – userId=${userId}`);
       }
     } catch (err) {
       configuratorResult.success = false;
       configuratorResult.error = err instanceof Error ? err.message : String(err);
-      console.error('[EmployeeSeparation] Configurator separate API FAILED:', configuratorResult.error);
+      console.error('[EmployeeSeparation] Config DB separate FAILED:', configuratorResult.error);
     }
 
     return { ...toSeparation(row), employee: emp, configuratorResult };

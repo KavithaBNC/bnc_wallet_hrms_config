@@ -15,7 +15,7 @@ export default function AddPaygroupTransferPage() {
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const preselectedEmployeeId = (location.state as { employeeId?: string })?.employeeId;
 
   const [employees, setEmployees] = useState<Employee[]>([]);

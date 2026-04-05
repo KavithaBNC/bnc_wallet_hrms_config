@@ -43,7 +43,7 @@ export default function EncashmentCarryForwardPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [items, setItems] = useState<EncashmentCarryForward[]>([]);
   const [rawItems, setRawItems] = useState<any[]>([]); // Store raw API data

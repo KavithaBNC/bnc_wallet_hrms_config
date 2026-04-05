@@ -15,7 +15,7 @@ const MONTHS = [
 export default function AttendanceLockPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
   const organizationName = user?.employee?.organization?.name;
 
   const currentDate = new Date();

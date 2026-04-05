@@ -37,7 +37,7 @@ export default function WeekOffAssignFormPage() {
   const isEdit = Boolean(id);
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const [_loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);

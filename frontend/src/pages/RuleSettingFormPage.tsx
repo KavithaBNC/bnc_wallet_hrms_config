@@ -53,7 +53,7 @@ export default function RuleSettingFormPage() {
   const isEdit = Boolean(id);
   const { user, logout } = useAuthStore();
   const organizationName = user?.employee?.organization?.name;
-  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id;
+  const organizationId = user?.employee?.organizationId || user?.employee?.organization?.id || (user as any)?.organizationId;
 
   const stateEventType = (location.state as { eventType?: string })?.eventType;
   const [eventType, setEventType] = useState(stateEventType || '');
